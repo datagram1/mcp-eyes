@@ -1,0 +1,68 @@
+# MCP Eyes Package Version Directive
+
+## PROJECT REFERENCES
+
+- **NPM Package**: https://www.npmjs.com/package/mcp-eyes
+- **GitHub Repository**: https://github.com/datagram1/mcp-eyes
+
+## CRITICAL: Package Version Constraints
+
+**ONLY TWO PACKAGE VERSIONS EXIST:**
+
+1. **mcp-eyes** - This is the ADVANCED version with full features
+2. **mcp-eyes-basic** - This is the BASIC version with essential features only
+
+## FORBIDDEN VERSIONS (DO NOT CREATE OR REFERENCE):
+
+- ❌ mcp-eyes-enhanced
+- ❌ mcp-eyes-full  
+- ❌ mcp-eyes-advanced
+- ❌ mcp-eyes-simplified
+- ❌ Any other version names
+
+## PACKAGE STRUCTURE:
+
+- **mcp-eyes**: Advanced version (main package) - includes all features
+- **mcp-eyes-basic**: Basic version - essential features only
+
+## NPX CONFIGURATION EXAMPLES:
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "args": ["-y", "mcp-eyes@latest", "mcp"],
+      "command": "npx"
+    }
+  }
+}
+```
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes-basic": {
+      "args": ["-y", "mcp-eyes@latest", "mcp-eyes-basic"],
+      "command": "npx"
+    }
+  }
+}
+```
+
+## DEVELOPMENT CONSTRAINTS:
+
+- Never suggest creating additional package versions
+- Never reference non-existent versions in documentation
+- Always use only the two defined package names
+- When providing examples, only use mcp-eyes or mcp-eyes-basic
+
+## ENFORCEMENT:
+
+This directive must be followed in all:
+- Documentation updates
+- Configuration examples
+- README files
+- Package.json modifications
+- Any code or text generation
+
+**VIOLATION OF THIS DIRECTIVE IS NOT PERMITTED**

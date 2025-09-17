@@ -20,7 +20,7 @@ class AdvancedServerSimple {
     constructor() {
         this.server = new index_js_1.Server({
             name: 'mcp-eyes-advanced',
-            version: '1.1.9',
+            version: '1.1.12',
         });
         this.setupToolHandlers();
         this.setupErrorHandling();

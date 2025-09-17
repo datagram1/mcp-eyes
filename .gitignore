@@ -5,7 +5,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Build output
-dist/
+# dist/ - Commented out for GitHub publishing (dist files needed for releases)
 build/
 
 # Environment variables
@@ -113,7 +113,15 @@ README/
 
 # Development directories
 SCRIPTS/
+scripts/
 test-screenshots/
+
+# Publishing scripts and logs
+npm_publish.sh
+npm_publish.log
 
 # Task management
 .TASKMASTER/
+
+# Deployment script (local installation)
+deploy.sh

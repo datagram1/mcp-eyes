@@ -43,7 +43,7 @@ class MacOSGUIControlServer {
   constructor() {
     this.server = new Server({
       name: 'macos-gui-control',
-      version: '1.0.0',
+      version: '1.1.12',
     });
 
     this.setupToolHandlers();
@@ -70,6 +70,25 @@ class MacOSGUIControlServer {
                 identifier: {
                   type: 'string',
                   description: 'Bundle ID or PID of the application to focus',
+                },
+              },
+              required: ['identifier'],
+            },
+          },
+          {
+            name: 'closeApp',
+            description: 'Close/quit a specific application by bundle ID, name, or PID.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                identifier: {
+                  type: 'string',
+                  description: 'Bundle ID (e.g., com.apple.Safari), app name (e.g., Safari), or PID of the application to close',
+                },
+                force: {
+                  type: 'boolean',
+                  description: 'Force close the application if graceful quit fails (default: false)',
+                  default: false,
                 },
               },
               required: ['identifier'],
@@ -144,6 +163,8 @@ class MacOSGUIControlServer {
             return await this.listApplications();
           case 'focusApplication':
             return await this.focusApplication(args?.identifier as string);
+          case 'closeApp':
+            return await this.closeApp(args?.identifier as string, (args?.force as boolean) || false);
           case 'click':
             return await this.click(args?.x as number, args?.y as number, (args?.button as string) || 'left');
           case 'moveMouse':
@@ -270,6 +291,105 @@ class MacOSGUIControlServer {
         },
       ],
     };
+  }
+
+  private async closeApp(identifier: string, force: boolean = false): Promise<any> {
+    try {
+      const result = await run((identifier, force) => {
+        const app = Application.currentApplication();
+        app.includeStandardAdditions = true;
+
+        // Try to find app by bundle ID first, then by name, then by PID
+        const runningApps = Application('System Events').applicationProcesses();
+        let targetApp = null;
+        let appInfo = null;
+
+        // First, try to find by bundle ID or name
+        for (let i = 0; i < runningApps.length; i++) {
+          const appBundleId = runningApps[i].bundleIdentifier();
+          const appName = runningApps[i].name();
+          
+          if (appBundleId === identifier || appName === identifier) {
+            targetApp = runningApps[i];
+            appInfo = {
+              name: appName,
+              bundleId: appBundleId,
+              pid: runningApps[i].unixId()
+            };
+            break;
+          }
+        }
+
+        // If not found by name/bundle, try by PID
+        if (!targetApp && !isNaN(parseInt(identifier))) {
+          const pid = parseInt(identifier);
+          for (let i = 0; i < runningApps.length; i++) {
+            if (runningApps[i].unixId() === pid) {
+              targetApp = runningApps[i];
+              appInfo = {
+                name: runningApps[i].name(),
+                bundleId: runningApps[i].bundleIdentifier(),
+                pid: pid
+              };
+              break;
+            }
+          }
+        }
+
+        if (!targetApp) {
+          throw new Error(`Application not found: ${identifier}`);
+        }
+
+        // Try graceful quit first
+        try {
+          targetApp.quit();
+          return {
+            success: true,
+            method: 'graceful',
+            appInfo: appInfo!,
+            message: `Successfully closed ${appInfo!.name} gracefully`
+          };
+        } catch (quitError) {
+          if (force) {
+            // Force kill the process
+            const killResult = app.doShellScript(`kill -9 ${appInfo!.pid}`);
+            return {
+              success: true,
+              method: 'force',
+              appInfo: appInfo!,
+              message: `Force closed ${appInfo!.name} (PID: ${appInfo!.pid})`
+            };
+          } else {
+            throw new Error(`Failed to quit ${appInfo!.name} gracefully. Use force: true to force close.`);
+          }
+        }
+      }, identifier, force);
+
+      const typedResult = result as {
+        success: boolean;
+        method: string;
+        appInfo: { name: string; bundleId: string; pid: number };
+        message: string;
+      };
+
+      // Clear current app if it was the one being closed
+      if (this.currentApp && 
+          (this.currentApp.bundleId === typedResult.appInfo.bundleId || 
+           this.currentApp.pid === typedResult.appInfo.pid)) {
+        this.currentApp = null;
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `${typedResult.message}\nMethod: ${typedResult.method}\nApp: ${typedResult.appInfo.name} (${typedResult.appInfo.bundleId})\nPID: ${typedResult.appInfo.pid}`,
+          },
+        ],
+      };
+    } catch (error) {
+      throw new Error(`Failed to close application: ${error}`);
+    }
   }
 
   private async click(x: number, y: number, button: string): Promise<any> {

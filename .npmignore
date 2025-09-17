@@ -1,0 +1,44 @@
+# Source files
+src/
+tmp/
+
+# Development files  
+.env*
+.DS_Store
+.cursor
+.idea/
+.taskmaster/
+.claude/
+*.log
+coverage/
+.nyc_output/
+build.sh
+deploy.sh
+nul
+tsconfig.json
+
+# Test files
+*.test.ts
+*.test.js
+
+# Development directories (exclude from npm)
+scripts/
+README/*
+VERSION_MANAGEMENT.md
+version.json
+.cursorrules
+.markdownlint.json
+llm-config-examples.md
+llm-config.json
+llm-config.json.example
+
+# Publishing and development scripts
+npm_publish.sh
+npm_publish.log
+
+# Keep only what's needed for distribution
+# dist/ - KEEP (compiled code)
+# package.json - KEEP
+# README.md - KEEP  
+# LICENSE - KEEP
+# node_modules - automatically excluded
