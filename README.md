@@ -1,104 +1,395 @@
 # MCP-Eyes 🚀
 
-**Professional cross-platform MCP server for GUI automation with advanced screenshot capabilities, multi-display
-support, mouse/keyboard control, and AI assistant integration.**
+**Professional cross-platform MCP server for GUI automation with Apple Accessibility and AI-powered analysis.**
 
-[![npm version](https://badge.fury.io/js/mcp-eyes.svg)](https://badge.fury.io/js/mcp-eyes)
+[![npm version](https://img.shields.io/npm/v/mcp-eyes.svg?cache=1)](https://www.npmjs.com/package/mcp-eyes)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
 
 ## 🌟 Features
 
-- **5 Server Variants**: Choose the right tool for your needs
+- **2 Streamlined Variants**: `mcp-eyes` (Advanced) and `mcp-eyes-basic` (Basic)
+- **Apple Accessibility Integration**: Native macOS UI element detection and interaction
 - **Cross-Platform Support**: macOS, Windows, and Linux
-- **Advanced Screenshot Capabilities**: Window, region, multi-display, and full-screen capture
 - **AI Assistant Integration**: Compatible with Cursor, Claude, and other MCP-compatible AI assistants
-- **Multi-Display Support**: Handle complex multi-monitor setups
 - **Natural Language Control**: Control GUI applications through natural language commands
+- **Automatic Installation**: Works with npx for instant setup without global installation
+- **Local LLM Support**: Integration with LM Studio, Ollama, and other local AI providers
+- **Clean Build System**: Modern TypeScript build with rimraf for cross-platform compatibility
 
 ## 🚀 Quick Start
 
-### Installation
+### Option 1: Automatic Installation (Recommended)
+
+Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
+
+#### Basic Server (Essential Features)
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes-basic": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-eyes@latest",
+        "mcp-eyes-basic"
+      ]
+    }
+  }
+}
+```
+
+#### Advanced Server (All Features) - Default - (local LM Studio)
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+   "args": [
+     "-y",
+     "mcp-eyes@latest",
+     "mcp"
+   ],
+   "command": "npx",
+   "env": {
+     "LLM_PROVIDER": "lm-studio",
+     "LLM_BASE_URL": "http://127.0.0.1:1234",
+     "LLM_MODEL": "openai/gpt-oss-20b"
+   }
+ }
+}
+```
+
+### Option 2: Global Installation
 
 ```bash
 npm install -g mcp-eyes
 ```
 
-### Usage
+Then use:
 
 ```bash
-# Cross-platform server (recommended)
-mcp-eyes mcp
-
-# Basic macOS-only server
+# Basic server (Apple Accessibility + Screenshots)
 mcp-eyes-basic mcp
 
-# Enhanced server with additional tools
-mcp-eyes-enhanced mcp
-
-# Advanced screenshot server
-mcp-eyes-advanced mcp
-
-# Full enhanced server (20+ tools)
-mcp-eyes-full mcp
+# Advanced server (All Features: AI, OCR, Web Detection, Text Input) - Default
+mcp-eyes mcp
 ```
 
 ## 📋 Server Variants
 
-### 1. Cross-Platform Server (Default)
+### 1. Basic Server - `mcp-eyes-basic`
 
-**7 tools** - Universal compatibility across macOS, Windows, and Linux
+**Essential tools** - Apple Accessibility and Screenshots
 
-- `listApplications` - Platform-specific app listing
-- `focusApplication` - Platform-specific app focus
-- `click` - Universal mouse clicks
-- `moveMouse` - Universal mouse movement
-- `screenshot` - Universal window screenshots
-- `screenshotFullScreen` - Universal full screen capture
-- `screenshotRegion` - Universal region screenshots
+**Core Features:**
 
-### 2. Basic Server
+- ✅ **Apple Accessibility Integration** - Native macOS UI element detection
+- ✅ **Cross-Platform Screenshots** - High-quality window and region screenshots
+- ✅ **Application Management** - List and focus applications across platforms
+- ✅ **Mouse Control** - Precise clicking and movement with normalized coordinates
+- ✅ **Element Detection** - Find and interact with clickable UI elements
 
-**5 tools** - Essential GUI automation for macOS
+**Available Tools:**
 
-- `listApplications` - List running apps with window bounds
-- `focusApplication` - Focus specific apps by bundle ID or PID
+- `listApplications` - List running apps with window bounds and metadata
+- `focusApplication` - Focus specific apps by bundle ID, process name, or PID
+- `closeApp` - Close/quit applications gracefully or forcefully
 - `click` - Mouse clicks with normalized coordinates (0-1)
 - `moveMouse` - Mouse movement with normalized coordinates
-- `screenshot` - Window screenshots with padding
+- `screenshot` - Window screenshots with customizable padding
 
-### 3. Enhanced Server
+**Best for**: Simple automation tasks, users who prefer Apple's native accessibility system, basic GUI control
 
-**10 tools** - Basic tools plus enhanced functionality
+### 2. Advanced Server - `mcp-eyes` (Default)
 
-- All basic tools +
-- `doubleClick` - Double-click operations
-- `scrollMouse` - Mouse wheel scrolling
-- `getMousePosition` - Current mouse position
-- `wait` - Timing control
-- `getScreenSize` - Screen dimensions
+**All features** - Complete GUI automation with AI analysis and advanced capabilities
 
-### 4. Advanced Screenshot Server
+**Core Features:**
 
-**12 tools** - Comprehensive screenshot and display management
+- ✅ **All Basic Features** - Everything from the Basic server
+- ✅ **AI-Enhanced Analysis** - Intelligent UI element detection and natural language interaction
+- ✅ **OCR Recognition** - Multi-method text detection for browser automation
+- ✅ **Local LLM Integration** - Works with LM Studio, Ollama, and other local AI providers
+- ✅ **Text Input Automation** - Type text into any input field
+- ✅ **Keyboard Control** - Press key combinations and shortcuts
+- ✅ **Advanced Mouse Operations** - Double-click, scrolling, position tracking
+- ✅ **Timing Control** - Wait commands for complex automation sequences
+- ✅ **Enhanced Precision** - More granular control over automation timing
 
-- All basic tools +
-- `listDisplays` - List all available displays
-- `screenshotDisplay` - Screenshot specific display
-- `screenshotAllDisplays` - Screenshot all displays simultaneously
-- `screenshotRegion` - Screenshot specific screen region
-- `screenshotWithTimestamp` - Screenshot with timestamped filename
+**Available Tools:**
 
-### 5. Full Enhanced Server
+- **Core Tools** (from Basic): `listApplications`, `focusApplication`, `closeApp`, `click`, `moveMouse`, `screenshot`
+- **AI Analysis Tools**:
+  - `analyzeScreenshot` - AI-powered screenshot analysis with element detection
+  - `findClickableElements` - Intelligent element detection using multiple methods
+  - `clickElementByDescription` - Click elements using natural language descriptions
+- **Advanced Automation Tools**:
+  - `typeText` - Type text at current cursor position
+  - `pressKey` - Press key combinations (Cmd+A, Enter, Tab, etc.)
+  - `doubleClick` - Perform double-click operations
+  - `scrollMouse` - Mouse wheel scrolling with customizable direction and amount
+  - `getMousePosition` - Get current mouse position coordinates
+  - `wait` - Timing control for automation sequences (milliseconds)
 
-**20+ tools** - Complete GUI automation suite
+**Best for**: Complex automation workflows, power users, AI-enhanced automation, applications requiring intelligent interaction
 
-- All previous tools +
-- Window management (resize, move, minimize, restore)
-- Keyboard automation (type text, press keys)
-- Advanced mouse (drag, scroll)
-- Screen analysis (color detection, highlighting)
-- Clipboard operations (copy/paste)
+## ⚙️ Configuration
+
+### Cursor AI Configuration
+
+Add to your Cursor MCP settings (`~/.cursor-mcp/config.json` or via Cursor settings):
+
+#### Basic Setup (Recommended)
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "mcp-eyes-basic",
+      "args": []
+    }
+  }
+}
+```
+
+#### Advanced Setup (All Features)
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "mcp-eyes-advanced",
+      "args": []
+    }
+  }
+}
+```
+
+#### With npx (No Installation Required)
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "npx",
+      "args": ["mcp-eyes"]
+    },
+    "mcp-eyes-advanced": {
+      "command": "npx",
+      "args": ["mcp-eyes-advanced"]
+    }
+  }
+}
+```
+
+#### Multiple Versions Setup
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes-basic": {
+      "command": "mcp-eyes-basic",
+      "args": []
+    },
+    "mcp-eyes-advanced": {
+      "command": "mcp-eyes-advanced",
+      "args": []
+    }
+  }
+}
+
+### AI Provider Integration
+
+#### With LM Studio (Local LLM)
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-eyes@latest",
+        "mcp"
+      ],
+      "env": {
+        "LLM_PROVIDER": "lm-studio",
+        "LLM_BASE_URL": "http://127.0.0.1:1234",
+        "LLM_MODEL": "openai/gpt-oss-20b"
+      }
+    }
+  }
+}
+```
+
+#### With OpenAI API
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-eyes@latest",
+        "mcp"
+      ],
+      "env": {
+        "LLM_PROVIDER": "openai",
+        "OPENAI_API_KEY": "sk-your-api-key-here",
+        "LLM_MODEL": "gpt-4o-mini"
+      }
+    }
+  }
+}
+```
+
+#### With Claude API
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-eyes@latest",
+        "mcp"
+      ],
+      "env": {
+        "LLM_PROVIDER": "anthropic",
+        "ANTHROPIC_API_KEY": "sk-ant-your-api-key-here",
+        "LLM_MODEL": "claude-3-5-sonnet-20241022"
+      }
+    }
+  }
+}
+```
+
+#### With Ollama (Local)
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-eyes@latest",
+        "mcp"
+      ],
+      "env": {
+        "LLM_PROVIDER": "ollama",
+        "LLM_BASE_URL": "http://127.0.0.1:11434",
+        "LLM_MODEL": "llama3.1:8b"
+      }
+    }
+  }
+}
+```
+
+## 🆕 Recent Improvements
+
+### Build System Overhaul
+
+- **Clean TypeScript Build**: Simplified build process using `tsc` with proper tsconfig.json
+- **Cross-Platform Clean**: Added `rimraf` for reliable dist directory cleanup across platforms
+- **Optimized Package**: Enhanced `.npmignore` to exclude unnecessary files from NPM distribution
+- **Version Management**: Streamlined to only 2 package variants for clarity and maintainability
+
+### Package Structure
+
+- **`mcp-eyes`**: Advanced version (default) - includes all features and AI analysis
+- **`mcp-eyes-basic`**: Basic version - essential Apple Accessibility and screenshot features only
+
+### NPM Publishing Ready
+
+- **Automatic Installation**: NPX configuration with `-y` flag for seamless installation
+- **Version Control**: Proper semantic versioning and package management
+- **Clean Distribution**: Optimized package size with only essential files included
+
+## 🤖 AI Analysis & OCR Capabilities (Advanced Server Only)
+
+The Advanced server includes powerful AI analysis and OCR recognition features that make browser automation and GUI interaction more intelligent and reliable.
+
+### AI-Enhanced Screenshot Analysis
+
+The Advanced server uses computer vision techniques to:
+
+- **Detect UI Elements**: Automatically identify buttons, text fields, links, and other interactive elements
+- **Natural Language Interaction**: Find and click elements using natural language descriptions like "update available button" or "login form"
+- **Smart Workflows**: Execute complex automation sequences with intelligent decision making
+- **Context-Aware Analysis**: Understand the current state of applications and suggest appropriate actions
+
+### OCR Recognition
+
+Advanced OCR capabilities for text detection and analysis:
+
+- **Multi-Method OCR**: Supports macOS built-in OCR, Tesseract, and fallback text detection
+- **Text Element Detection**: Identify text regions with precise bounding boxes
+- **Confidence Scoring**: Each detected element includes confidence levels for reliability
+- **Browser-Friendly**: Optimized for web content and browser automation
+
+### Hybrid Analysis Approach
+
+The Enhanced Analysis Server combines multiple detection methods:
+
+1. **Apple Window Manager**: Native macOS accessibility API for precise element detection
+2. **OCR Analysis**: Text-based element identification using optical character recognition
+3. **Local LLM Analysis**: AI-powered understanding of UI context and interactions
+4. **Fallback Detection**: Heuristic-based detection for maximum compatibility
+
+### Use Cases
+
+**Browser Automation**:
+
+- Automatically detect and interact with web forms
+- Handle dynamic content and JavaScript-rendered elements
+- Navigate complex web applications with natural language commands
+
+**Desktop Application Control**:
+
+- Intelligent interaction with native applications
+- Context-aware automation that adapts to UI changes
+- Reliable element detection across different application states
+
+**Accessibility Testing**:
+
+- Verify UI elements are properly accessible
+- Test screen reader compatibility
+- Ensure applications meet accessibility standards
+
+### Configuration
+
+Configure AI analysis methods in your MCP client:
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes-ai": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": ["-y", "mcp-eyes-ai"],
+      "env": {
+        "DEBUG": "mcp:*",
+        "AI_ANALYSIS_ENABLED": "true",
+        "OCR_ENABLED": "true"
+      }
+    },
+    "mcp-eyes-analysis": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": ["-y", "mcp-eyes-analysis"],
+      "env": {
+        "DEBUG": "mcp:*",
+        "USE_APPLE_WINDOW_MANAGER": "true",
+        "USE_OCR": "true",
+        "USE_LOCAL_LLM": "true",
+        "LOCAL_LLM_URL": "http://127.0.0.1:1234"
+      }
+    }
+  }
+}
+```
 
 ## 🖥️ Platform Support
 
@@ -128,6 +419,7 @@ mcp-eyes-full mcp
 Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
 
 #### Basic Configuration
+
 ```json
 {
   "mcpServers": {
@@ -139,10 +431,6 @@ Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
 }
 ```
 
-#### Auto-Install Configuration (Recommended)
-This configuration automatically installs mcp-eyes via npx, similar to other MCP servers:
-
-```json
 {
   "mcpServers": {
     "mcp-eyes": {
@@ -204,12 +492,43 @@ This configuration automatically installs mcp-eyes via npx, similar to other MCP
       "env": {
         "DEBUG": "mcp:*"
       }
+    },
+    "mcp-eyes-ai": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-ai"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    },
+    "mcp-eyes-analysis": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-analysis"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    },
+    "mcp-eyes-accessibility": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-accessibility"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
     }
   }
 }
 ```
 
 #### Cross-Platform Configuration
+
 For Windows users, use the Windows npx path:
 
 ```json
@@ -230,6 +549,7 @@ For Windows users, use the Windows npx path:
 ```
 
 #### Local Development Configuration
+
 For local development, point directly to the built files:
 
 ```json
@@ -284,6 +604,12 @@ const apps = await mcpClient.callTool('listApplications', {});
 // Focus specific application
 await mcpClient.callTool('focusApplication', { identifier: 'com.apple.Safari' });
 
+// Close an application gracefully
+await mcpClient.callTool('closeApp', { identifier: 'com.apple.Safari' });
+
+// Force close an application if graceful quit fails
+await mcpClient.callTool('closeApp', { identifier: 'iTerm2', force: true });
+
 // Click at normalized coordinates
 await mcpClient.callTool('click', { x: 0.5, y: 0.3 });
 ```
@@ -295,7 +621,95 @@ await mcpClient.callTool('click', { x: 0.5, y: 0.3 });
 await mcpClient.callTool('listApplications', {});
 await mcpClient.callTool('focusApplication', { identifier: 'notepad' }); // Windows
 await mcpClient.callTool('focusApplication', { identifier: 'firefox' }); // Linux
+
+// Close applications across platforms
+await mcpClient.callTool('closeApp', { identifier: 'notepad' }); // Windows
+await mcpClient.callTool('closeApp', { identifier: 'firefox' }); // Linux
+await mcpClient.callTool('closeApp', { identifier: 'Safari' }); // macOS
+
 await mcpClient.callTool('click', { x: 0.5, y: 0.5 });
+```
+
+### AI-Enhanced Screenshot Analysis
+
+```javascript
+// Take screenshot with AI analysis
+const result = await mcpClient.callTool('screenshotWithAI', {
+  padding: 10,
+  includeAnalysis: true
+});
+
+// Find and click element by description
+await mcpClient.callTool('findAndClickElement', {
+  description: 'update available button',
+  padding: 10
+});
+
+// Smart screenshot with automatic app detection
+await mcpClient.callTool('smartScreenshot', {
+  appName: 'Safari',
+  includeAnalysis: true
+});
+
+// Execute complex workflow
+await mcpClient.callTool('executeWorkflow', {
+  appName: 'ChatGPT',
+  actions: [
+    { type: 'click', target: 'new chat button' },
+    { type: 'wait', duration: 1000 },
+    { type: 'click', target: 'text input field' },
+    { type: 'type', text: 'Hello, how can you help me?' }
+  ]
+});
+```
+
+### OCR Recognition and Analysis
+
+```javascript
+// Analyze screenshot with OCR
+const analysis = await mcpClient.callTool('analyzeScreenshot', {
+  imageData: 'base64-encoded-image-data',
+  mimeType: 'image/png'
+});
+
+// Get clickable elements with OCR detection
+const elements = await mcpClient.callTool('findClickableElements', {
+  appName: 'Chrome',
+  elementTypes: ['button', 'link'],
+  searchText: 'login'
+});
+```
+
+### Enhanced Analysis with Hybrid Methods
+
+```javascript
+// Comprehensive window analysis
+const analysis = await mcpClient.callTool('analyzeWindow', {
+  appName: 'Safari',
+  methods: ['apple-window-manager', 'ocr', 'local-llm'],
+  includeBoundingBoxes: true
+});
+
+// Get element choices for user selection
+const choices = await mcpClient.callTool('getElementChoices', {
+  appName: 'Finder',
+  filterByText: 'settings',
+  filterByType: 'button'
+});
+
+// Click element by choice index
+await mcpClient.callTool('clickElementByChoice', {
+  appName: 'Finder',
+  elementIndex: 0,
+  button: 'left'
+});
+
+// Screenshot with multi-method analysis
+await mcpClient.callTool('screenshotWithAnalysis', {
+  appName: 'Visual Studio Code',
+  analysisMethods: ['all'],
+  includeImage: true
+});
 ```
 
 ## 🛠️ Development
@@ -317,13 +731,14 @@ npm install
 ### Building
 
 ```bash
-# Build all variants
-npm run build:all
+# Clean build (recommended)
+npm run build:clean
 
-# Build specific variant
-npm run build:cross-platform
-npm run build:enhanced
-npm run build:advanced
+# Standard build
+npm run build
+
+# Development mode (watch)
+npm run dev
 ```
 
 ### Testing
@@ -360,22 +775,6 @@ npm run test:single
 npm test
 ```
 
-### Test File Organization
-
-Test files are organized in the `TMP/test/` directory:
-- `TMP/test/test.js` - Basic functionality test
-- `TMP/test/test-all-versions.js` - Test all server variants
-- `TMP/test/test-cross-platform.js` - Cross-platform compatibility test
-- `TMP/test/test-coordinates.js` - Coordinate system tests
-- `TMP/test/test-fixes.js` - Bug fix verification tests
-- `TMP/test/test-window-bounds.js` - Window bounds functionality tests
-- `TMP/test/test-powershell-integration.js` - Windows PowerShell integration tests
-- `TMP/test/test-cursor-fix.js` - Cursor-specific fixes
-- `TMP/test/test-auto-fix.js` - Auto-fix functionality tests
-- `TMP/test/test-single-task.js` - Single task execution tests
-
-Test screenshots are stored in `TMP/screenshots/` directory.
-
 ## 📋 Requirements
 
 ### macOS
@@ -405,6 +804,8 @@ automation and screenshot functionality.
 
 #### Required Permissions
 
+> **💡 Quick Reference**: When using mcp-eyes through an MCP client (Claude, Cursor, VS Code), grant permissions to **your MCP client application**, not to Node.js or Terminal.
+
 1. **Screen Recording Permission** (Critical)
    - Required for: Screenshots, window capture, display analysis
    - **How to grant**:
@@ -417,7 +818,7 @@ automation and screenshot functionality.
    - Manual steps:
      - System Preferences > Security & Privacy > Privacy > Screen Recording
      - Click the lock icon and enter your password
-     - Check the box next to Terminal (if running from terminal) or your MCP client
+     - Check the box next to your MCP client (Claude, Cursor, VS Code, etc.) or Terminal
      - Restart the application after granting permission
 
 2. **Accessibility Permission** (For advanced features)
@@ -433,6 +834,25 @@ automation and screenshot functionality.
      - System Preferences > Security & Privacy > Privacy > Accessibility
      - Click the lock icon and enter your password
      - Check the box next to your MCP client or Terminal
+
+#### ⚠️ **Important: MCP Client Permissions**
+
+When using mcp-eyes through an MCP client (like Claude, Cursor, or VS Code), **the MCP client application** will appear in the accessibility permissions list, not the Node.js process.
+
+**What you'll see in System Preferences:**
+- **Using Claude**: `Claude` will appear in the accessibility list
+- **Using Cursor**: `Cursor` will appear in the accessibility list
+- **Using VS Code**: `Visual Studio Code` will appear in the accessibility list
+- **Using Terminal**: `Terminal` will appear in the accessibility list
+
+**Why this happens:**
+- MCP runs as a subprocess of your MCP client
+- Permission requests originate from the parent application (your MCP client)
+- You must grant permissions to the **MCP client**, not the Node.js process
+
+**After granting permissions:**
+- Restart your MCP client application
+- mcp-eyes will inherit the permissions from the MCP client
 
 #### Permission Verification
 
@@ -533,7 +953,7 @@ MCP-Eyes leverages Windows PowerShell for native Windows GUI automation and proc
    ```powershell
    # Check current execution policy
    Get-ExecutionPolicy
-   
+
    # Set execution policy if needed (run as Administrator)
    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
    ```
@@ -592,11 +1012,11 @@ npx mcp-eyes mcp <<< '{"method": "call", "tool": "click", "arguments": {"x": 0.5
 
 ```powershell
 # Get detailed process information
-Get-Process | Where-Object {$_.MainWindowTitle -ne ""} | 
+Get-Process | Where-Object {$_.MainWindowTitle -ne ""} |
 Select-Object Id, ProcessName, MainWindowTitle, StartTime | Format-Table
 
 # Find processes by partial name
-Get-Process | Where-Object {$_.ProcessName -like "*chrome*"} | 
+Get-Process | Where-Object {$_.ProcessName -like "*chrome*"} |
 Select-Object Id, ProcessName, MainWindowTitle
 
 # Check if a window is visible and responsive
@@ -634,7 +1054,7 @@ if ($process) {
 } else {
     Write-Host "Process $AppName not found"
     # List similar processes
-    Get-Process | Where-Object {$_.ProcessName -like "*$AppName*"} | 
+    Get-Process | Where-Object {$_.ProcessName -like "*$AppName*"} |
     Select-Object ProcessName, Id, MainWindowTitle
 }
 
@@ -800,7 +1220,7 @@ gnome-terminal &
 sleep 1
 wmctrl -r "Terminal" -e 0,0,0,960,1080
 
-# Open code editor on right half  
+# Open code editor on right half
 code &
 sleep 3
 wmctrl -r "Visual Studio Code" -e 0,960,0,960,1080
@@ -1093,6 +1513,30 @@ Focus a specific application by identifier.
 
 **Returns**: Success confirmation
 
+#### `closeApp`
+
+Close/quit a specific application gracefully or forcefully.
+
+**Parameters**:
+
+- `identifier`: Bundle ID (macOS), app name, or PID of the application to close
+- `force` (optional): Force close the application if graceful quit fails (default: false)
+
+**Returns**: Success confirmation with method used (graceful/force)
+
+**Examples**:
+
+```javascript
+// Graceful close
+await mcpClient.callTool('closeApp', { identifier: 'com.apple.Safari' });
+
+// Force close if graceful fails
+await mcpClient.callTool('closeApp', { identifier: 'iTerm2', force: true });
+
+// Close by PID
+await mcpClient.callTool('closeApp', { identifier: '12345' });
+```
+
 #### `click`
 
 Perform a mouse click at normalized coordinates.
@@ -1164,6 +1608,28 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - Add JSDoc comments for public APIs
 - Include tests for new functionality
 
+## 🔢 Version Management
+
+This project uses a centralized version management system. The version is stored in `version.json` and automatically synchronized across all files.
+
+### Quick Commands
+
+```bash
+# Bump patch version (1.1.2 → 1.1.3)
+npm run version:patch
+
+# Bump minor version (1.1.2 → 1.2.0)
+npm run version:minor
+
+# Bump major version (1.1.2 → 2.0.0)
+npm run version:major
+
+# Update all files to current version
+npm run update-version
+```
+
+See [VERSION_MANAGEMENT.md](VERSION_MANAGEMENT.md) for detailed documentation.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
@@ -1183,13 +1649,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
+- [x] **AI-Enhanced Screenshot Analysis** - Intelligent UI element detection and natural language interaction
+- [x] **OCR Recognition** - Multi-method text detection for browser automation
+- [x] **Hybrid Analysis** - Combined Apple Window Manager, OCR, and Local LLM approaches
+- [x] **Enhanced Analysis Server** - Comprehensive UI analysis with multiple detection methods
+- [x] **Accessibility-First Server** - Optimized for accessibility and screen reader compatibility
+- [x] **Clean Build System** - Modern TypeScript build with rimraf for cross-platform compatibility
+- [x] **NPM Publishing Ready** - Optimized package structure with automatic installation via NPX
+- [x] **Package Consolidation** - Streamlined to 2 clear variants: Basic and Advanced
+- [x] **Local LLM Integration** - Support for LM Studio, Ollama, and other local AI providers
 - [ ] Enhanced Windows PowerShell integration
 - [ ] Linux Wayland support
-- [ ] Advanced OCR capabilities
+- [ ] Advanced computer vision integration
 - [ ] Plugin system for custom tools
 - [ ] Web-based configuration interface
 - [ ] Performance optimization for large screenshots
 - [ ] Advanced multi-display window management
+- [ ] Real-time UI state monitoring
+- [ ] Advanced workflow automation with conditional logic
 
 ---
 
