@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "macos-gui-control": {
+      "command": "npx",
+      "args": ["mcp-macos-gui-control", "mcp"],
+      "env": {}
+    }
+  }
+}

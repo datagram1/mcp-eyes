@@ -1,0 +1,67 @@
+# Cursor AI Directives for MCP-Eyes Project
+
+## File Organization Rules
+
+### Test and Debug Files
+- All files beginning with "test-" or "debug-" should be automatically moved to the TMP directory
+- This includes test files, debug scripts, and temporary development files
+- The TMP directory structure should be:
+  - TMP/test/ - for all test-* files
+  - TMP/debug/ - for all debug-* files
+  - TMP/screenshots/ - for test screenshots and debug images
+
+### README Files
+- All README files except the main README.md should be automatically moved to the README directory
+- Only README.md should remain in the root directory
+- Additional documentation files should be organized in README/ directory
+- The README directory structure should be:
+  - README/ - for all additional README files and documentation
+  - README.md - main project README (stays in root)
+
+### File Naming Conventions
+- Test files: test-*.js, test-*.ts
+- Debug files: debug-*.js, debug-*.ts
+- Temporary files: tmp-*.js, tmp-*.ts
+- README files: *README*.md (except main README.md)
+
+### Automatic Actions
+When creating new files:
+1. If filename starts with "test-" → move to TMP/test/
+2. If filename starts with "debug-" → move to TMP/debug/
+3. If filename starts with "tmp-" → move to TMP/
+4. If filename matches "*README*.md" and is not "README.md" → move to README/
+5. Update package.json scripts to reference new locations
+6. Update any import/require statements in existing code
+
+### Development Workflow
+- Test files in TMP/test/ can still be run via npm scripts
+- Debug files in TMP/debug/ are for development only
+- Screenshots and temporary outputs go to TMP/screenshots/
+- Additional documentation goes to README/ directory
+- Keep main source code in src/ directory clean
+- Main README.md stays in root for GitHub display
+
+### Package Scripts
+Update package.json to include:
+- "test": "node TMP/test/test.js"
+- "test:all": "node TMP/test/test-all-versions.js"
+- "test:cross-platform": "node TMP/test/test-cross-platform.js"
+- "debug": "node TMP/debug/debug-*.js"
+
+### Directory Structure
+```
+mcp-eyes/
+├── README.md (main README - stays in root)
+├── README/ (additional documentation)
+│   ├── ENHANCED_README.md
+│   ├── CROSS_PLATFORM_README.md
+│   └── [other README files]
+├── TMP/ (test and debug files)
+│   ├── test/
+│   ├── debug/
+│   └── screenshots/
+├── src/ (source code)
+└── dist/ (built files)
+```
+
+This ensures test, debug, and documentation files are organized but still accessible for development.

@@ -1,0 +1,94 @@
+{
+  "name": "mcp-eyes",
+  "version": "1.1.1",
+  "description": "🚀 Professional cross-platform MCP server for GUI automation with advanced screenshot capabilities, multi-display support, mouse/keyboard control, and AI assistant integration. Features 5 variants: Basic (5 tools), Enhanced (10 tools), Advanced Screenshot (12 tools), Full Enhanced (20+ tools), and Cross-Platform (7 tools). Supports macOS, Windows, and Linux. Compatible with Cursor, Claude, and other MCP-compatible AI assistants.",
+  "main": "dist/advanced-screenshot.js",
+  "bin": {
+    "mcp-eyes": "./dist/cross-platform.js",
+    "mcp-eyes-basic": "./dist/index.js",
+    "mcp-eyes-enhanced": "./dist/simplified-enhanced.js",
+    "mcp-eyes-advanced": "./dist/advanced-screenshot.js",
+    "mcp-eyes-full": "./dist/enhanced-index.js",
+    "mcp-eyes-cross-platform": "./dist/cross-platform.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:enhanced": "tsc src/enhanced-index.ts --outDir dist --target ES2022 --module commonjs --lib ES2022 --strict --esModuleInterop --skipLibCheck --forceConsistentCasingInFileNames --declaration --declarationMap --sourceMap --resolveJsonModule --moduleResolution node",
+    "build:simplified": "tsc src/simplified-enhanced.ts --outDir dist --target ES2022 --module commonjs --lib ES2022 --strict --esModuleInterop --skipLibCheck --forceConsistentCasingInFileNames --declaration --declarationMap --sourceMap --resolveJsonModule --moduleResolution node",
+    "build:advanced": "tsc src/advanced-screenshot.ts --outDir dist --target ES2022 --module commonjs --lib ES2022 --strict --esModuleInterop --skipLibCheck --forceConsistentCasingInFileNames --declaration --declarationMap --sourceMap --resolveJsonModule --moduleResolution node",
+    "build:cross-platform": "tsc src/cross-platform.ts --outDir dist --target ES2022 --module commonjs --lib ES2022 --strict --esModuleInterop --skipLibCheck --forceConsistentCasingInFileNames --declaration --declarationMap --sourceMap --resolveJsonModule --moduleResolution node",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "start:enhanced": "node dist/enhanced-index.js",
+    "start:simplified": "node dist/simplified-enhanced.js",
+    "start:advanced": "node dist/advanced-screenshot.js",
+    "start:cross-platform": "node dist/cross-platform.js",
+    "test": "node TMP/test/test.js",
+    "test:all": "node TMP/test/test-all-versions.js",
+    "test:cross-platform": "node TMP/test/test-cross-platform.js",
+    "test:coordinates": "node TMP/test/test-coordinates.js",
+    "test:fixes": "node TMP/test/test-fixes.js",
+    "test:window-bounds": "node TMP/test/test-window-bounds.js",
+    "test:powershell": "node TMP/test/test-powershell-integration.js",
+    "test:cursor": "node TMP/test/test-cursor-fix.js",
+    "test:auto": "node TMP/test/test-auto-fix.js",
+    "test:single": "node TMP/test/test-single-task.js",
+    "lint:md": "markdownlint *.md **/*.md --ignore node_modules --ignore TMP",
+    "lint:md:fix": "markdownlint *.md **/*.md --ignore node_modules --ignore TMP --fix",
+    "prepublishOnly": "npm run build:all && npm run lint:md",
+    "build:all": "npm run build && npm run build:enhanced && npm run build:simplified && npm run build:advanced && npm run build:cross-platform"
+  },
+  "keywords": [
+    "mcp",
+    "cross-platform",
+    "gui",
+    "automation",
+    "cursor",
+    "ai",
+    "screenshot",
+    "mouse",
+    "keyboard",
+    "window-management",
+    "multi-display",
+    "claude",
+    "ai-assistant",
+    "desktop-automation",
+    "nut-js",
+    "screenshot-desktop",
+    "gui-control",
+    "natural-language",
+    "macos",
+    "windows",
+    "linux",
+    "powershell",
+    "wmctrl"
+  ],
+  "author": "Richard Brown",
+  "license": "MIT",
+  "dependencies": {
+    "@jxa/run": "^1.4.0",
+    "@modelcontextprotocol/sdk": "^0.4.0",
+    "@nut-tree-fork/nut-js": "^4.2.6",
+    "node-mac-permissions": "^1.0.0",
+    "os": "^0.1.2",
+    "platform": "^1.3.6",
+    "screenshot-desktop": "^1.15.0",
+    "sharp": "^0.33.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "markdownlint-cli": "^0.33.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/datagram1/mcp-eyes.git"
+  },
+  "bugs": {
+    "url": "https://github.com/datagram1/mcp-eyes/issues"
+  }
+}

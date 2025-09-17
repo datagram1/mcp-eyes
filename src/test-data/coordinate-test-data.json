@@ -1,0 +1,128 @@
+{
+  "testCases": [
+    {
+      "name": "Expected case 1 - normalized X should be 0.018",
+      "input": {
+        "regionX": 100,
+        "buttonX": 50,
+        "appX": 120,
+        "appWidth": 1667
+      },
+      "expected": {
+        "x": 0.018
+      },
+      "tolerance": 0.001
+    },
+    {
+      "name": "Expected case 2 - normalized X should be 0.061",
+      "input": {
+        "regionX": 100,
+        "buttonX": 100,
+        "appX": 98,
+        "appWidth": 1667
+      },
+      "expected": {
+        "x": 0.061
+      },
+      "tolerance": 0.001
+    },
+    {
+      "name": "Edge case - button at app origin",
+      "input": {
+        "regionX": 0,
+        "buttonX": 0,
+        "appX": 0,
+        "appWidth": 1000
+      },
+      "expected": {
+        "x": 0.0
+      },
+      "tolerance": 0.001
+    },
+    {
+      "name": "Edge case - button at app right edge",
+      "input": {
+        "regionX": 0,
+        "buttonX": 1000,
+        "appX": 0,
+        "appWidth": 1000
+      },
+      "expected": {
+        "x": 1.0
+      },
+      "tolerance": 0.001
+    },
+    {
+      "name": "Complex case - region offset with button position",
+      "input": {
+        "regionX": 250,
+        "buttonX": 300,
+        "appX": 200,
+        "appWidth": 800
+      },
+      "expected": {
+        "x": 0.4375
+      },
+      "tolerance": 0.001
+    },
+    {
+      "name": "Full coordinate test",
+      "input": {
+        "regionX": 100,
+        "regionY": 50,
+        "buttonX": 200,
+        "buttonY": 150,
+        "appX": 150,
+        "appY": 100,
+        "appWidth": 1200,
+        "appHeight": 800
+      },
+      "expected": {
+        "x": 0.125,
+        "y": 0.125
+      },
+      "tolerance": 0.001
+    }
+  ],
+  "edgeCases": [
+    {
+      "name": "Negative region offset",
+      "input": {
+        "regionX": -50,
+        "buttonX": 100,
+        "appX": 0,
+        "appWidth": 1000
+      },
+      "expected": {
+        "x": 0.05
+      },
+      "tolerance": 0.001
+    },
+    {
+      "name": "Button outside app bounds - clamped to 1",
+      "input": {
+        "regionX": 0,
+        "buttonX": 1500,
+        "appX": 0,
+        "appWidth": 1000
+      },
+      "expected": {
+        "x": 1.0
+      },
+      "tolerance": 0.001
+    },
+    {
+      "name": "Button before app bounds - clamped to 0",
+      "input": {
+        "regionX": 0,
+        "buttonX": -100,
+        "appX": 0,
+        "appWidth": 1000
+      },
+      "expected": {
+        "x": 0.0
+      },
+      "tolerance": 0.001
+    }
+  ]
+}

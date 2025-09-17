@@ -1,0 +1,64 @@
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    },
+    "mcp-eyes-basic": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-basic"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    },
+    "mcp-eyes-enhanced": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-enhanced"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    },
+    "mcp-eyes-advanced": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-advanced"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    },
+    "mcp-eyes-full": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-full"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    },
+    "mcp-eyes-cross-platform": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "mcp-eyes-cross-platform"
+      ],
+      "env": {
+        "DEBUG": "mcp:*"
+      }
+    }
+  }
+}

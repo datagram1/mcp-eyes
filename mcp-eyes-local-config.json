@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "npx",
+      "args": ["mcp-eyes"],
+      "env": {}
+    },
+    "mcp-eyes-basic": {
+      "command": "npx",
+      "args": ["mcp-eyes-basic"],
+      "env": {}
+    },
+    "mcp-eyes-enhanced": {
+      "command": "npx",
+      "args": ["mcp-eyes-enhanced"],
+      "env": {}
+    },
+    "mcp-eyes-advanced": {
+      "command": "npx",
+      "args": ["mcp-eyes-advanced"],
+      "env": {}
+    },
+    "mcp-eyes-full": {
+      "command": "npx",
+      "args": ["mcp-eyes-full"],
+      "env": {}
+    },
+    "mcp-eyes-cross-platform": {
+      "command": "npx",
+      "args": ["mcp-eyes-cross-platform"],
+      "env": {}
+    }
+  }
+}
