@@ -43,6 +43,7 @@ jobs:
       run: npm pack --dry-run
 
     - name: Verify dist directory
+      shell: bash
       run: |
         if [ ! -d "dist" ] || [ -z "$(ls -A dist)" ]; then
           echo "❌ dist directory is empty or missing"
@@ -53,6 +54,7 @@ jobs:
         fi
 
     - name: Check main entry points
+      shell: bash
       run: |
         MAIN_FILE=$(node -p "require('./package.json').main")
         if [ ! -f "$MAIN_FILE" ]; then
@@ -63,6 +65,7 @@ jobs:
         fi
 
     - name: Check binary files
+      shell: bash
       run: |
         BIN_FILES=$(node -p "Object.values(require('./package.json').bin).join(' ')")
         for bin_file in $BIN_FILES; do
@@ -75,6 +78,7 @@ jobs:
         done
 
     - name: Check for sensitive data
+      shell: bash
       run: |
         echo "Checking for potential sensitive data..."
         SENSITIVE_PATTERNS=("api[_-]?key" "password" "secret" "token" "private[_-]?key" "auth[_-]?token")
@@ -87,6 +91,7 @@ jobs:
 
     - name: Test basic functionality (macOS only)
       if: matrix.os == 'macos-latest'
+      shell: bash
       run: |
         echo "Testing basic functionality on macOS..."
         # Test if the basic server can start without errors
@@ -115,6 +120,7 @@ jobs:
       run: npm ci
 
     - name: Check version consistency
+      shell: bash
       run: |
         PKG_VERSION=$(node -p "require('./package.json').version")
         VERSION_JSON_VERSION=$(node -p "require('./version.json').version")
@@ -128,6 +134,7 @@ jobs:
         fi
 
     - name: Check NPM badge
+      shell: bash
       run: |
         echo "Checking NPM badge URL..."
         if grep -q "img.shields.io/npm/v/mcp-eyes" README.md; then
@@ -154,6 +161,7 @@ jobs:
       run: npm ci
 
     - name: Verify release version
+      shell: bash
       run: |
         RELEASE_VERSION="${{ github.event.release.tag_name }}"
         PKG_VERSION=$(node -p "require('./package.json').version")
@@ -170,6 +178,7 @@ jobs:
       run: npm publish --dry-run
 
     - name: Check dist files for release
+      shell: bash
       run: |
         echo "Checking dist files for release..."
         if [ ! -d "dist" ] || [ -z "$(ls -A dist)" ]; then
