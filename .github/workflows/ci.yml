@@ -49,7 +49,11 @@ jobs:
         shell: bash
 
       - name: Build project
-        run: npm run build
+        run: |
+          npm run build
+          echo "Build completed, checking permissions..."
+          ls -la dist/*.js || true
+        shell: bash
 
       - name: Verify build output
         run: |
