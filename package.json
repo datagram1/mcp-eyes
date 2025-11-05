@@ -9,18 +9,22 @@
   },
   "scripts": {
     "build": "npm run update-version && tsc",
+    "postbuild": "node scripts/set-executable.js",
     "build:clean": "rimraf dist && npm run build",
     "dev": "tsc --watch",
     "start": "node dist/advanced-server-simple.js",
     "start:basic": "node dist/basic-server.js",
     "start:advanced": "node dist/advanced-server-simple.js",
-    "test": "node tmp/test/test.js",
+    "test": "npm run test:validate-mcp && npm run test:startup",
+    "test:validate-mcp": "node tests/validate-mcp-structure.js",
+    "test:startup": "node tests/test-server-startup.js",
+    "test:all": "npm run build && npm test && npm run lint:md",
     "lint:md": "markdownlint *.md **/*.md --ignore node_modules --ignore tmp",
     "lint:md:fix": "markdownlint *.md **/*.md --ignore node_modules --ignore tmp --fix",
     "update-version": "node scripts/update-version.js",
     "bump-version": "node scripts/bump-version.js",
     "version:patch": "npm run bump-version patch",
-    "version:minor": "npm run bump-version minor", 
+    "version:minor": "npm run bump-version minor",
     "version:major": "npm run bump-version major",
     "prepublishOnly": "npm run build:clean",
     "prepublishOnly:with-lint": "npm run build:clean && npm run lint:md",
@@ -82,7 +86,7 @@
     "typescript": "^5.0.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "repository": {
     "type": "git",

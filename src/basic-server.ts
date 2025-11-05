@@ -596,7 +596,10 @@ class BasicServer {
     }
 
     try {
-      const elements = await run(() => {
+      const currentAppBounds = this.currentApp.bounds;
+      const currentAppBundleId = this.currentApp.bundleId;
+
+      const elements = await run((appBundleId, appBounds) => {
         const app = Application.currentApplication();
         app.includeStandardAdditions = true;
 
@@ -605,7 +608,7 @@ class BasicServer {
 
         // Find the current app
         for (let i = 0; i < runningApps.length; i++) {
-          if (runningApps[i].bundleIdentifier() === this.currentApp!.bundleId) {
+          if (runningApps[i].bundleIdentifier() === appBundleId) {
             targetApp = runningApps[i];
             break;
           }
@@ -642,8 +645,8 @@ class BasicServer {
                   height: elementBounds[3] - elementBounds[1],
                 },
                 normalizedPosition: {
-                  x: (elementBounds[0] - this.currentApp!.bounds.x) / this.currentApp!.bounds.width,
-                  y: (elementBounds[1] - this.currentApp!.bounds.y) / this.currentApp!.bounds.height,
+                  x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                  y: (elementBounds[1] - appBounds.y) / appBounds.height,
                 },
                 screenPosition: {
                   x: elementBounds[0],
@@ -657,7 +660,7 @@ class BasicServer {
         }
 
         return elements;
-      });
+      }, currentAppBundleId, currentAppBounds);
 
       return {
         content: [
@@ -683,7 +686,10 @@ class BasicServer {
     }
 
     try {
-      const elements = await run(() => {
+      const currentAppBounds = this.currentApp.bounds;
+      const currentAppBundleId = this.currentApp.bundleId;
+
+      const elements = await run((appBundleId, appBounds) => {
         const app = Application.currentApplication();
         app.includeStandardAdditions = true;
 
@@ -692,7 +698,7 @@ class BasicServer {
 
         // Find the current app
         for (let i = 0; i < runningApps.length; i++) {
-          if (runningApps[i].bundleIdentifier() === this.currentApp!.bundleId) {
+          if (runningApps[i].bundleIdentifier() === appBundleId) {
             targetApp = runningApps[i];
             break;
           }
@@ -729,8 +735,8 @@ class BasicServer {
                   height: elementBounds[3] - elementBounds[1],
                 },
                 normalizedPosition: {
-                  x: (elementBounds[0] - this.currentApp!.bounds.x) / this.currentApp!.bounds.width,
-                  y: (elementBounds[1] - this.currentApp!.bounds.y) / this.currentApp!.bounds.height,
+                  x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                  y: (elementBounds[1] - appBounds.y) / appBounds.height,
                 },
                 screenPosition: {
                   x: elementBounds[0],
@@ -744,7 +750,7 @@ class BasicServer {
         }
 
         return elements;
-      });
+      }, currentAppBundleId, currentAppBounds);
 
       if (elementIndex < 0 || elementIndex >= (elements as any[]).length) {
         throw new Error(`Element index ${elementIndex} is out of range. Available elements: 0-${(elements as any[]).length - 1}`);

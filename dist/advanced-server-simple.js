@@ -62,6 +62,25 @@ class AdvancedServerSimple {
                         },
                     },
                     {
+                        name: 'closeApp',
+                        description: 'Close/quit a specific application by bundle ID, name, or PID.',
+                        inputSchema: {
+                            type: 'object',
+                            properties: {
+                                identifier: {
+                                    type: 'string',
+                                    description: 'Bundle ID (e.g., com.apple.Safari), app name (e.g., Safari), or PID of the application to close',
+                                },
+                                force: {
+                                    type: 'boolean',
+                                    description: 'Force close the application if graceful quit fails (default: false)',
+                                    default: false,
+                                },
+                            },
+                            required: ['identifier'],
+                        },
+                    },
+                    {
                         name: 'click',
                         description: 'Perform a mouse click at specified coordinates relative to the focused app window.',
                         inputSchema: {
@@ -269,6 +288,8 @@ class AdvancedServerSimple {
                         return await this.listApplications();
                     case 'focusApplication':
                         return await this.focusApplication(args?.identifier);
+                    case 'closeApp':
+                        return await this.closeApp(args?.identifier, args?.force || false);
                     case 'click':
                         return await this.click(args?.x, args?.y, args?.button || 'left');
                     case 'moveMouse':
@@ -412,6 +433,93 @@ class AdvancedServerSimple {
             throw new Error(`Failed to focus application: ${error}`);
         }
     }
+    async closeApp(identifier, force = false) {
+        try {
+            const result = await (0, run_1.run)((identifier, force) => {
+                const app = Application.currentApplication();
+                app.includeStandardAdditions = true;
+                // Try to find app by bundle ID first, then by name, then by PID
+                const runningApps = Application('System Events').applicationProcesses();
+                let targetApp = null;
+                let appInfo = null;
+                // First, try to find by bundle ID or name
+                for (let i = 0; i < runningApps.length; i++) {
+                    const appBundleId = runningApps[i].bundleIdentifier();
+                    const appName = runningApps[i].name();
+                    if (appBundleId === identifier || appName === identifier) {
+                        targetApp = runningApps[i];
+                        appInfo = {
+                            name: appName,
+                            bundleId: appBundleId,
+                            pid: runningApps[i].unixId()
+                        };
+                        break;
+                    }
+                }
+                // If not found by name/bundle, try by PID
+                if (!targetApp && !isNaN(parseInt(identifier))) {
+                    const pid = parseInt(identifier);
+                    for (let i = 0; i < runningApps.length; i++) {
+                        if (runningApps[i].unixId() === pid) {
+                            targetApp = runningApps[i];
+                            appInfo = {
+                                name: runningApps[i].name(),
+                                bundleId: runningApps[i].bundleIdentifier(),
+                                pid: pid
+                            };
+                            break;
+                        }
+                    }
+                }
+                if (!targetApp) {
+                    throw new Error(`Application not found: ${identifier}`);
+                }
+                // Try graceful quit first
+                try {
+                    targetApp.quit();
+                    return {
+                        success: true,
+                        method: 'graceful',
+                        appInfo: appInfo,
+                        message: `Successfully closed ${appInfo.name} gracefully`
+                    };
+                }
+                catch (quitError) {
+                    if (force) {
+                        // Force kill the process
+                        const killResult = app.doShellScript(`kill -9 ${appInfo.pid}`);
+                        return {
+                            success: true,
+                            method: 'force',
+                            appInfo: appInfo,
+                            message: `Force closed ${appInfo.name} (PID: ${appInfo.pid})`
+                        };
+                    }
+                    else {
+                        throw new Error(`Failed to quit ${appInfo.name} gracefully. Use force: true to force close.`);
+                    }
+                }
+            }, identifier, force);
+            const typedResult = result;
+            // Clear current app if it was the one being closed
+            if (this.currentApp &&
+                (this.currentApp.bundleId === typedResult.appInfo.bundleId ||
+                    this.currentApp.pid === typedResult.appInfo.pid)) {
+                this.currentApp = null;
+            }
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `${typedResult.message}\nMethod: ${typedResult.method}\nApp: ${typedResult.appInfo.name} (${typedResult.appInfo.bundleId})\nPID: ${typedResult.appInfo.pid}`,
+                    },
+                ],
+            };
+        }
+        catch (error) {
+            throw new Error(`Failed to close application: ${error}`);
+        }
+    }
     async click(x, y, button) {
         if (!this.currentApp) {
             throw new Error('No application focused. Use focusApplication first.');
@@ -516,14 +624,16 @@ class AdvancedServerSimple {
             throw new Error('No application focused. Use focusApplication first.');
         }
         try {
-            const elements = await (0, run_1.run)(() => {
+            const currentAppBounds = this.currentApp.bounds;
+            const currentAppBundleId = this.currentApp.bundleId;
+            const elements = await (0, run_1.run)((appBundleId, appBounds) => {
                 const app = Application.currentApplication();
                 app.includeStandardAdditions = true;
                 const runningApps = Application('System Events').applicationProcesses();
                 let targetApp = null;
                 // Find the current app
                 for (let i = 0; i < runningApps.length; i++) {
-                    if (runningApps[i].bundleIdentifier() === this.currentApp.bundleId) {
+                    if (runningApps[i].bundleIdentifier() === appBundleId) {
                         targetApp = runningApps[i];
                         break;
                     }
@@ -555,8 +665,8 @@ class AdvancedServerSimple {
                                     height: elementBounds[3] - elementBounds[1],
                                 },
                                 normalizedPosition: {
-                                    x: (elementBounds[0] - this.currentApp.bounds.x) / this.currentApp.bounds.width,
-                                    y: (elementBounds[1] - this.currentApp.bounds.y) / this.currentApp.bounds.height,
+                                    x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                                    y: (elementBounds[1] - appBounds.y) / appBounds.height,
                                 },
                                 screenPosition: {
                                     x: elementBounds[0],
@@ -569,7 +679,7 @@ class AdvancedServerSimple {
                     }
                 }
                 return elements;
-            });
+            }, currentAppBundleId, currentAppBounds);
             return {
                 content: [
                     {
@@ -590,14 +700,16 @@ class AdvancedServerSimple {
             throw new Error('No application focused. Use focusApplication first.');
         }
         try {
-            const elements = await (0, run_1.run)(() => {
+            const currentAppBounds = this.currentApp.bounds;
+            const currentAppBundleId = this.currentApp.bundleId;
+            const elements = await (0, run_1.run)((appBundleId, appBounds) => {
                 const app = Application.currentApplication();
                 app.includeStandardAdditions = true;
                 const runningApps = Application('System Events').applicationProcesses();
                 let targetApp = null;
                 // Find the current app
                 for (let i = 0; i < runningApps.length; i++) {
-                    if (runningApps[i].bundleIdentifier() === this.currentApp.bundleId) {
+                    if (runningApps[i].bundleIdentifier() === appBundleId) {
                         targetApp = runningApps[i];
                         break;
                     }
@@ -629,8 +741,8 @@ class AdvancedServerSimple {
                                     height: elementBounds[3] - elementBounds[1],
                                 },
                                 normalizedPosition: {
-                                    x: (elementBounds[0] - this.currentApp.bounds.x) / this.currentApp.bounds.width,
-                                    y: (elementBounds[1] - this.currentApp.bounds.y) / this.currentApp.bounds.height,
+                                    x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                                    y: (elementBounds[1] - appBounds.y) / appBounds.height,
                                 },
                                 screenPosition: {
                                     x: elementBounds[0],
@@ -643,7 +755,7 @@ class AdvancedServerSimple {
                     }
                 }
                 return elements;
-            });
+            }, currentAppBundleId, currentAppBounds);
             if (elementIndex < 0 || elementIndex >= elements.length) {
                 throw new Error(`Element index ${elementIndex} is out of range. Available elements: 0-${elements.length - 1}`);
             }
