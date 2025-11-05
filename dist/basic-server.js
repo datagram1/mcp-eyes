@@ -507,14 +507,16 @@ class BasicServer {
             throw new Error('No application focused. Use focusApplication first.');
         }
         try {
-            const elements = await (0, run_1.run)(() => {
+            const currentAppBounds = this.currentApp.bounds;
+            const currentAppBundleId = this.currentApp.bundleId;
+            const elements = await (0, run_1.run)((appBundleId, appBounds) => {
                 const app = Application.currentApplication();
                 app.includeStandardAdditions = true;
                 const runningApps = Application('System Events').applicationProcesses();
                 let targetApp = null;
                 // Find the current app
                 for (let i = 0; i < runningApps.length; i++) {
-                    if (runningApps[i].bundleIdentifier() === this.currentApp.bundleId) {
+                    if (runningApps[i].bundleIdentifier() === appBundleId) {
                         targetApp = runningApps[i];
                         break;
                     }
@@ -546,8 +548,8 @@ class BasicServer {
                                     height: elementBounds[3] - elementBounds[1],
                                 },
                                 normalizedPosition: {
-                                    x: (elementBounds[0] - this.currentApp.bounds.x) / this.currentApp.bounds.width,
-                                    y: (elementBounds[1] - this.currentApp.bounds.y) / this.currentApp.bounds.height,
+                                    x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                                    y: (elementBounds[1] - appBounds.y) / appBounds.height,
                                 },
                                 screenPosition: {
                                     x: elementBounds[0],
@@ -560,7 +562,7 @@ class BasicServer {
                     }
                 }
                 return elements;
-            });
+            }, currentAppBundleId, currentAppBounds);
             return {
                 content: [
                     {
@@ -581,14 +583,16 @@ class BasicServer {
             throw new Error('No application focused. Use focusApplication first.');
         }
         try {
-            const elements = await (0, run_1.run)(() => {
+            const currentAppBounds = this.currentApp.bounds;
+            const currentAppBundleId = this.currentApp.bundleId;
+            const elements = await (0, run_1.run)((appBundleId, appBounds) => {
                 const app = Application.currentApplication();
                 app.includeStandardAdditions = true;
                 const runningApps = Application('System Events').applicationProcesses();
                 let targetApp = null;
                 // Find the current app
                 for (let i = 0; i < runningApps.length; i++) {
-                    if (runningApps[i].bundleIdentifier() === this.currentApp.bundleId) {
+                    if (runningApps[i].bundleIdentifier() === appBundleId) {
                         targetApp = runningApps[i];
                         break;
                     }
@@ -620,8 +624,8 @@ class BasicServer {
                                     height: elementBounds[3] - elementBounds[1],
                                 },
                                 normalizedPosition: {
-                                    x: (elementBounds[0] - this.currentApp.bounds.x) / this.currentApp.bounds.width,
-                                    y: (elementBounds[1] - this.currentApp.bounds.y) / this.currentApp.bounds.height,
+                                    x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                                    y: (elementBounds[1] - appBounds.y) / appBounds.height,
                                 },
                                 screenPosition: {
                                     x: elementBounds[0],
@@ -634,7 +638,7 @@ class BasicServer {
                     }
                 }
                 return elements;
-            });
+            }, currentAppBundleId, currentAppBounds);
             if (elementIndex < 0 || elementIndex >= elements.length) {
                 throw new Error(`Element index ${elementIndex} is out of range. Available elements: 0-${elements.length - 1}`);
             }
