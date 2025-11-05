@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "npm run update-version && tsc",
+    "postbuild": "node scripts/set-executable.js",
     "build:clean": "rimraf dist && npm run build",
     "dev": "tsc --watch",
     "start": "node dist/advanced-server-simple.js",

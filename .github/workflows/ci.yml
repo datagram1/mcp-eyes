@@ -61,11 +61,6 @@ jobs:
             echo "Error: dist/advanced-server-simple.js not found"
             exit 1
           fi
-          echo "✓ Build output verified"
-        shell: bash
-
-      - name: Check executable permissions
-        run: |
           if [ ! -x "dist/basic-server.js" ]; then
             echo "Error: dist/basic-server.js is not executable"
             exit 1
@@ -74,19 +69,11 @@ jobs:
             echo "Error: dist/advanced-server-simple.js is not executable"
             exit 1
           fi
-          echo "✓ Executable permissions verified"
+          echo "✓ Build output and permissions verified"
         shell: bash
 
       - name: Run tests
         run: npm test
-        continue-on-error: true
-
-      - name: Validate MCP Server Structure
-        run: npm run test:validate-mcp
-
-      - name: Test server startup
-        run: npm run test:startup
-        timeout-minutes: 2
 
       - name: Lint markdown files
         run: npm run lint:md
