@@ -8,7 +8,7 @@
 
 ## 🌟 Features
 
-- **2 Streamlined Variants**: `mcp-eyes` (Advanced) and `mcp-eyes-basic` (Basic)
+- **3 Streamlined Variants**: `mcp-eyes` (Advanced), `mcp-eyes-basic` (Basic), and `mcp-eyes-claude` (Claude Identity)
 - **Apple Accessibility Integration**: Native macOS UI element detection and interaction
 - **Cross-Platform Support**: macOS, Windows, and Linux
 - **AI Assistant Integration**: Compatible with Cursor, Claude, and other MCP-compatible AI assistants
@@ -16,6 +16,48 @@
 - **Automatic Installation**: Works with npx for instant setup without global installation
 - **Local LLM Support**: Integration with LM Studio, Ollama, and other local AI providers
 - **Clean Build System**: Modern TypeScript build with rimraf for cross-platform compatibility
+- **Enterprise-Grade Logging**: Comprehensive logging system with session tracking and crash analysis
+- **Permission Management**: Automated macOS permission checking and guided setup
+- **CI/CD Pipeline**: Automated testing and quality checks with GitHub Actions
+
+## 🛠️ Tech Stack
+
+### Core Technologies
+
+- **TypeScript 5.0+**: Modern type-safe development with full ES2020+ support
+- **Node.js 18+**: Cross-platform JavaScript runtime (requires 18.0.0 or higher)
+- **Model Context Protocol (MCP)**: Official SDK from Anthropic for AI tool integration
+
+### GUI Automation & Control
+
+- **@nut-tree-fork/nut-js 4.2.6**: Cross-platform desktop automation (mouse, keyboard, screen)
+- **screenshot-desktop 1.15.0**: Multi-platform screenshot capture with multi-display support
+- **Sharp 0.33.5**: High-performance image processing and manipulation
+- **@jxa/run 1.4.0**: JavaScript for Automation (JXA) - macOS AppleScript bridge
+
+### AI & Computer Vision
+
+- **Tesseract.js 6.0.1**: OCR (Optical Character Recognition) for text detection
+- **fastest-levenshtein 1.0.16**: Fast string similarity matching for element detection
+- **node-mac-permissions 1.0.0**: macOS permission checking and management
+
+### Development & Build Tools
+
+- **rimraf 6.0.1**: Cross-platform file/directory deletion for clean builds
+- **markdownlint-cli 0.33.0**: Markdown linting and formatting
+- **@types/node 20.0.0**: TypeScript type definitions for Node.js
+- **@types/jest 30.0.0**: TypeScript support for Jest testing framework
+
+### Platform Integration
+
+- **platform 1.3.6**: Cross-platform OS detection and identification
+- **os (native)**: Node.js built-in OS utilities
+
+### Testing & Quality Assurance
+
+- **Custom MCP Validation**: Automated MCP protocol compliance testing
+- **Server Startup Tests**: Comprehensive server initialization and health checks
+- **GitHub Actions CI/CD**: Automated testing across multiple Node.js versions and platforms
 
 ## 🚀 Quick Start
 
@@ -291,23 +333,58 @@ Add to your Cursor MCP settings (`~/.cursor-mcp/config.json` or via Cursor setti
 
 ## 🆕 Recent Improvements
 
+### Latest Features (v1.1.15)
+
+#### Enterprise-Grade Logging System
+- **Structured Logging**: JSON-formatted logs with timestamps, session IDs, and context
+- **Session Tracking**: Unique session identifiers for debugging and troubleshooting
+- **Crash Analysis**: Automatic crash detection and detailed error reporting
+- **Log Levels**: Configurable logging (DEBUG, INFO, WARN, ERROR, FATAL)
+- **Persistent Logs**: Logs saved to `~/.mcp-eyes/mcp_eyes.log` for post-mortem analysis
+- **Global Error Handling**: Comprehensive error capture including unhandled rejections
+
+#### Permission Management System
+- **Automated Permission Checks**: Real-time macOS permission status detection
+- **Permission Guidance**: Step-by-step instructions for granting required permissions
+- **Node.js Path Detection**: Automatic detection of Node.js installation path
+- **Symlink Detection**: Identifies when symlinks are needed for hidden Node installations
+- **Screen Recording**: Automated checking of Screen Recording permission
+- **Accessibility Access**: Automated checking of Accessibility permission
+
+#### CI/CD & Quality Assurance
+- **GitHub Actions Pipeline**: Automated testing on push and pull requests
+- **Multi-Platform Testing**: Tests across macOS, Windows, and Linux
+- **Multi-Version Support**: Validates against Node.js 18.x, 20.x, and 22.x
+- **MCP Structure Validation**: Ensures MCP protocol compliance
+- **Server Startup Tests**: Validates server initialization across all variants
+- **Quality Checks**: Automated markdown linting and code quality validation
+- **Branch Protection**: Automated checks on main, develop, and Claude branches
+
+#### Claude Identity Server
+- **`mcp-eyes-claude`**: New server variant optimized for Claude Desktop integration
+- **Identity Handling**: Proper server identification for Claude compatibility
+- **Simplified Configuration**: Streamlined setup for Claude Desktop users
+
 ### Build System Overhaul
 
 - **Clean TypeScript Build**: Simplified build process using `tsc` with proper tsconfig.json
 - **Cross-Platform Clean**: Added `rimraf` for reliable dist directory cleanup across platforms
 - **Optimized Package**: Enhanced `.npmignore` to exclude unnecessary files from NPM distribution
-- **Version Management**: Streamlined to only 2 package variants for clarity and maintainability
+- **Version Management**: Streamlined to 3 package variants for clarity and maintainability
+- **Executable Scripts**: Automated executable permission setting with `postbuild` hook
 
 ### Package Structure
 
 - **`mcp-eyes`**: Advanced version (default) - includes all features and AI analysis
 - **`mcp-eyes-basic`**: Basic version - essential Apple Accessibility and screenshot features only
+- **`mcp-eyes-claude`**: Claude Identity version - optimized for Claude Desktop
 
 ### NPM Publishing Ready
 
 - **Automatic Installation**: NPX configuration with `-y` flag for seamless installation
 - **Version Control**: Proper semantic versioning and package management
 - **Clean Distribution**: Optimized package size with only essential files included
+- **Script Automation**: Automated version bumping and publishing workflows
 
 ## 🤖 AI Analysis & OCR Capabilities (Advanced Server Only)
 
@@ -744,35 +821,72 @@ npm run dev
 ### Testing
 
 ```bash
-# Test all variants
+# Run all tests (recommended)
 npm run test:all
 
-# Test cross-platform functionality
-npm run test:cross-platform
+# Run MCP structure validation
+npm run test:validate-mcp
 
-# Test specific fixes
-npm run test:fixes
+# Run server startup tests
+npm run test:startup
 
-# Test coordinates functionality
-npm run test:coordinates
-
-# Test window bounds
-npm run test:window-bounds
-
-# Test PowerShell integration
-npm run test:powershell
-
-# Test Cursor integration
-npm run test:cursor
-
-# Test auto-fix functionality
-npm run test:auto
-
-# Test single task functionality
-npm run test:single
-
-# Run basic test
+# Run basic test suite
 npm test
+
+# Lint markdown documentation
+npm run lint:md
+
+# Auto-fix markdown issues
+npm run lint:md:fix
+```
+
+### Logging & Debugging
+
+MCP-Eyes includes a comprehensive logging system for troubleshooting and debugging:
+
+#### Log Location
+```bash
+# Logs are stored in your home directory
+~/.mcp-eyes/mcp_eyes.log
+```
+
+#### Log Levels
+```bash
+# Set log level via environment variable
+export MCP_EYES_LOG_LEVEL=debug  # DEBUG, INFO, WARN, ERROR, FATAL
+```
+
+#### View Logs
+```bash
+# Tail logs in real-time
+tail -f ~/.mcp-eyes/mcp_eyes.log
+
+# View recent logs
+tail -100 ~/.mcp-eyes/mcp_eyes.log
+
+# Search for errors
+grep "ERROR" ~/.mcp-eyes/mcp_eyes.log
+
+# View specific session
+grep "session-abc123" ~/.mcp-eyes/mcp_eyes.log
+```
+
+#### Log Format
+Each log entry includes:
+- **Timestamp**: ISO 8601 format with timezone
+- **Level**: Log severity (DEBUG, INFO, WARN, ERROR, FATAL)
+- **Session ID**: Unique identifier for each server instance
+- **PID**: Process ID
+- **Hostname**: Machine hostname
+- **Message**: Human-readable message
+- **Context**: Additional structured data
+- **Stack Trace**: For errors and crashes
+
+#### Crash Analysis
+Crashes are automatically logged with full stack traces and context:
+```bash
+# View crash reports
+grep "CRASH" ~/.mcp-eyes/mcp_eyes.log
 ```
 
 ## 📋 Requirements
@@ -1649,6 +1763,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
+### ✅ Completed Features
+
 - [x] **AI-Enhanced Screenshot Analysis** - Intelligent UI element detection and natural language interaction
 - [x] **OCR Recognition** - Multi-method text detection for browser automation
 - [x] **Hybrid Analysis** - Combined Apple Window Manager, OCR, and Local LLM approaches
@@ -1656,17 +1772,33 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Accessibility-First Server** - Optimized for accessibility and screen reader compatibility
 - [x] **Clean Build System** - Modern TypeScript build with rimraf for cross-platform compatibility
 - [x] **NPM Publishing Ready** - Optimized package structure with automatic installation via NPX
-- [x] **Package Consolidation** - Streamlined to 2 clear variants: Basic and Advanced
+- [x] **Package Consolidation** - Streamlined to 3 clear variants: Basic, Advanced, and Claude Identity
 - [x] **Local LLM Integration** - Support for LM Studio, Ollama, and other local AI providers
+- [x] **Enterprise Logging System** - Comprehensive logging with session tracking and crash analysis
+- [x] **Permission Management** - Automated macOS permission checking and guidance
+- [x] **CI/CD Pipeline** - GitHub Actions with multi-platform testing and quality checks
+- [x] **MCP Validation** - Automated protocol compliance testing
+- [x] **Server Health Checks** - Startup validation for all server variants
+- [x] **Claude Desktop Integration** - Dedicated server variant for Claude compatibility
+
+### 🚧 In Progress
+
 - [ ] Enhanced Windows PowerShell integration
 - [ ] Linux Wayland support
 - [ ] Advanced computer vision integration
+
+### 📋 Planned Features
+
 - [ ] Plugin system for custom tools
 - [ ] Web-based configuration interface
 - [ ] Performance optimization for large screenshots
 - [ ] Advanced multi-display window management
 - [ ] Real-time UI state monitoring
 - [ ] Advanced workflow automation with conditional logic
+- [ ] Visual element detection using ML models
+- [ ] Browser extension for enhanced web automation
+- [ ] Recording and playback of automation workflows
+- [ ] Distributed testing across multiple machines
 
 ---
 
