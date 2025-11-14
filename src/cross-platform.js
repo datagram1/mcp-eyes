@@ -56,7 +56,7 @@ var CrossPlatformGUIControlServer = /** @class */ (function () {
         this.platform = this.detectPlatform();
         this.server = new index_js_1.Server({
             name: 'cross-platform-gui-control',
-            version: '1.1.12',
+            version: '1.1.15',
         });
         this.setupToolHandlers();
     }

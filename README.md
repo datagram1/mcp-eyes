@@ -23,7 +23,7 @@
 
 Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
 
-#### Basic Server (Essential Features)
+#### Basic Server (Essential Features) - Auto Updating
 
 ```json
 {
@@ -40,7 +40,7 @@ Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
 }
 ```
 
-#### Advanced Server (All Features) - Default - (local LM Studio)
+#### Advanced Server (All Features) - Default Auto Updating - (local LM Studio)
 
 ```json
 {

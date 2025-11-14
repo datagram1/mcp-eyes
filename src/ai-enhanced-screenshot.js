@@ -65,7 +65,7 @@ var AIEnhancedScreenshotServer = /** @class */ (function () {
         this.logFile = '/Users/richardbrown/dev/mcp_eyes/test-screenshots/ai-enhanced-debug-log.md';
         this.server = new index_js_1.Server({
             name: 'ai-enhanced-screenshot',
-            version: '1.1.12',
+            version: '1.1.15',
         });
         this.setupToolHandlers();
     }

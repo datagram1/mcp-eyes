@@ -57,7 +57,7 @@ class ChatGPTWorkflowServer {
   constructor() {
     this.server = new Server({
       name: 'chatgpt-workflow',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     this.setupToolHandlers();

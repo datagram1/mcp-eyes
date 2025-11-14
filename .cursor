@@ -65,3 +65,46 @@ mcp-eyes/
 ```
 
 This ensures test, debug, and documentation files are organized but still accessible for development.
+
+## MCP Eyes Logging Directive
+
+### LOG FILE LOCATION
+
+**CRITICAL**: The MCP-eyes log file is ALWAYS located at:
+```
+~/.mcp-eyes/mcp_eyes.log
+```
+
+### LOG READING STRATEGY
+
+When asked to "read the log file" or "check for errors" in MCP-eyes:
+
+1. **File Path**: Always use `~/.mcp-eyes/mcp_eyes.log`
+2. **Reading Strategy**: Read the END of the file (last 50-100 lines) rather than the entire file
+3. **Time-based Analysis**: Look for the most recent session entries with timestamps
+4. **Error Detection**: Focus on ERROR, WARN, or CRITICAL log levels in recent entries
+
+### EFFICIENT LOG ANALYSIS
+
+- Use `tail -n 100 ~/.mcp-eyes/mcp_eyes.log` to get recent entries
+- Look for timestamp patterns to identify session boundaries
+- Focus on entries from the current day or most recent session
+- Check for error patterns, stack traces, or failure indicators
+
+### COMMON LOG PATTERNS TO WATCH FOR
+
+- `ERROR:` - Critical issues requiring attention
+- `WARN:` - Potential problems or deprecated usage
+- `CRITICAL:` - System-level failures
+- Stack traces or exception details
+- Connection failures or timeout errors
+- Permission denied errors
+
+### IMPLEMENTATION NOTES
+
+- The log file uses structured logging with timestamps
+- Each session typically starts with initialization messages
+- Error patterns often include context about which MCP tool failed
+- Recent entries are most relevant for troubleshooting current issues
+
+**REMEMBER**: Always check `~/.mcp-eyes/mcp_eyes.log` when debugging MCP-eyes issues, and read from the end of the file to get the most recent session data.

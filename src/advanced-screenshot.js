@@ -75,7 +75,7 @@ var AdvancedScreenshotMacOSGUIControlServer = /** @class */ (function () {
         this.logFile = '/Users/richardbrown/dev/mcp_eyes/test-screenshots/mcp-eyes-debug-log.md';
         this.server = new index_js_1.Server({
             name: 'advanced-screenshot-macos-gui-control',
-            version: '1.1.12',
+            version: '1.1.15',
         });
         this.setupToolHandlers();
     }

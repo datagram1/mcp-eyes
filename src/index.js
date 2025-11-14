@@ -53,7 +53,7 @@ var MacOSGUIControlServer = /** @class */ (function () {
         this.currentApp = null;
         this.server = new index_js_1.Server({
             name: 'macos-gui-control',
-            version: '1.1.12',
+            version: '1.1.15',
         });
         this.setupToolHandlers();
     }

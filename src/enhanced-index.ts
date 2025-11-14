@@ -64,7 +64,7 @@ class EnhancedMacOSGUIControlServer {
   constructor() {
     this.server = new Server({
       name: 'enhanced-macos-gui-control',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     this.setupToolHandlers();

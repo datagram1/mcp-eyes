@@ -55,7 +55,7 @@ var ChatGPTWorkflowServer = /** @class */ (function () {
         this.logFile = '/Users/richardbrown/dev/mcp_eyes/test-screenshots/chatgpt-workflow-debug-log.md';
         this.server = new index_js_1.Server({
             name: 'chatgpt-workflow',
-            version: '1.1.12',
+            version: '1.1.15',
         });
         this.setupToolHandlers();
     }

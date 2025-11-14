@@ -69,7 +69,7 @@ class WebAwareServer {
   constructor() {
     this.server = new Server({
       name: 'web-aware-server',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     this.webDetector = new WebContentDetector();

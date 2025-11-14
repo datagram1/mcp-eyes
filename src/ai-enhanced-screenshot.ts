@@ -67,7 +67,7 @@ class AIEnhancedScreenshotServer {
   constructor() {
     this.server = new Server({
       name: 'ai-enhanced-screenshot',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     this.setupToolHandlers();

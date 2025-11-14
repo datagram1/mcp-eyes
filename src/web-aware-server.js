@@ -57,7 +57,7 @@ var WebAwareServer = /** @class */ (function () {
         this.logFile = '/Users/richardbrown/dev/mcp_eyes/test-screenshots/web-aware-debug-log.md';
         this.server = new index_js_1.Server({
             name: 'web-aware-server',
-            version: '1.1.12',
+            version: '1.1.15',
         });
         this.webDetector = new web_content_detector_1.WebContentDetector();
         this.setupToolHandlers();

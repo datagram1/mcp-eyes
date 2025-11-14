@@ -124,3 +124,9 @@ npm_publish.log
 
 # Deployment script (local installation)
 deploy.sh
+
+# Local development files
+local-dev.sh
+test-local.js
+local-mcp-config.json
+LOCAL_DEVELOPMENT.md

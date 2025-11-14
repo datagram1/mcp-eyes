@@ -91,7 +91,7 @@ class AccessibilityFirstServer {
   constructor() {
     this.server = new Server({
       name: 'accessibility-first-server',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     // Initialize analyzers

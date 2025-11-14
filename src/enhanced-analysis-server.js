@@ -60,7 +60,7 @@ var EnhancedAnalysisServer = /** @class */ (function () {
         this.config = config;
         this.server = new index_js_1.Server({
             name: 'enhanced-analysis-server',
-            version: '1.1.12',
+            version: '1.1.15',
         });
         // Initialize analyzers
         this.ocrAnalyzer = new ocr_analyzer_1.OCRAnalyzer();

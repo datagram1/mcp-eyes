@@ -13,6 +13,8 @@ import { run } from '@jxa/run';
 import sharp from 'sharp';
 // @ts-ignore
 import { checkPermissions } from 'node-mac-permissions';
+import { getWindowBoundsAppleScript } from './window-bounds-helper.js';
+import { logger, setupGlobalErrorHandlers } from './logger.js';
 
 // Type declarations for modules without types
 declare const Application: any;
@@ -41,24 +43,27 @@ class BasicServer {
   private currentApp: AppInfo | null = null;
 
   constructor() {
+    // Initialize global error handlers first
+    setupGlobalErrorHandlers(logger);
+    
     this.server = new Server({
       name: 'mcp-eyes-basic',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     this.setupToolHandlers();
     this.setupErrorHandling();
+    
+    logger.logServerEvent('BasicServer initialized', {
+      serverName: 'mcp-eyes-basic',
+      version: '1.1.15'
+    });
   }
 
   private setupErrorHandling(): void {
     this.server.onerror = (error) => {
-      console.error('[MCP Error]', error);
+      logger.error('MCP Server error', { error: error.message }, error);
     };
-
-    process.on('SIGINT', async () => {
-      await this.server.close();
-      process.exit(0);
-    });
   }
 
   private setupToolHandlers(): void {
@@ -67,7 +72,7 @@ class BasicServer {
         tools: [
           {
             name: 'listApplications',
-            description: 'List all running applications with their window bounds and identifiers.',
+            description: '🎯 MCP-EYES: List all running applications with their window bounds and identifiers. Essential for finding apps before closing them.',
             inputSchema: {
               type: 'object',
               properties: {},
@@ -75,13 +80,13 @@ class BasicServer {
           },
           {
             name: 'focusApplication',
-            description: 'Focus on a specific application by bundle ID or PID.',
+            description: '🎯 MCP-EYES: Focus on a specific application by bundle ID or PID. Use this before taking screenshots or clicking elements.',
             inputSchema: {
               type: 'object',
               properties: {
                 identifier: {
                   type: 'string',
-                  description: 'Bundle ID (e.g., com.apple.Safari) or PID of the application to focus',
+                  description: 'Bundle ID (e.g., com.apple.Music) or PID of the application to focus',
                 },
               },
               required: ['identifier'],
@@ -89,13 +94,13 @@ class BasicServer {
           },
           {
             name: 'closeApp',
-            description: 'Close/quit a specific application by bundle ID, name, or PID.',
+            description: '🎯 MCP-EYES: Close/quit a specific application by bundle ID, name, or PID. This is the preferred method for closing applications when using MCP-eyes toolkit. Supports graceful quit with fallback to force close.',
             inputSchema: {
               type: 'object',
               properties: {
                 identifier: {
                   type: 'string',
-                  description: 'Bundle ID (e.g., com.apple.Safari), app name (e.g., Safari), or PID of the application to close',
+                  description: 'Bundle ID (e.g., com.apple.Music), app name (e.g., Music), or PID of the application to close',
                 },
                 force: {
                   type: 'boolean',
@@ -203,6 +208,25 @@ class BasicServer {
               required: ['elementIndex'],
             },
           },
+          {
+            name: 'findAndCloseApp',
+            description: '🎯 MCP-EYES: Find and close an application by name. This is the complete workflow for locating and closing apps using MCP-eyes toolkit.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                appName: {
+                  type: 'string',
+                  description: 'Name of the application to find and close (e.g., "Music", "Safari", "Chrome")',
+                },
+                force: {
+                  type: 'boolean',
+                  description: 'Force close the application if graceful quit fails (default: false)',
+                  default: false,
+                },
+              },
+              required: ['appName'],
+            },
+          },
         ],
       };
     });
@@ -211,36 +235,56 @@ class BasicServer {
       const { name, arguments: args } = request.params;
 
       try {
+        logger.debug(`Tool called: ${name}`, { args });
+        
+        let result;
         switch (name) {
           case 'listApplications':
-            return await this.listApplications();
+            result = await this.listApplications();
+            break;
 
           case 'focusApplication':
-            return await this.focusApplication(args?.identifier as string);
+            result = await this.focusApplication(args?.identifier as string);
+            break;
 
           case 'closeApp':
-            return await this.closeApp(args?.identifier as string, (args?.force as boolean) || false);
+            result = await this.closeApp(args?.identifier as string, (args?.force as boolean) || false);
+            break;
 
           case 'click':
-            return await this.click(args?.x as number, args?.y as number, (args?.button as string) || 'left');
+            result = await this.click(args?.x as number, args?.y as number, (args?.button as string) || 'left');
+            break;
 
           case 'moveMouse':
-            return await this.moveMouse(args?.x as number, args?.y as number);
+            result = await this.moveMouse(args?.x as number, args?.y as number);
+            break;
 
           case 'screenshot':
-            return await this.screenshot((args?.padding as number) || 10, (args?.format as string) || 'png', (args?.quality as number) || 90);
+            result = await this.screenshot((args?.padding as number) || 10, (args?.format as string) || 'png', (args?.quality as number) || 90);
+            break;
 
           case 'getClickableElements':
-            return await this.getClickableElements();
+            result = await this.getClickableElements();
+            break;
 
           case 'clickElement':
-            return await this.clickElement(args?.elementIndex as number);
+            result = await this.clickElement(args?.elementIndex as number);
+            break;
+
+          case 'findAndCloseApp':
+            result = await this.findAndCloseApp(args?.appName as string, (args?.force as boolean) || false);
+            break;
 
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
+        
+        logger.logToolExecution(name, args, result);
+        return result;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.logToolExecution(name, args, null, error instanceof Error ? error : new Error(errorMessage));
+        
         return {
           content: [
             {
@@ -255,6 +299,7 @@ class BasicServer {
 
   private async listApplications(): Promise<any> {
     try {
+      logger.debug('Listing applications');
       const apps = await run(() => {
         const app = Application.currentApplication();
         app.includeStandardAdditions = true;
@@ -292,7 +337,7 @@ class BasicServer {
         return appList;
       });
 
-      return {
+      const result = {
         content: [
           {
             type: 'text',
@@ -305,78 +350,150 @@ class BasicServer {
           },
         ],
       };
+      
+      logger.info(`Listed ${(apps as any[]).length} applications`);
+      return result;
     } catch (error) {
+      logger.error('Failed to list applications', { error: error instanceof Error ? error.message : String(error) }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to list applications: ${error}`);
     }
   }
 
   private async focusApplication(identifier: string): Promise<any> {
     try {
-      const appInfo = await run((identifier) => {
-        const app = (Application as any).currentApplication();
+      logger.debug(`Focusing application: ${identifier}`);
+      // Use the same approach as listApplications for consistency
+      const apps = await run(() => {
+        const app = Application.currentApplication();
         app.includeStandardAdditions = true;
 
-        // Try to find app by bundle ID first, then by name
-        const runningApps = (Application as any)('System Events').applicationProcesses();
-        let targetApp = null;
+        const runningApps = Application('System Events').applicationProcesses();
+        const appList = [];
 
         for (let i = 0; i < runningApps.length; i++) {
-          const appBundleId = runningApps[i].bundleIdentifier();
           const appName = runningApps[i].name();
-          
-          if (appBundleId === identifier || appName === identifier) {
-            targetApp = runningApps[i];
-            break;
+          const appBundleId = runningApps[i].bundleIdentifier();
+          const appPid = runningApps[i].unixId();
+
+          // Get window bounds
+          const windows = runningApps[i].windows();
+          let bounds = { x: 0, y: 0, width: 0, height: 0 };
+
+          if (windows.length > 0) {
+            const window = windows[0];
+            bounds = {
+              x: window.position()[0],
+              y: window.position()[1],
+              width: window.size()[0],
+              height: window.size()[1],
+            };
           }
+
+          appList.push({
+            name: appName,
+            bundleId: appBundleId,
+            pid: appPid,
+            bounds: bounds,
+          });
         }
 
-        if (!targetApp) {
-          throw new Error(`Application not found: ${identifier}`);
+        return appList;
+      });
+
+      let targetApp: AppInfo | undefined;
+      
+      // Try to find by bundle ID first
+      targetApp = (apps as any[]).find((app: any) => app.bundleId === identifier);
+      
+      // If not found, try by PID
+      if (!targetApp) {
+        const pid = parseInt(identifier);
+        if (!isNaN(pid)) {
+          targetApp = (apps as any[]).find((app: any) => app.pid === pid);
         }
+      }
 
-        // Activate the application
-        targetApp.activate();
+      // If still not found, try by name (partial match)
+      if (!targetApp) {
+        targetApp = (apps as any[]).find((app: any) => 
+          app.name.toLowerCase().includes(identifier.toLowerCase())
+        );
+      }
 
-        // Get updated bounds after activation
-        const windows = targetApp.windows();
-        let bounds = { x: 0, y: 0, width: 0, height: 0 };
+      if (!targetApp) {
+        throw new Error(`Application not found: ${identifier}`);
+      }
 
-        if (windows.length > 0) {
-          const window = windows[0];
-          bounds = {
-            x: window.position()[0],
-            y: window.position()[1],
-            width: window.size()[0],
-            height: window.size()[1],
-          };
+      // Focus the application using System Events for better reliability
+      await run((bundleId: string) => {
+        const app = Application.currentApplication();
+        app.includeStandardAdditions = true;
+        
+        // Try multiple methods to ensure the app is focused
+        try {
+          // Method 1: Direct activation
+          const targetApp = Application(bundleId);
+          targetApp.activate();
+          
+          // Method 2: Use System Events to bring to front
+          const systemEvents = Application('System Events');
+          const processes = systemEvents.applicationProcesses();
+          
+          for (let i = 0; i < processes.length; i++) {
+            if (processes[i].bundleIdentifier() === bundleId) {
+              processes[i].activate();
+              break;
+            }
+          }
+          
+          // Method 3: Bring all windows to front
+          const windows = targetApp.windows();
+          for (let j = 0; j < windows.length; j++) {
+            windows[j].visible = true;
+          }
+          
+        } catch (error) {
+          console.log('Focus attempt failed:', error);
         }
+      }, targetApp.bundleId);
 
-        return {
-          name: targetApp.name(),
-          bundleId: targetApp.bundleIdentifier(),
-          pid: targetApp.unixId(),
-          bounds: bounds,
-        };
-      }, identifier);
+      // Wait a moment for the focus to take effect
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-      this.currentApp = appInfo as AppInfo;
+      // Get updated bounds after focusing
+      const updatedBounds = await getWindowBoundsAppleScript(targetApp.name, targetApp.pid);
+      if (updatedBounds) {
+        targetApp.bounds = updatedBounds;
+      }
 
-      return {
+      // Verify the app is actually focused by checking if it has valid bounds
+      if (targetApp.bounds.width === 0 || targetApp.bounds.height === 0) {
+        console.log('Warning: App may not be properly focused - bounds are zero');
+      }
+
+      this.currentApp = targetApp;
+
+      const result = {
         content: [
           {
             type: 'text',
-            text: `Focused on ${(appInfo as any).name} (${(appInfo as any).bundleId})\nPID: ${(appInfo as any).pid}\nBounds: ${(appInfo as any).bounds.width}x${(appInfo as any).bounds.height} at (${(appInfo as any).bounds.x}, ${(appInfo as any).bounds.y})`,
+            text: `🎯 MCP-EYES: Successfully focused on ${targetApp.name} (${targetApp.bundleId})\nPID: ${targetApp.pid}\nBounds: ${targetApp.bounds.width}x${targetApp.bounds.height} at (${targetApp.bounds.x}, ${targetApp.bounds.y})\n\nApp is now ready for screenshots and interactions.`,
           },
         ],
       };
+      
+      logger.logAppInteraction('focus', targetApp);
+      return result;
     } catch (error) {
+      logger.error(`Failed to focus application: ${identifier}`, { identifier }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to focus application: ${error}`);
     }
   }
 
   private async closeApp(identifier: string, force: boolean = false): Promise<any> {
     try {
-      const result = await run((identifier, force) => {
+      logger.debug(`Closing application: ${identifier}`, { force });
+      const closeResult = await run((identifier, force) => {
         const app = Application.currentApplication();
         app.includeStandardAdditions = true;
 
@@ -446,7 +563,7 @@ class BasicServer {
         }
       }, identifier, force);
 
-      const typedResult = result as {
+      const typedResult = closeResult as {
         success: boolean;
         method: string;
         appInfo: { name: string; bundleId: string; pid: number };
@@ -460,7 +577,7 @@ class BasicServer {
         this.currentApp = null;
       }
 
-      return {
+      const closeAppResult = {
         content: [
           {
             type: 'text',
@@ -468,7 +585,11 @@ class BasicServer {
           },
         ],
       };
+      
+      logger.logAppInteraction('close', typedResult.appInfo, { method: typedResult.method });
+      return closeAppResult;
     } catch (error) {
+      logger.error(`Failed to close application: ${identifier}`, { identifier, force }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to close application: ${error}`);
     }
   }
@@ -479,6 +600,11 @@ class BasicServer {
     }
 
     try {
+      logger.debug(`Clicking at (${x}, ${y}) with ${button} button`, { 
+        normalized: { x, y }, 
+        app: this.currentApp.name 
+      });
+      
       // Convert normalized coordinates to absolute screen coordinates
       const screenX = this.currentApp.bounds.x + (x * this.currentApp.bounds.width);
       const screenY = this.currentApp.bounds.y + (y * this.currentApp.bounds.height);
@@ -493,7 +619,7 @@ class BasicServer {
       await mouse.setPosition({ x: screenX, y: screenY });
       await mouse.click(buttonMap[button]);
 
-      return {
+      const result = {
         content: [
           {
             type: 'text',
@@ -501,7 +627,19 @@ class BasicServer {
           },
         ],
       };
+      
+      logger.logAppInteraction('click', this.currentApp, { 
+        normalized: { x, y }, 
+        screen: { x: screenX, y: screenY }, 
+        button 
+      });
+      return result;
     } catch (error) {
+      logger.error(`Failed to click at (${x}, ${y})`, { 
+        normalized: { x, y }, 
+        button, 
+        app: this.currentApp?.name 
+      }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to click: ${error}`);
     }
   }
@@ -537,8 +675,17 @@ class BasicServer {
     }
 
     try {
+      logger.debug(`Taking screenshot`, { 
+        padding, 
+        format, 
+        quality, 
+        app: this.currentApp.name 
+      });
+      
       // Check permissions
       const screenRecordingStatus = await checkPermissions('screen');
+      logger.logPermissionCheck('screen', screenRecordingStatus);
+      
       if (screenRecordingStatus !== 'authorized') {
         throw new Error('Screen Recording permission is required. Please grant permission in System Preferences > Security & Privacy > Privacy > Screen Recording.');
       }
@@ -572,7 +719,7 @@ class BasicServer {
       const base64Image = croppedImage.toString('base64');
       const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
 
-      return {
+      const result = {
         content: [
           {
             type: 'text',
@@ -585,7 +732,21 @@ class BasicServer {
           },
         ],
       };
+      
+      logger.logAppInteraction('screenshot', this.currentApp, { 
+        dimensions: { width: cropWidth, height: cropHeight },
+        format,
+        quality,
+        padding
+      });
+      return result;
     } catch (error) {
+      logger.error(`Failed to take screenshot`, { 
+        app: this.currentApp?.name,
+        padding,
+        format,
+        quality
+      }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to take screenshot: ${error}`);
     }
   }
@@ -767,12 +928,104 @@ class BasicServer {
     }
   }
 
+  private async findAndCloseApp(appName: string, force: boolean = false): Promise<any> {
+    try {
+      // First, list all applications to find the target app
+      const appsResult = await this.listApplications();
+      const appsText = appsResult.content[0].text;
+      
+      // Parse the applications from the text output
+      const apps: AppInfo[] = [];
+      const lines = appsText.split('\n');
+      let currentApp: any = {};
+      
+      for (const line of lines) {
+        if (line.startsWith('•')) {
+          if (currentApp.name) {
+            apps.push(currentApp);
+          }
+          const match = line.match(/• (.+?) \((.+?)\)/);
+          if (match) {
+            currentApp = {
+              name: match[1],
+              bundleId: match[2],
+              pid: 0,
+              bounds: { x: 0, y: 0, width: 0, height: 0 }
+            };
+          }
+        } else if (line.includes('PID:')) {
+          const pidMatch = line.match(/PID: (\d+)/);
+          if (pidMatch) {
+            currentApp.pid = parseInt(pidMatch[1]);
+          }
+        } else if (line.includes('Bounds:')) {
+          const boundsMatch = line.match(/Bounds: (\d+)x(\d+) at \(([^,]+), ([^)]+)\)/);
+          if (boundsMatch) {
+            currentApp.bounds = {
+              width: parseInt(boundsMatch[1]),
+              height: parseInt(boundsMatch[2]),
+              x: parseInt(boundsMatch[3]),
+              y: parseInt(boundsMatch[4])
+            };
+          }
+        }
+      }
+      if (currentApp.name) {
+        apps.push(currentApp);
+      }
+
+      // Find the target application
+      const targetApp = apps.find(app => 
+        app.name.toLowerCase().includes(appName.toLowerCase()) ||
+        app.bundleId.toLowerCase().includes(appName.toLowerCase())
+      );
+
+      if (!targetApp) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Application "${appName}" not found. Available applications:\n\n${apps.map(app => `• ${app.name} (${app.bundleId})`).join('\n')}`,
+            },
+          ],
+        };
+      }
+
+      // Close the application
+      const closeResult = await this.closeApp(targetApp.bundleId, force);
+      
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `🎯 MCP-EYES: Successfully found and closed "${targetApp.name}" (${targetApp.bundleId})\n\n${closeResult.content[0].text}`,
+          },
+        ],
+      };
+    } catch (error) {
+      throw new Error(`Failed to find and close application: ${error}`);
+    }
+  }
+
   async run(): Promise<void> {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('MCP Eyes Basic Server running on stdio');
+    try {
+      logger.logServerEvent('Starting BasicServer');
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      logger.logServerEvent('BasicServer connected to stdio transport');
+      console.error('MCP Eyes Basic Server running on stdio');
+    } catch (error) {
+      logger.error('Failed to start BasicServer', { error: error instanceof Error ? error.message : String(error) }, error instanceof Error ? error : undefined);
+      throw error;
+    }
   }
 }
 
 const server = new BasicServer();
-server.run().catch(console.error);
+server.run().catch((error) => {
+  logger.logCrash(error instanceof Error ? error : new Error(String(error)), { 
+    context: 'BasicServer startup' 
+  });
+  console.error('MCP Eyes Basic Server failed to start:', error);
+  process.exit(1);
+});

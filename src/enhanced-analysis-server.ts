@@ -70,7 +70,7 @@ class EnhancedAnalysisServer {
     this.config = config;
     this.server = new Server({
       name: 'enhanced-analysis-server',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     // Initialize analyzers

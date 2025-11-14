@@ -44,7 +44,7 @@ class AdvancedScreenshotMacOSGUIControlServer {
   constructor() {
     this.server = new Server({
       name: 'advanced-screenshot-macos-gui-control',
-      version: '1.1.12',
+      version: '1.1.15',
     });
 
     this.setupToolHandlers();
