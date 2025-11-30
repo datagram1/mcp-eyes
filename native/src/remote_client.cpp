@@ -299,10 +299,10 @@ public:
         return platform_->press_key(key);
     }
 
-    std::vector<UIElement> get_clickable_elements() {
+    std::vector<UIElement> get_clickable_elements(bool clickable_only) {
         auto* focused = platform_->get_focused_app();
         if (!focused) return {};
-        return platform_->get_clickable_elements(focused->name);
+        return platform_->get_clickable_elements(focused->name, clickable_only);
     }
 
     std::vector<OCRResult> analyze_with_ocr() {
@@ -349,7 +349,7 @@ Screenshot Agent::take_screenshot(int padding) { return impl_->take_screenshot(p
 bool Agent::click(float x, float y, bool right) { return impl_->click(x, y, right); }
 bool Agent::type_text(const std::string& text) { return impl_->type_text(text); }
 bool Agent::press_key(const std::string& key) { return impl_->press_key(key); }
-std::vector<UIElement> Agent::get_clickable_elements() { return impl_->get_clickable_elements(); }
+std::vector<UIElement> Agent::get_clickable_elements(bool clickable_only) { return impl_->get_clickable_elements(clickable_only); }
 std::vector<OCRResult> Agent::analyze_with_ocr() { return impl_->analyze_with_ocr(); }
 
 } // namespace mcp_eyes

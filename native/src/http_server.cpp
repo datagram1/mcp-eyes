@@ -181,6 +181,21 @@ private:
             auto apps = platform_->list_applications();
             json j = json::array();
             for (const auto& app : apps) {
+                json windows = json::array();
+                for (const auto& window : app.windows) {
+                    windows.push_back({
+                        {"title", window.title},
+                        {"bounds", {
+                            {"x", window.bounds.x},
+                            {"y", window.bounds.y},
+                            {"width", window.bounds.width},
+                            {"height", window.bounds.height}
+                        }},
+                        {"is_minimized", window.is_minimized},
+                        {"is_main", window.is_main}
+                    });
+                }
+
                 j.push_back({
                     {"name", app.name},
                     {"bundle_id", app.bundle_id},
@@ -190,7 +205,8 @@ private:
                         {"y", app.bounds.y},
                         {"width", app.bounds.width},
                         {"height", app.bounds.height}
-                    }}
+                    }},
+                    {"windows", windows}
                 });
             }
             res.set_content(j.dump(), "application/json");
@@ -267,6 +283,24 @@ private:
             }
         });
 
+        server_->Post("/click_absolute", [this, auth_check](const httplib::Request& req, httplib::Response& res) {
+            if (!auth_check(req)) { res.status = 401; return; }
+
+            try {
+                auto j = json::parse(req.body);
+                int x = j["x"];
+                int y = j["y"];
+                bool right = j.value("button", "left") == "right";
+
+                bool success = platform_->click(x, y, right);
+                res.set_content(success ? "true" : "false", "application/json");
+            } catch (const std::exception& e) {
+                res.status = 400;
+                json err = {{"error", e.what()}};
+                res.set_content(err.dump(), "application/json");
+            }
+        });
+
         server_->Post("/typeText", [this, auth_check](const httplib::Request& req, httplib::Response& res) {
             if (!auth_check(req)) { res.status = 401; return; }
 
@@ -306,7 +340,40 @@ private:
                 return;
             }
 
-            auto elements = platform_->get_clickable_elements(focused->name);
+            auto elements = platform_->get_clickable_elements(focused->name, true);
+            json j = json::array();
+            for (const auto& el : elements) {
+                j.push_back({
+                    {"type", el.type},
+                    {"text", el.text},
+                    {"role", el.role},
+                    {"bounds", {
+                        {"x", el.bounds.x},
+                        {"y", el.bounds.y},
+                        {"width", el.bounds.width},
+                        {"height", el.bounds.height}
+                    }},
+                    {"normalized_position", {
+                        {"x", el.normalized_position.x},
+                        {"y", el.normalized_position.y}
+                    }},
+                    {"is_clickable", el.is_clickable},
+                    {"is_enabled", el.is_enabled}
+                });
+            }
+            res.set_content(j.dump(), "application/json");
+        });
+
+        server_->Get("/getUIElements", [this, auth_check](const httplib::Request& req, httplib::Response& res) {
+            if (!auth_check(req)) { res.status = 401; return; }
+
+            auto* focused = platform_->get_focused_app();
+            if (!focused) {
+                res.set_content("[]", "application/json");
+                return;
+            }
+
+            auto elements = platform_->get_clickable_elements(focused->name, false);
             json j = json::array();
             for (const auto& el : elements) {
                 j.push_back({
@@ -337,9 +404,9 @@ private:
                 auto screenshot = platform_->take_screenshot();
                 auto results = platform_->perform_ocr(screenshot);
 
-                json j = json::array();
+                json list = json::array();
                 for (const auto& r : results) {
-                    j.push_back({
+                    list.push_back({
                         {"text", r.text},
                         {"confidence", r.confidence},
                         {"bounds", {
@@ -350,7 +417,12 @@ private:
                         }}
                     });
                 }
-                res.set_content(j.dump(), "application/json");
+                json payload = {
+                    {"width", screenshot.width},
+                    {"height", screenshot.height},
+                    {"results", list}
+                };
+                res.set_content(payload.dump(), "application/json");
             } catch (const std::exception& e) {
                 res.status = 500;
                 json err = {{"error", e.what()}};

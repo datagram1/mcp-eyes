@@ -38,6 +38,8 @@ extern "C" {
 @property (strong) NSDate* startTime;
 @property (assign) BOOL isRemoteMode;
 @property (strong) NSURLSession* urlSession;
+@property (assign) BOOL isUpdatingPermissionIndicators;
+@property (assign) BOOL isUpdatingSettingsStatus;
 @end
 
 @implementation AppDelegate
@@ -825,6 +827,17 @@ extern "C" {
 }
 
 - (void)updateSettingsWindowStatus {
+    if (self.isUpdatingSettingsStatus) {
+        return;
+    }
+
+    self.isUpdatingSettingsStatus = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self applySettingsWindowStatus];
+    });
+}
+
+- (void)applySettingsWindowStatus {
     NSString *port = [self loadSetting:kPortKey defaultValue:@"3456"];
     self.statusLabel.stringValue = [NSString stringWithFormat:@"Server: Running on port %@", port];
 
@@ -840,6 +853,7 @@ extern "C" {
     }
 
     [self updatePermissionIndicators];
+    self.isUpdatingSettingsStatus = NO;
 }
 
 #pragma mark - Permissions
@@ -877,6 +891,24 @@ extern "C" {
 }
 
 - (void)updatePermissionIndicators {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updatePermissionIndicators];
+        });
+        return;
+    }
+
+    if (self.isUpdatingPermissionIndicators) {
+        return;
+    }
+
+    self.isUpdatingPermissionIndicators = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self applyPermissionIndicatorState];
+    });
+}
+
+- (void)applyPermissionIndicatorState {
     BOOL hasAccessibility = AXIsProcessTrusted();
     BOOL hasScreenRecording = NO;
     if (@available(macOS 10.15, *)) {
@@ -885,7 +917,6 @@ extern "C" {
         hasScreenRecording = YES;
     }
 
-    // Update accessibility indicator
     self.accessibilityLabel.stringValue = @"Accessibility";
     if (hasAccessibility) {
         self.accessibilityIndicator.image = [NSImage imageWithSystemSymbolName:@"checkmark.circle.fill" accessibilityDescription:@"Granted"];
@@ -895,7 +926,6 @@ extern "C" {
         self.accessibilityIndicator.contentTintColor = [NSColor systemRedColor];
     }
 
-    // Update screen recording indicator
     self.screenRecordingLabel.stringValue = @"Screen Recording";
     if (hasScreenRecording) {
         self.screenRecordingIndicator.image = [NSImage imageWithSystemSymbolName:@"checkmark.circle.fill" accessibilityDescription:@"Granted"];
@@ -904,6 +934,8 @@ extern "C" {
         self.screenRecordingIndicator.image = [NSImage imageWithSystemSymbolName:@"xmark.circle.fill" accessibilityDescription:@"Not Granted"];
         self.screenRecordingIndicator.contentTintColor = [NSColor systemRedColor];
     }
+
+    self.isUpdatingPermissionIndicators = NO;
 }
 
 #pragma mark - Actions

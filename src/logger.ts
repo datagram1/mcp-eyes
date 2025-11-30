@@ -33,18 +33,38 @@ export class Logger {
   private constructor() {
     this.sessionId = this.generateSessionId();
     this.logLevel = LogLevel.INFO;
-    
-    // Create log file in user's home directory to avoid permission issues
-    const homeDir = os.homedir();
-    const logDir = path.join(homeDir, '.mcp-eyes');
-    
-    // Ensure log directory exists
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
-    
-    this.logFile = path.join(logDir, 'mcp_eyes.log');
+
+    this.logFile = this.resolveLogFilePath();
     this.initializeLogFile();
+  }
+
+  private resolveLogFilePath(): string {
+    const candidates: string[] = [];
+    const envOverride = process.env.MCP_EYES_LOG_DIR;
+
+    if (envOverride && envOverride.trim().length > 0) {
+      candidates.push(envOverride);
+    }
+
+    const homeDir = os.homedir();
+    if (homeDir && homeDir.trim().length > 0) {
+      candidates.push(path.join(homeDir, '.mcp-eyes'));
+    }
+
+    candidates.push(path.join(process.cwd(), 'tmp', '.mcp-eyes'));
+    candidates.push(path.join(os.tmpdir(), 'mcp-eyes'));
+
+    for (const dir of candidates) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.accessSync(dir, fs.constants.W_OK);
+        return path.join(dir, 'mcp_eyes.log');
+      } catch {
+        continue;
+      }
+    }
+
+    return path.join(process.cwd(), 'mcp_eyes.log');
   }
 
   public static getInstance(): Logger {

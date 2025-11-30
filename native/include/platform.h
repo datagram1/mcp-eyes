@@ -47,7 +47,7 @@ public:
     virtual bool press_key(const std::string& key) = 0;
 
     // Accessibility / UI elements
-    virtual std::vector<UIElement> get_clickable_elements(const std::string& app_name) = 0;
+    virtual std::vector<UIElement> get_clickable_elements(const std::string& app_name, bool clickableOnly = true) = 0;
 
     // OCR
     virtual std::vector<OCRResult> perform_ocr(const Screenshot& screenshot) = 0;

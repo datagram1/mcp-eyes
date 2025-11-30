@@ -301,7 +301,7 @@ class AdvancedServerSimple {
                         },
                     },
                     {
-                        name: 'closeApplication',
+                        name: 'closeApp',
                         description: 'Close a specific application by bundle ID, name, or PID.',
                         inputSchema: {
                             type: 'object',
@@ -370,8 +370,8 @@ class AdvancedServerSimple {
                     case 'wait':
                         result = await this.wait(args?.milliseconds || 1000);
                         break;
-                    case 'closeApplication':
-                        result = await this.closeApplication(args?.identifier, args?.force || false);
+                    case 'closeApp':
+                        result = await this.closeApp(args?.identifier, args?.force || false);
                         break;
                     default:
                         throw new Error(`Unknown tool: ${name}`);
@@ -387,7 +387,7 @@ class AdvancedServerSimple {
                 if (name === 'focusApplication') {
                     helpfulMessage = `Failed to focus application: ${errorMessage}\n\nTry using:\n- Bundle ID (e.g., com.apple.Music)\n- Application name (e.g., Music)\n- PID number\n\nUse listApplications to see available applications.`;
                 }
-                else if (name === 'closeApplication') {
+                else if (name === 'closeApp') {
                     helpfulMessage = `Failed to close application: ${errorMessage}\n\nTry using:\n- Bundle ID (e.g., com.apple.Music)\n- Application name (e.g., Music)\n- PID number\n\nUse listApplications to see available applications.\nUse force: true to kill the process if graceful close fails.`;
                 }
                 else if (name === 'screenshot') {
@@ -1041,7 +1041,7 @@ class AdvancedServerSimple {
             }, milliseconds);
         });
     }
-    async closeApplication(identifier, force = false) {
+    async closeApp(identifier, force = false) {
         try {
             logger_js_1.logger.debug(`Attempting to close application: ${identifier} (force: ${force})`);
             // First, try to find the application using our listApplications method

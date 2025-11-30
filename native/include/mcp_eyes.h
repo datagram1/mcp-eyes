@@ -23,6 +23,15 @@ class Config;
 /**
  * Application info with window bounds
  */
+struct WindowInfo {
+    std::string title;
+    struct {
+        int x, y, width, height;
+    } bounds;
+    bool is_minimized;
+    bool is_main;
+};
+
 struct AppInfo {
     std::string name;
     std::string bundle_id;  // macOS bundle ID, Windows AUMID, Linux .desktop
@@ -30,6 +39,7 @@ struct AppInfo {
     struct {
         int x, y, width, height;
     } bounds;
+    std::vector<WindowInfo> windows;
 };
 
 /**
@@ -136,7 +146,7 @@ public:
     bool click(float x, float y, bool right_button = false);
     bool type_text(const std::string& text);
     bool press_key(const std::string& key);
-    std::vector<UIElement> get_clickable_elements();
+    std::vector<UIElement> get_clickable_elements(bool clickable_only = true);
     std::vector<OCRResult> analyze_with_ocr();
 
 private:

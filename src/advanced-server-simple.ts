@@ -301,7 +301,7 @@ class AdvancedServerSimple {
             },
           },
           {
-            name: 'closeApplication',
+            name: 'closeApp',
             description: 'Close a specific application by bundle ID, name, or PID.',
             inputSchema: {
               type: 'object',
@@ -386,8 +386,8 @@ class AdvancedServerSimple {
             result = await this.wait((args?.milliseconds as number) || 1000);
             break;
 
-          case 'closeApplication':
-            result = await this.closeApplication(args?.identifier as string, (args?.force as boolean) || false);
+          case 'closeApp':
+            result = await this.closeApp(args?.identifier as string, (args?.force as boolean) || false);
             break;
 
           default:
@@ -405,7 +405,7 @@ class AdvancedServerSimple {
         
         if (name === 'focusApplication') {
           helpfulMessage = `Failed to focus application: ${errorMessage}\n\nTry using:\n- Bundle ID (e.g., com.apple.Music)\n- Application name (e.g., Music)\n- PID number\n\nUse listApplications to see available applications.`;
-        } else if (name === 'closeApplication') {
+        } else if (name === 'closeApp') {
           helpfulMessage = `Failed to close application: ${errorMessage}\n\nTry using:\n- Bundle ID (e.g., com.apple.Music)\n- Application name (e.g., Music)\n- PID number\n\nUse listApplications to see available applications.\nUse force: true to kill the process if graceful close fails.`;
         } else if (name === 'screenshot') {
           helpfulMessage = `Failed to take screenshot: ${errorMessage}\n\nMake sure:\n- An application is focused (use focusApplication first)\n- Screen Recording permission is granted in System Preferences\n- The application window is visible`;
@@ -1148,7 +1148,7 @@ class AdvancedServerSimple {
     });
   }
 
-  private async closeApplication(identifier: string, force: boolean = false): Promise<any> {
+  private async closeApp(identifier: string, force: boolean = false): Promise<any> {
     try {
       logger.debug(`Attempting to close application: ${identifier} (force: ${force})`);
       

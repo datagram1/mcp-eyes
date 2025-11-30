@@ -23,6 +23,7 @@ export declare class Logger {
     private logLevel;
     private isInitialized;
     private constructor();
+    private resolveLogFilePath;
     static getInstance(): Logger;
     private generateSessionId;
     private initializeLogFile;

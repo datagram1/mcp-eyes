@@ -59,6 +59,9 @@ const types_js_1 = require("@modelcontextprotocol/sdk/types.js");
 const http_1 = __importDefault(require("http"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const child_process_1 = require("child_process");
+const util_1 = require("util");
+const execAsync = (0, util_1.promisify)(child_process_1.exec);
 const TOKEN_FILE = path_1.default.join(process.env.HOME || '/tmp', '.mcp-eyes-token');
 const BROWSER_BRIDGE_PORT = parseInt(process.env.BROWSER_BRIDGE_PORT || '3457', 10);
 function loadTokenConfig() {
@@ -217,6 +220,113 @@ class MCPProxyServer {
             return null;
         }
     }
+    /**
+     * Get window information for an application using AppleScript (fallback)
+     */
+    async getWindowsViaAppleScript(bundleId, appName) {
+        try {
+            const escapedBundleId = (bundleId || '').replace(/"/g, '\\"');
+            const escapedAppName = (appName || '').replace(/"/g, '\\"');
+            // Prefer bundle identifier for targeting, fall back to application name if needed
+            const scriptFile = path_1.default.join(process.env.TMPDIR || '/tmp', `mcp-eyes-windows-${Date.now()}.scpt`);
+            const fullScript = `tell application "System Events"
+  set targetProc to missing value
+  if "${escapedBundleId}" is not "" then
+    try
+      set targetProc to first process whose bundle identifier is "${escapedBundleId}"
+    end try
+  end if
+  if targetProc is missing value then
+    try
+      set targetProc to first process whose name is "${escapedAppName}"
+    end try
+  end if
+  if targetProc is missing value then return ""
+
+  set winCount to count of windows of targetProc
+  if winCount = 0 then return ""
+
+  set outputList to {}
+
+  repeat with i from 1 to winCount
+    set winRef to window i of targetProc
+    try
+      set winTitle to ""
+      try
+        set winTitle to title of winRef
+      end try
+
+      set winPos to {0, 0}
+      set winSize to {0, 0}
+      try
+        set winPos to position of winRef
+        set winSize to size of winRef
+      end try
+
+      set posX to item 1 of winPos as string
+      set posY to item 2 of winPos as string
+      set sizeW to item 1 of winSize as string
+      set sizeH to item 2 of winSize as string
+
+      set winMinimized to "false"
+      try
+        set winMinimized to minimized of winRef as string
+      end try
+
+      set end of outputList to winTitle & "|" & posX & "," & posY & "," & sizeW & "," & sizeH & "," & winMinimized
+    end try
+  end repeat
+
+  if (count of outputList) = 0 then
+    return ""
+  else
+    set AppleScript's text item delimiters to ASCII character 10
+    return outputList as text
+  end if
+end tell`;
+            fs_1.default.writeFileSync(scriptFile, fullScript);
+            let stdout = '';
+            try {
+                const execResult = await execAsync(`osascript "${scriptFile}"`);
+                stdout = execResult.stdout;
+            }
+            finally {
+                try {
+                    fs_1.default.unlinkSync(scriptFile);
+                }
+                catch {
+                    // Ignore cleanup errors
+                }
+            }
+            const windows = [];
+            // Parse the output - it may be newline-separated or space-separated
+            const lines = stdout.trim().split(/\r?\n/).filter(line => line.trim());
+            for (const line of lines) {
+                if (!line.trim())
+                    continue;
+                const parts = line.split('|');
+                if (parts.length >= 2) {
+                    const coordParts = parts[1].split(',');
+                    const x = parseInt(coordParts[0], 10) || 0;
+                    const y = parseInt(coordParts[1], 10) || 0;
+                    const width = parseInt(coordParts[2], 10) || 0;
+                    const height = parseInt(coordParts[3], 10) || 0;
+                    const minimizedValue = coordParts[4] ? coordParts[4].toString().trim().toLowerCase() : 'false';
+                    const isMinimized = minimizedValue === 'true';
+                    windows.push({
+                        title: parts[0] || 'Untitled',
+                        bounds: { x, y, width, height },
+                        isMinimized,
+                    });
+                }
+            }
+            return windows;
+        }
+        catch (error) {
+            // AppleScript failed, return empty array
+            return [];
+        }
+    }
     setupToolHandlers() {
         this.server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => {
             // Check if any browser extensions are connected
@@ -236,7 +346,14 @@ class MCPProxyServer {
 MULTI-SCREEN STRATEGY:
 • Run this whenever you need to know which apps/windows exist (Firefox, Finder, file pickers, etc.)
 • The response includes absolute screen bounds for each window so you can plan mouse clicks on any monitor
-• Use it to locate Finder windows or system dialogs (e.g., the macOS file picker) before calling getClickableElements + click`,
+• Use it to locate Finder windows or system dialogs (e.g., the macOS file picker) before calling getClickableElements + click
+• Each application now includes a windows[] array (title + bounds) so you can target individual Finder windows or dialogs
+
+IMPORTANT - WINDOW COUNTING:
+• The windows[] array may not always be populated correctly, especially for Finder which can have multiple windows
+• If you see "No windows detected" but know windows exist, use getUIElements in conjunction with this tool
+• Workflow: 1) Call listApplications to find the app, 2) Focus the application, 3) Call getUIElements to see all windows and their titles (e.g., "Desktop — Local", "tmp")
+• getUIElements returns window titles and UI elements that help identify and count multiple windows accurately`,
                     inputSchema: { type: 'object', properties: {} },
                 },
                 {
@@ -329,6 +446,38 @@ FALLBACK FOR BROWSER AUTOMATION:
                             y: {
                                 type: 'number',
                                 description: 'Y coordinate (0-1 normalized)',
+                            },
+                            button: {
+                                type: 'string',
+                                enum: ['left', 'right'],
+                                description: 'Mouse button (default: left)',
+                            },
+                        },
+                        required: ['x', 'y'],
+                    },
+                },
+                {
+                    name: 'click_absolute',
+                    description: `🎯 MCP-EYES: Click anywhere on the desktop using absolute screen coordinates (in pixels).
+
+Use this when you need to focus or interact with a window that is not the currently focused app (e.g., multiple Finder windows on different monitors).
+Workflow:
+1. Call listApplications to get window bounds (per-app windows array).
+2. Pick the window you need (Finder Desktop vs tmp, macOS file picker, etc.).
+3. Compute the pixel coordinate you need (e.g., window.x + window.width * 0.5).
+4. Call click_absolute with that X/Y to focus or click exactly there.
+
+Great for: multi-window Finder workflows, dragging between monitors, clicking "Open" buttons in modals, or bringing hidden dialogs to the front.`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            x: {
+                                type: 'number',
+                                description: 'Absolute screen X coordinate in pixels',
+                            },
+                            y: {
+                                type: 'number',
+                                description: 'Absolute screen Y coordinate in pixels',
                             },
                             button: {
                                 type: 'string',
@@ -440,6 +589,21 @@ FALLBACK FOR BROWSER AUTOMATION:
                     inputSchema: { type: 'object', properties: {} },
                 },
                 {
+                    name: 'getUIElements',
+                    description: `🎯 MCP-EYES: Accessibility tree dump for the focused application. Returns clickable controls *and* non-clickable UI elements (rows, cells, static text, file icons, etc.) with absolute + normalized coordinates.
+
+Use this when you need to understand Finder contents, identify file picker rows, or inspect custom UIs that aren't exposed through browser tools.
+
+Workflow:
+1. Focus the window you care about (Finder Desktop, Finder tmp, macOS dialog).
+2. Call getUIElements to receive a JSON payload of every interesting element, including text labels and bounds.
+3. Use click / click_absolute / drag with the provided coordinates.
+4. Combine with screenshot_app to visually confirm what you're selecting.
+
+This is the go-to fallback when the DOM/browser layer is unavailable. It uses Apple Accessibility directly, so every window on any monitor becomes discoverable.`,
+                    inputSchema: { type: 'object', properties: {} },
+                },
+                {
                     name: 'typeText',
                     description: `🎯 MCP-EYES: Type text into the focused application.
 
@@ -483,7 +647,8 @@ FALLBACK FOR BROWSER AUTOMATION:
 
 FALLBACK FOR BROWSER AUTOMATION:
 • When stuck, take screenshot/screenshot_app and run OCR to read the page, discover instructions, or capture text hidden from DOM
-• Great for extracting reCAPTCHA prompts, file upload hints, or confirmation messages that browser tools cannot access`,
+• Great for extracting reCAPTCHA prompts, file upload hints, or confirmation messages that browser tools cannot access
+• Returns text plus absolute pixel bounds (x/y/width/height) relative to the screenshot, so you can click the matching coordinates afterward`,
                     inputSchema: { type: 'object', properties: {} },
                 },
                 {
@@ -1210,18 +1375,67 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                         result = await this.proxyCall('/listApplications');
                         // Handle both formats: {applications: [...]} or [...]
                         const apps = result.applications || result;
+                        // Process each app and enhance with window information
+                        const normalizedApps = await Promise.all(apps.map(async (app, index) => {
+                            const bounds = app.bounds || {};
+                            let windows = Array.isArray(app.windows) ? app.windows : [];
+                            // If no windows detected, try AppleScript fallback
+                            const bundleId = app.bundleId || app.bundle_id;
+                            if (windows.length === 0 && bundleId && app.name) {
+                                const fallbackWindows = await this.getWindowsViaAppleScript(bundleId, app.name);
+                                if (fallbackWindows.length > 0) {
+                                    windows = fallbackWindows.map((win, winIndex) => ({
+                                        title: win.title,
+                                        bounds: win.bounds,
+                                        is_minimized: win.isMinimized,
+                                        is_main: winIndex === 0,
+                                    }));
+                                }
+                            }
+                            const normalizedWindows = windows.map((win, winIndex) => ({
+                                index: winIndex,
+                                title: win.title || `Window ${winIndex + 1}`,
+                                bounds: win.bounds || { x: 0, y: 0, width: 0, height: 0 },
+                                isMain: win.is_main ?? win.isMain ?? false,
+                                isMinimized: win.is_minimized ?? win.isMinimized ?? false,
+                            }));
+                            const windowTitles = normalizedWindows.map((w) => w.title);
+                            const windowCount = normalizedWindows.length;
+                            return {
+                                index,
+                                name: app.name,
+                                bundleId: app.bundleId || app.bundle_id,
+                                pid: app.pid,
+                                bounds: {
+                                    x: bounds.x ?? 0,
+                                    y: bounds.y ?? 0,
+                                    width: bounds.width ?? 0,
+                                    height: bounds.height ?? 0,
+                                },
+                                windowCount,
+                                windowTitles,
+                                windows: normalizedWindows,
+                            };
+                        }));
+                        // Calculate summary statistics
+                        const totalApps = normalizedApps.length;
+                        const appsWithWindows = normalizedApps.filter((app) => app.windowCount > 0).length;
+                        const totalWindows = normalizedApps.reduce((sum, app) => sum + app.windowCount, 0);
                         return {
                             content: [
                                 {
                                     type: 'text',
-                                    text: `Found ${apps.length} applications:\n\n` +
-                                        apps.map((app) => `• ${app.name} (${app.bundleId})\n  PID: ${app.pid}\n  Bounds: ${app.bounds.width}x${app.bounds.height} at (${app.bounds.x}, ${app.bounds.y})`).join('\n\n')
-                                },
-                                {
-                                    type: 'json',
-                                    data: {
-                                        applications: apps,
-                                    },
+                                    text: `Found ${totalApps} applications (${appsWithWindows} with windows, ${totalWindows} total windows):\n\n` +
+                                        normalizedApps.map((app) => {
+                                            const windowCountText = app.windowCount > 0
+                                                ? `${app.windowCount} window${app.windowCount !== 1 ? 's' : ''}: ${app.windowTitles.join(', ')}`
+                                                : 'No windows detected';
+                                            const windowLines = app.windowCount > 0
+                                                ? app.windows.map((win) => `    • [${win.index}] "${win.title}"${win.isMain ? ' (main)' : ''}${win.isMinimized ? ' (minimized)' : ''}\n` +
+                                                    `      Location: (${win.bounds.x}, ${win.bounds.y}) | Size: ${win.bounds.width}x${win.bounds.height}`).join('\n')
+                                                : '    ⚠️  Note: If windows exist but aren\'t listed, use getUIElements after focusing this app to see all windows and their titles';
+                                            return `• ${app.name} (${app.bundleId || 'unknown bundle'})\n  PID: ${app.pid}\n  App Bounds: ${app.bounds.width}x${app.bounds.height} at (${app.bounds.x}, ${app.bounds.y})\n  Windows: ${windowCountText}\n${windowLines}`;
+                                        }).join('\n\n'),
                                 },
                             ],
                         };
@@ -1283,6 +1497,18 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                             content: [{
                                     type: 'text',
                                     text: `Clicked at (${args?.x}, ${args?.y})`,
+                                }],
+                        };
+                    case 'click_absolute':
+                        result = await this.proxyCall('/click_absolute', 'POST', {
+                            x: args?.x,
+                            y: args?.y,
+                            button: args?.button,
+                        });
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Clicked absolute position (${args?.x}, ${args?.y})`,
                                 }],
                         };
                     case 'moveMouse':
@@ -1367,11 +1593,40 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                                             return `${el.index}. [${el.type}] ${el.text || '(no text)'} at ${coords}`;
                                         }).join('\n'),
                                 },
+                            ],
+                        };
+                    case 'getUIElements':
+                        result = await this.proxyCall('/getUIElements');
+                        if (!Array.isArray(result)) {
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `Error getting UI elements: ${result?.error || 'Unexpected response format'}\nRaw result: ${JSON.stringify(result).substring(0, 500)}`,
+                                    }],
+                                isError: true,
+                            };
+                        }
+                        const richElements = result.map((el, i) => ({
+                            index: el.index ?? i,
+                            type: el.type,
+                            role: el.role,
+                            text: el.text || '',
+                            bounds: el.bounds,
+                            normalizedPosition: el.normalized_position || el.normalizedPosition || null,
+                            isClickable: el.is_clickable ?? el.isClickable ?? false,
+                            isEnabled: el.is_enabled ?? el.isEnabled ?? true,
+                        }));
+                        return {
+                            content: [
                                 {
-                                    type: 'json',
-                                    data: {
-                                        elements: normalizedElements,
-                                    },
+                                    type: 'text',
+                                    text: `Found ${richElements.length} accessibility elements (clickable + context):\n\n` +
+                                        richElements.map((el) => {
+                                            const coordText = el.normalizedPosition
+                                                ? `(${Number(el.normalizedPosition.x).toFixed(3)}, ${Number(el.normalizedPosition.y).toFixed(3)})`
+                                                : '(no normalized position)';
+                                            return `${el.index}. [${el.role || el.type}] ${el.text || '(no text)'} at ${coordText}${el.isClickable ? ' [clickable]' : ''}`;
+                                        }).join('\n'),
                                 },
                             ],
                         };
@@ -1393,11 +1648,37 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                         };
                     case 'analyzeWithOCR':
                         result = await this.proxyCall('/analyzeWithOCR');
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `OCR error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        const ocrWidth = result.width;
+                        const ocrHeight = result.height;
+                        const ocrResults = Array.isArray(result.results) ? result.results : result;
+                        const summary = Array.isArray(ocrResults)
+                            ? `Detected ${ocrResults.length} text regions using OCR:\n\n` +
+                                ocrResults.map((entry, idx) => {
+                                    const bounds = entry.bounds || {};
+                                    return `${idx}. "${entry.text}" (confidence ${(entry.confidence ?? 0).toFixed?.(2) ?? entry.confidence}) at (${bounds.x}, ${bounds.y}) size ${bounds.width}x${bounds.height}`;
+                                }).join('\n')
+                            : 'OCR returned unexpected result.';
                         return {
-                            content: [{
+                            content: [
+                                {
                                     type: 'text',
-                                    text: JSON.stringify(result, null, 2),
-                                }],
+                                    text: summary,
+                                },
+                                {
+                                    type: 'json',
+                                    data: {
+                                        width: ocrWidth,
+                                        height: ocrHeight,
+                                        results: ocrResults,
+                                    },
+                                },
+                            ],
                         };
                     case 'checkPermissions':
                         result = await this.proxyCall('/permissions');

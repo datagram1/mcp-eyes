@@ -101,6 +101,8 @@ public:
             info.name = app.localizedName ? [app.localizedName UTF8String] : "";
             info.bundle_id = app.bundleIdentifier ? [app.bundleIdentifier UTF8String] : "";
             info.pid = app.processIdentifier;
+            info.bounds = {0, 0, 0, 0};
+            info.windows.clear();
 
             // Get window bounds using Accessibility API
             AXUIElementRef appRef = AXUIElementCreateApplication(app.processIdentifier);
@@ -109,28 +111,65 @@ public:
                 AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute, (CFTypeRef*)&windows);
 
                 if (windows && CFArrayGetCount(windows) > 0) {
-                    AXUIElementRef window = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
+                    CFIndex windowCount = CFArrayGetCount(windows);
+                    for (CFIndex i = 0; i < windowCount; ++i) {
+                        AXUIElementRef window = (AXUIElementRef)CFArrayGetValueAtIndex(windows, i);
+                        if (!window) continue;
 
-                    AXValueRef posValue = nullptr;
-                    AXValueRef sizeValue = nullptr;
-                    CGPoint pos = {0, 0};
-                    CGSize size = {0, 0};
+                        WindowInfo windowInfo;
+                        windowInfo.title = "";
+                        windowInfo.bounds = {0, 0, 0, 0};
+                        windowInfo.is_main = false;
+                        windowInfo.is_minimized = false;
 
-                    if (AXUIElementCopyAttributeValue(window, kAXPositionAttribute, (CFTypeRef*)&posValue) == kAXErrorSuccess) {
-                        AXValueGetValue(posValue, (AXValueType)kAXValueCGPointType, &pos);
-                        CFRelease(posValue);
+                        // Title
+                        CFStringRef titleValue = nullptr;
+                        if (AXUIElementCopyAttributeValue(window, kAXTitleAttribute, (CFTypeRef*)&titleValue) == kAXErrorSuccess && titleValue) {
+                            NSString* titleStr = (__bridge NSString*)titleValue;
+                            windowInfo.title = titleStr ? [titleStr UTF8String] : "";
+                            CFRelease(titleValue);
+                        }
+
+                        // Position & size
+                        AXValueRef posValue = nullptr;
+                        AXValueRef sizeValue = nullptr;
+                        CGPoint pos = {0, 0};
+                        CGSize size = {0, 0};
+
+                        if (AXUIElementCopyAttributeValue(window, kAXPositionAttribute, (CFTypeRef*)&posValue) == kAXErrorSuccess && posValue) {
+                            AXValueGetValue(posValue, (AXValueType)kAXValueCGPointType, &pos);
+                            CFRelease(posValue);
+                        }
+
+                        if (AXUIElementCopyAttributeValue(window, kAXSizeAttribute, (CFTypeRef*)&sizeValue) == kAXErrorSuccess && sizeValue) {
+                            AXValueGetValue(sizeValue, (AXValueType)kAXValueCGSizeType, &size);
+                            CFRelease(sizeValue);
+                        }
+
+                        windowInfo.bounds.x = (int)pos.x;
+                        windowInfo.bounds.y = (int)pos.y;
+                        windowInfo.bounds.width = (int)size.width;
+                        windowInfo.bounds.height = (int)size.height;
+
+                        // Main/minimized flags
+                        CFTypeRef mainValue = nullptr;
+                        if (AXUIElementCopyAttributeValue(window, kAXMainAttribute, (CFTypeRef*)&mainValue) == kAXErrorSuccess && mainValue) {
+                            windowInfo.is_main = CFBooleanGetValue((CFBooleanRef)mainValue);
+                            CFRelease(mainValue);
+                        }
+
+                        CFTypeRef minimizedValue = nullptr;
+                        if (AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute, (CFTypeRef*)&minimizedValue) == kAXErrorSuccess && minimizedValue) {
+                            windowInfo.is_minimized = CFBooleanGetValue((CFBooleanRef)minimizedValue);
+                            CFRelease(minimizedValue);
+                        }
+
+                        info.windows.push_back(windowInfo);
+
+                        if (i == 0 || (info.bounds.width == 0 && info.bounds.height == 0)) {
+                            info.bounds = windowInfo.bounds;
+                        }
                     }
-
-                    if (AXUIElementCopyAttributeValue(window, kAXSizeAttribute, (CFTypeRef*)&sizeValue) == kAXErrorSuccess) {
-                        AXValueGetValue(sizeValue, (AXValueType)kAXValueCGSizeType, &size);
-                        CFRelease(sizeValue);
-                    }
-
-                    info.bounds.x = (int)pos.x;
-                    info.bounds.y = (int)pos.y;
-                    info.bounds.width = (int)size.width;
-                    info.bounds.height = (int)size.height;
-
                     CFRelease(windows);
                 }
                 CFRelease(appRef);
@@ -347,7 +386,7 @@ public:
     // Accessibility / UI Elements
     // ═══════════════════════════════════════════════════════════════════════
 
-    std::vector<UIElement> get_clickable_elements(const std::string& app_name) override {
+    std::vector<UIElement> get_clickable_elements(const std::string& app_name, bool clickableOnly) override {
         std::vector<UIElement> elements;
 
         // Find the app
@@ -371,8 +410,13 @@ public:
         AXUIElementRef focusedWindow = nullptr;
         AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute, (CFTypeRef*)&focusedWindow);
 
+        const AppInfo* boundsInfo = nullptr;
+        if (focused_app_.has_value() && focused_app_->name == app_name) {
+            boundsInfo = &focused_app_.value();
+        }
+
         if (focusedWindow) {
-            collect_elements(focusedWindow, elements, 0);
+            collect_elements(focusedWindow, elements, 0, clickableOnly, boundsInfo);
             CFRelease(focusedWindow);
         }
 
@@ -442,7 +486,11 @@ public:
 private:
     std::optional<AppInfo> focused_app_;
 
-    void collect_elements(AXUIElementRef element, std::vector<UIElement>& elements, int depth) {
+    void collect_elements(AXUIElementRef element,
+                          std::vector<UIElement>& elements,
+                          int depth,
+                          bool clickableOnly,
+                          const AppInfo* appInfo) {
         if (depth > 10) return;  // Prevent deep recursion
 
         CFStringRef role = nullptr;
@@ -451,24 +499,52 @@ private:
         if (role) {
             NSString* roleStr = (__bridge NSString*)role;
 
-            // Check if it's a clickable element
+            // Determine role classification
             bool is_clickable = [roleStr isEqualToString:NSAccessibilityButtonRole] ||
                                [roleStr isEqualToString:NSAccessibilityLinkRole] ||
                                [roleStr isEqualToString:NSAccessibilityTextFieldRole] ||
                                [roleStr isEqualToString:NSAccessibilityCheckBoxRole] ||
                                [roleStr isEqualToString:NSAccessibilityRadioButtonRole] ||
-                               [roleStr isEqualToString:NSAccessibilityMenuItemRole];
+                               [roleStr isEqualToString:NSAccessibilityMenuItemRole] ||
+                               [roleStr isEqualToString:NSAccessibilityImageRole];
 
-            if (is_clickable) {
+            bool is_interesting_non_clickable =
+                [roleStr isEqualToString:NSAccessibilityStaticTextRole] ||
+                [roleStr isEqualToString:NSAccessibilityTextRole] ||
+                [roleStr isEqualToString:NSAccessibilityGroupRole] ||
+                [roleStr isEqualToString:NSAccessibilityRowRole] ||
+                [roleStr isEqualToString:NSAccessibilityCellRole] ||
+                [roleStr isEqualToString:NSAccessibilityOutlineRole] ||
+                [roleStr isEqualToString:NSAccessibilityCollectionItemRole] ||
+                [roleStr isEqualToString:NSAccessibilityTableRole] ||
+                [roleStr isEqualToString:NSAccessibilityListRole] ||
+                [roleStr isEqualToString:NSAccessibilityToolbarRole];
+
+            bool includeElement = is_clickable || (!clickableOnly && is_interesting_non_clickable);
+
+            if (includeElement) {
                 UIElement el;
                 el.role = [roleStr UTF8String];
-                el.is_clickable = true;
+                el.is_clickable = is_clickable;
+                el.is_enabled = true;
 
-                // Get title/value
-                CFStringRef title = nullptr;
-                if (AXUIElementCopyAttributeValue(element, kAXTitleAttribute, (CFTypeRef*)&title) == kAXErrorSuccess && title) {
-                    el.text = [(__bridge NSString*)title UTF8String];
-                    CFRelease(title);
+                // Get title/value/description
+                CFStringRef attrString = nullptr;
+                if (AXUIElementCopyAttributeValue(element, kAXTitleAttribute, (CFTypeRef*)&attrString) == kAXErrorSuccess && attrString) {
+                    el.text = [(__bridge NSString*)attrString UTF8String];
+                    CFRelease(attrString);
+                }
+                if (el.text.empty()) {
+                    if (AXUIElementCopyAttributeValue(element, kAXValueAttribute, (CFTypeRef*)&attrString) == kAXErrorSuccess && attrString) {
+                        el.text = [(__bridge NSString*)attrString UTF8String];
+                        CFRelease(attrString);
+                    }
+                }
+                if (el.text.empty()) {
+                    if (AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute, (CFTypeRef*)&attrString) == kAXErrorSuccess && attrString) {
+                        el.text = [(__bridge NSString*)attrString UTF8String];
+                        CFRelease(attrString);
+                    }
                 }
 
                 // Get position and size
@@ -476,11 +552,11 @@ private:
                 CGPoint pos = {0, 0};
                 CGSize size = {0, 0};
 
-                if (AXUIElementCopyAttributeValue(element, kAXPositionAttribute, (CFTypeRef*)&posValue) == kAXErrorSuccess) {
+                if (AXUIElementCopyAttributeValue(element, kAXPositionAttribute, (CFTypeRef*)&posValue) == kAXErrorSuccess && posValue) {
                     AXValueGetValue(posValue, (AXValueType)kAXValueCGPointType, &pos);
                     CFRelease(posValue);
                 }
-                if (AXUIElementCopyAttributeValue(element, kAXSizeAttribute, (CFTypeRef*)&sizeValue) == kAXErrorSuccess) {
+                if (AXUIElementCopyAttributeValue(element, kAXSizeAttribute, (CFTypeRef*)&sizeValue) == kAXErrorSuccess && sizeValue) {
                     AXValueGetValue(sizeValue, (AXValueType)kAXValueCGSizeType, &size);
                     CFRelease(sizeValue);
                 }
@@ -492,8 +568,7 @@ private:
 
                 // Check enabled
                 CFBooleanRef enabled = nullptr;
-                el.is_enabled = true;
-                if (AXUIElementCopyAttributeValue(element, kAXEnabledAttribute, (CFTypeRef*)&enabled) == kAXErrorSuccess) {
+                if (AXUIElementCopyAttributeValue(element, kAXEnabledAttribute, (CFTypeRef*)&enabled) == kAXErrorSuccess && enabled) {
                     el.is_enabled = CFBooleanGetValue(enabled);
                     CFRelease(enabled);
                 }
@@ -504,7 +579,23 @@ private:
                 else if ([roleStr isEqualToString:NSAccessibilityTextFieldRole]) el.type = "input";
                 else if ([roleStr isEqualToString:NSAccessibilityCheckBoxRole]) el.type = "checkbox";
                 else if ([roleStr isEqualToString:NSAccessibilityRadioButtonRole]) el.type = "radio";
+                else if ([roleStr isEqualToString:NSAccessibilityStaticTextRole] ||
+                         [roleStr isEqualToString:NSAccessibilityTextRole]) el.type = "text";
+                else if ([roleStr isEqualToString:NSAccessibilityGroupRole]) el.type = "group";
+                else if ([roleStr isEqualToString:NSAccessibilityRowRole]) el.type = "row";
+                else if ([roleStr isEqualToString:NSAccessibilityCellRole]) el.type = "cell";
+                else if ([roleStr isEqualToString:NSAccessibilityImageRole]) el.type = "image";
                 else el.type = "unknown";
+
+                if (appInfo && appInfo->bounds.width > 0 && appInfo->bounds.height > 0) {
+                    el.normalized_position.x =
+                        (float)(el.bounds.x - appInfo->bounds.x) / (float)appInfo->bounds.width;
+                    el.normalized_position.y =
+                        (float)(el.bounds.y - appInfo->bounds.y) / (float)appInfo->bounds.height;
+                } else {
+                    el.normalized_position.x = -1.0f;
+                    el.normalized_position.y = -1.0f;
+                }
 
                 elements.push_back(el);
             }
@@ -518,7 +609,7 @@ private:
             CFIndex count = CFArrayGetCount(children);
             for (CFIndex i = 0; i < count && i < 100; i++) {
                 AXUIElementRef child = (AXUIElementRef)CFArrayGetValueAtIndex(children, i);
-                collect_elements(child, elements, depth + 1);
+                collect_elements(child, elements, depth + 1, clickableOnly, appInfo);
             }
             CFRelease(children);
         }
