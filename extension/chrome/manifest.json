@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "MCP Eyes Browser Bridge",
+  "version": "1.0.0",
+  "description": "Browser bridge for MCP Eyes - enables LLM-driven web automation with natural mouse/keyboard control",
+
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "nativeMessaging",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "externally_connectable": {
+    "ids": ["*"],
+    "matches": ["<all_urls>"]
+  }
+}

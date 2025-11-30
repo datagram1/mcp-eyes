@@ -765,11 +765,96 @@ Provide normalized positions (0-1) for each element.`;
    */
   async findButtonByText(elements: WebElement[], buttonText: string): Promise<WebElement | null> {
     const lowerButtonText = buttonText.toLowerCase();
-    return elements.find(element => 
-      element.type === 'button' && 
-      element.text && 
+    return elements.find(element =>
+      element.type === 'button' &&
+      element.text &&
       element.text.toLowerCase().includes(lowerButtonText)
     ) || null;
+  }
+
+  /**
+   * Analyze image - wrapper for analyzeWebContent that accepts base64 image
+   * This is the interface expected by the MCP server
+   */
+  async analyzeImage(base64Image: string): Promise<WebElement[]> {
+    try {
+      // Convert base64 to buffer
+      const imageBuffer = Buffer.from(base64Image, 'base64');
+
+      // Get image dimensions
+      const metadata = await sharp(imageBuffer).metadata();
+      const width = metadata.width || 800;
+      const height = metadata.height || 600;
+
+      // Create default window bounds
+      const windowBounds = { x: 0, y: 0, width, height };
+
+      // Run analysis
+      const analysis = await this.analyzeWebContent(imageBuffer, windowBounds, 'Browser');
+
+      return analysis.elements;
+    } catch (error) {
+      console.error('Web content analysis failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get available LLM providers and their status
+   */
+  async getAvailableProviders(): Promise<{ name: string; status: string }[]> {
+    const providers: { name: string; status: string }[] = [];
+
+    // Check LM Studio
+    try {
+      const lmStudioResponse = await fetch('http://127.0.0.1:1234/v1/models', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+      providers.push({
+        name: 'LM Studio',
+        status: lmStudioResponse.ok ? 'Available' : 'Not responding'
+      });
+    } catch {
+      providers.push({ name: 'LM Studio', status: 'Not available (http://127.0.0.1:1234)' });
+    }
+
+    // Check Ollama
+    try {
+      const ollamaResponse = await fetch('http://127.0.0.1:11434/api/tags', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+      providers.push({
+        name: 'Ollama',
+        status: ollamaResponse.ok ? 'Available' : 'Not responding'
+      });
+    } catch {
+      providers.push({ name: 'Ollama', status: 'Not available (http://127.0.0.1:11434)' });
+    }
+
+    // Check OpenAI API key
+    if (process.env.OPENAI_API_KEY) {
+      providers.push({ name: 'OpenAI', status: 'API key configured' });
+    } else {
+      providers.push({ name: 'OpenAI', status: 'No API key (set OPENAI_API_KEY)' });
+    }
+
+    // Check Claude API key
+    if (process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) {
+      providers.push({ name: 'Claude', status: 'API key configured' });
+    } else {
+      providers.push({ name: 'Claude', status: 'No API key (set CLAUDE_API_KEY)' });
+    }
+
+    // Check OpenRouter API key
+    if (process.env.OPENROUTER_API_KEY) {
+      providers.push({ name: 'OpenRouter', status: 'API key configured' });
+    } else {
+      providers.push({ name: 'OpenRouter', status: 'No API key (set OPENROUTER_API_KEY)' });
+    }
+
+    return providers;
   }
 }
 

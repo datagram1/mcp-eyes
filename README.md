@@ -1,105 +1,70 @@
-# MCP-Eyes 🚀
+# MCP-Eyes
 
-**Professional cross-platform MCP server for GUI automation with Apple Accessibility and AI-powered analysis.**
+**Professional cross-platform MCP server for GUI automation with Apple Accessibility, browser extension integration, and AI-powered analysis.**
 
 [![npm version](https://img.shields.io/npm/v/mcp-eyes.svg?cache=1)](https://www.npmjs.com/package/mcp-eyes)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 
-## 🌟 Features
+## Features
 
-- **3 Streamlined Variants**: `mcp-eyes` (Advanced), `mcp-eyes-basic` (Basic), and `mcp-eyes-claude` (Claude Identity)
-- **Apple Accessibility Integration**: Native macOS UI element detection and interaction
+### Core Capabilities
+
+- **Native Desktop Automation**: Apple Accessibility integration for macOS, PowerShell for Windows, wmctrl for Linux
+- **Browser Extension Integration**: Direct DOM manipulation via Chrome, Firefox, Edge, and Safari extensions
+- **Multi-Browser Support**: Target specific browsers or use the default (most recently focused)
+- **AI Assistant Integration**: Compatible with Claude, Cursor, and other MCP-compatible AI assistants
 - **Cross-Platform Support**: macOS, Windows, and Linux
-- **AI Assistant Integration**: Compatible with Cursor, Claude, and other MCP-compatible AI assistants
-- **Natural Language Control**: Control GUI applications through natural language commands
-- **Automatic Installation**: Works with npx for instant setup without global installation
-- **Local LLM Support**: Integration with LM Studio, Ollama, and other local AI providers
-- **Clean Build System**: Modern TypeScript build with rimraf for cross-platform compatibility
-- **Enterprise-Grade Logging**: Comprehensive logging system with session tracking and crash analysis
-- **Permission Management**: Automated macOS permission checking and guided setup
-- **CI/CD Pipeline**: Automated testing and quality checks with GitHub Actions
 
-## 🛠️ Tech Stack
+### New in v1.1.15
 
-### Core Technologies
+- **Open WebUI Support**: SSE transport server for HTTP-based MCP clients (Open WebUI, custom integrations)
+- **Browser Bridge Server**: WebSocket-based bridge connecting MCP tools to browser extensions
+- **15+ Browser Tools**: Full DOM interaction including clicking, filling forms, executing scripts
+- **Native macOS App**: Menu bar app with settings UI and permission management
+- **Web Configuration UI**: Browser-based dashboard for agent configuration
+- **MCP Proxy Architecture**: Secure HTTP backend with API key authentication
+- **Control Server**: Centralized management of multiple agents across the internet with WebSocket connections, Bonjour discovery, and unified API
 
-- **TypeScript 5.0+**: Modern type-safe development with full ES2020+ support
-- **Node.js 18+**: Cross-platform JavaScript runtime (requires 18.0.0 or higher)
-- **Model Context Protocol (MCP)**: Official SDK from Anthropic for AI tool integration
+## Architecture
 
-### GUI Automation & Control
-
-- **@nut-tree-fork/nut-js 4.2.6**: Cross-platform desktop automation (mouse, keyboard, screen)
-- **screenshot-desktop 1.15.0**: Multi-platform screenshot capture with multi-display support
-- **Sharp 0.33.5**: High-performance image processing and manipulation
-- **@jxa/run 1.4.0**: JavaScript for Automation (JXA) - macOS AppleScript bridge
-
-### AI & Computer Vision
-
-- **Tesseract.js 6.0.1**: OCR (Optical Character Recognition) for text detection
-- **fastest-levenshtein 1.0.16**: Fast string similarity matching for element detection
-- **node-mac-permissions 1.0.0**: macOS permission checking and management
-
-### Development & Build Tools
-
-- **rimraf 6.0.1**: Cross-platform file/directory deletion for clean builds
-- **markdownlint-cli 0.33.0**: Markdown linting and formatting
-- **@types/node 20.0.0**: TypeScript type definitions for Node.js
-- **@types/jest 30.0.0**: TypeScript support for Jest testing framework
-
-### Platform Integration
-
-- **platform 1.3.6**: Cross-platform OS detection and identification
-- **os (native)**: Node.js built-in OS utilities
-
-### Testing & Quality Assurance
-
-- **Custom MCP Validation**: Automated MCP protocol compliance testing
-- **Server Startup Tests**: Comprehensive server initialization and health checks
-- **GitHub Actions CI/CD**: Automated testing across multiple Node.js versions and platforms
-
-## 🚀 Quick Start
-
-### Option 1: Automatic Installation (Recommended)
-
-Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
-
-#### Basic Server (Essential Features) - Auto Updating
-
-```json
-{
-  "mcpServers": {
-    "mcp-eyes-basic": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-eyes@latest",
-        "mcp-eyes-basic"
-      ]
-    }
-  }
-}
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MCP Client (Claude, Cursor)                  │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ MCP Protocol (stdio)
+┌────────────────────────────▼────────────────────────────────────┐
+│                     MCP-Eyes Proxy Server                        │
+│              (mcp-proxy-server.ts / basic-server.ts)            │
+└─────────┬─────────────────────────────────────────┬─────────────┘
+          │                                         │
+          │ HTTP (localhost:3456)                   │ HTTP (localhost:3457)
+          ▼                                         ▼
+┌─────────────────────────┐            ┌─────────────────────────┐
+│   Native HTTP Server    │            │  Browser Bridge Server  │
+│  (macOS/Windows/Linux)  │            │    (WebSocket + HTTP)   │
+└─────────────────────────┘            └───────────┬─────────────┘
+                                                   │ WebSocket
+                                       ┌───────────▼─────────────┐
+                                       │   Browser Extensions    │
+                                       │ Chrome/Firefox/Edge     │
+                                       └─────────────────────────┘
 ```
 
-#### Advanced Server (All Features) - Default Auto Updating - (local LM Studio)
+## Quick Start
+
+### Option 1: NPX (Recommended)
+
+Add to your MCP client configuration:
 
 ```json
 {
   "mcpServers": {
     "mcp-eyes": {
-   "args": [
-     "-y",
-     "mcp-eyes@latest",
-     "mcp"
-   ],
-   "command": "npx",
-   "env": {
-     "LLM_PROVIDER": "lm-studio",
-     "LLM_BASE_URL": "http://127.0.0.1:1234",
-     "LLM_MODEL": "openai/gpt-oss-20b"
-   }
- }
+      "command": "npx",
+      "args": ["-y", "mcp-eyes@latest", "mcp"]
+    }
+  }
 }
 ```
 
@@ -107,154 +72,713 @@ Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
 
 ```bash
 npm install -g mcp-eyes
-```
-
-Then use:
-
-```bash
-# Basic server (Apple Accessibility + Screenshots)
-mcp-eyes-basic mcp
-
-# Advanced server (All Features: AI, OCR, Web Detection, Text Input) - Default
 mcp-eyes mcp
 ```
 
-## 📋 Server Variants
+## Server Variants
 
-### 1. Basic Server - `mcp-eyes-basic`
+| Variant | Command | Transport | Description |
+|---------|---------|-----------|-------------|
+| **Advanced** | `mcp-eyes` | stdio | All features: AI, OCR, browser integration |
+| **Basic** | `mcp-eyes-basic` | stdio | Essential Apple Accessibility + screenshots |
+| **Claude** | `mcp-eyes-claude` | stdio | Optimized for Claude Desktop |
+| **SSE** | `mcp-eyes-sse` | HTTP/SSE | Open WebUI compatible, LAN accessible |
+| **Bridge** | `mcp-eyes-bridge` | WebSocket | Browser extension bridge server |
 
-**Essential tools** - Apple Accessibility and Screenshots
+## Available Tools
 
-**Core Features:**
+### Native macOS Tools
 
-- ✅ **Apple Accessibility Integration** - Native macOS UI element detection
-- ✅ **Cross-Platform Screenshots** - High-quality window and region screenshots
-- ✅ **Application Management** - List and focus applications across platforms
-- ✅ **Mouse Control** - Precise clicking and movement with normalized coordinates
-- ✅ **Element Detection** - Find and interact with clickable UI elements
+| Tool | Description |
+|------|-------------|
+| `listApplications` | List all running applications with window bounds |
+| `focusApplication` | Focus on a specific application by bundle ID or name |
+| `screenshot` | Take a screenshot of the focused application |
+| `click` | Click at normalized coordinates (0-1) relative to window |
+| `getClickableElements` | Get all clickable UI elements via Accessibility API |
+| `typeText` | Type text into the focused application |
+| `pressKey` | Press keyboard keys with modifiers (Command+L, etc.) |
+| `analyzeWithOCR` | Analyze screen content using OCR |
+| `checkPermissions` | Check accessibility permission status |
 
-**Available Tools:**
+### Browser Extension Tools
 
-- `listApplications` - List running apps with window bounds and metadata
-- `focusApplication` - Focus specific apps by bundle ID, process name, or PID
-- `closeApp` - Close/quit applications gracefully or forcefully
-- `click` - Mouse clicks with normalized coordinates (0-1)
-- `moveMouse` - Mouse movement with normalized coordinates
-- `screenshot` - Window screenshots with customizable padding
+| Tool | Description |
+|------|-------------|
+| `browser_listConnected` | List connected browser extensions |
+| `browser_setDefaultBrowser` | Set default browser for commands |
+| `browser_getTabs` | List all open browser tabs |
+| `browser_getActiveTab` | Get active tab info |
+| `browser_focusTab` | Focus a specific tab by ID |
+| `browser_getPageInfo` | Get page URL, title, and metadata |
+| `browser_getInteractiveElements` | Get all buttons, links, inputs, etc. |
+| `browser_getPageContext` | Combined page info and elements |
+| `browser_clickElement` | Click element by CSS selector |
+| `browser_fillElement` | Fill form field by CSS selector |
+| `browser_scrollTo` | Scroll to position or element |
+| `browser_executeScript` | Execute JavaScript in page context |
+| `browser_getFormData` | Get all form data from page |
+| `browser_setWatchMode` | Enable DOM change watching |
 
-**Best for**: Simple automation tasks, users who prefer Apple's native accessibility system, basic GUI control
+## Browser Extension Setup
 
-### 2. Advanced Server - `mcp-eyes` (Default)
+### Installation
 
-**All features** - Complete GUI automation with AI analysis and advanced capabilities
+**Chrome/Edge:**
+1. Open `chrome://extensions` (or `edge://extensions`)
+2. Enable "Developer mode"
+3. Click "Load unpacked"
+4. Select the `extension/chrome` folder
 
-**Core Features:**
+**Firefox:**
+1. Open `about:debugging`
+2. Click "This Firefox"
+3. Click "Load Temporary Add-on"
+4. Select `extension/firefox/manifest.json`
 
-- ✅ **All Basic Features** - Everything from the Basic server
-- ✅ **AI-Enhanced Analysis** - Intelligent UI element detection and natural language interaction
-- ✅ **OCR Recognition** - Multi-method text detection for browser automation
-- ✅ **Local LLM Integration** - Works with LM Studio, Ollama, and other local AI providers
-- ✅ **Text Input Automation** - Type text into any input field
-- ✅ **Keyboard Control** - Press key combinations and shortcuts
-- ✅ **Advanced Mouse Operations** - Double-click, scrolling, position tracking
-- ✅ **Timing Control** - Wait commands for complex automation sequences
-- ✅ **Enhanced Precision** - More granular control over automation timing
+### Native Messaging Host
 
-**Available Tools:**
+```bash
+cd extension/native-host
+./install.sh all <chrome-extension-id>
+```
 
-- **Core Tools** (from Basic): `listApplications`, `focusApplication`, `closeApp`, `click`, `moveMouse`, `screenshot`
-- **AI Analysis Tools**:
-  - `analyzeScreenshot` - AI-powered screenshot analysis with element detection
-  - `findClickableElements` - Intelligent element detection using multiple methods
-  - `clickElementByDescription` - Click elements using natural language descriptions
-- **Advanced Automation Tools**:
-  - `typeText` - Type text at current cursor position
-  - `pressKey` - Press key combinations (Cmd+A, Enter, Tab, etc.)
-  - `doubleClick` - Perform double-click operations
-  - `scrollMouse` - Mouse wheel scrolling with customizable direction and amount
-  - `getMousePosition` - Get current mouse position coordinates
-  - `wait` - Timing control for automation sequences (milliseconds)
+For detailed setup instructions, see [extension/README.md](extension/README.md).
 
-**Best for**: Complex automation workflows, power users, AI-enhanced automation, applications requiring intelligent interaction
+## Open WebUI Integration
 
-## ⚙️ Configuration
+MCP-Eyes includes an SSE (Server-Sent Events) transport server for compatibility with Open WebUI and other HTTP-based MCP clients. This enables LLM control panels like Open WebUI to drive GUI automation across your network.
 
-### Cursor AI Configuration
+### Why SSE?
 
-Add to your Cursor MCP settings (`~/.cursor-mcp/config.json` or via Cursor settings):
+| Client | Transport | How it works |
+|--------|-----------|--------------|
+| Claude Code | stdio | Spawns MCP server as child process |
+| Claude Desktop | stdio | Spawns MCP server as child process |
+| **Open WebUI** | **HTTP/SSE** | **Connects to network server** |
+| Custom clients | HTTP/SSE | Connects to network server |
 
-#### Basic Setup (Recommended)
+The SSE server bridges this gap, allowing Open WebUI to control MCP-Eyes agents over the network.
+
+### Architecture
+
+#### Single Agent (Direct Connection)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 Open WebUI (192.168.11.26)                      │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ HTTP/SSE + API Key
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              MCP-Eyes SSE Server (192.168.11.10:3458)           │
+│                                                                 │
+│   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐│
+│   │ SSE Handler │  │ Tool Router │  │ Native + Browser Tools  ││
+│   └─────────────┘  └─────────────┘  └─────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Multi-Agent (Via Control Server)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 Open WebUI (192.168.11.26)                      │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ HTTP/SSE
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Control Server                               │
+│   - Agent registry & discovery (Bonjour)                        │
+│   - Request routing to correct agent                            │
+│   - Unified API for all agents                                  │
+└───────┬─────────────────────┬─────────────────────┬─────────────┘
+        │ SSE                 │ SSE                 │ SSE
+        ▼                     ▼                     ▼
+┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+│   Agent 1     │     │   Agent 2     │     │   Agent 3     │
+│   MacBook Pro │     │   Mac Mini    │     │   Windows PC  │
+│   :3458       │     │   :3458       │     │   :3458       │
+└───────────────┘     └───────────────┘     └───────────────┘
+```
+
+### Starting the SSE Server
+
+```bash
+# Start SSE server (LAN accessible on 0.0.0.0:3458)
+npm run start:sse
+
+# Or run directly
+node dist/mcp-sse-server.js
+
+# With custom settings
+MCP_SSE_PORT=3458 \
+MCP_SSE_HOST=0.0.0.0 \
+MCP_AGENT_NAME="My MacBook Pro" \
+MCP_API_KEY="my-secret-key" \
+npm run start:sse
+```
+
+On startup, you'll see:
+
+```
+[SSE Server] MCP-Eyes SSE Server running on http://0.0.0.0:3458
+[SSE Server] Agent: mcp-eyes-MacBook-Pro
+[SSE Server] API Key: mcp_abc123...
+
+[SSE Server] Endpoints:
+  SSE:      GET  http://0.0.0.0:3458/mcp/sse
+  Messages: POST http://0.0.0.0:3458/mcp/messages
+  Tools:    GET  http://0.0.0.0:3458/mcp/tools
+  Health:   GET  http://0.0.0.0:3458/health
+  Info:     GET  http://0.0.0.0:3458/info
+
+[SSE Server] For Open WebUI, configure MCP server with:
+  URL: http://<this-machine-ip>:3458/mcp/sse
+  API Key: mcp_abc123def456...
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_SSE_PORT` | `3458` | Server port |
+| `MCP_SSE_HOST` | `0.0.0.0` | Bind address (0.0.0.0 = all interfaces) |
+| `MCP_API_KEY` | auto-generated | API key for authentication |
+| `MCP_AGENT_NAME` | hostname | Agent display name |
+
+### Open WebUI Configuration
+
+Configure MCP-Eyes as an MCP server in Open WebUI:
+
+```yaml
+# Open WebUI MCP configuration
+mcp_servers:
+  - name: "MCP-Eyes Agent"
+    url: "http://192.168.11.10:3458/mcp/sse"
+    api_key: "mcp_xxxxxxxxxxxxxxxx"
+```
+
+The API key is saved to `~/.mcp-eyes-sse-token` for reference:
 
 ```json
 {
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "mcp-eyes-basic",
-      "args": []
-    }
-  }
+  "apiKey": "mcp_abc123...",
+  "port": 3458,
+  "host": "0.0.0.0",
+  "agentName": "mcp-eyes-MacBook-Pro",
+  "sseEndpoint": "http://localhost:3458/mcp/sse",
+  "messagesEndpoint": "http://localhost:3458/mcp/messages"
 }
 ```
 
-#### Advanced Setup (All Features)
+### SSE Server Endpoints
 
-```json
-{
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "mcp-eyes-advanced",
-      "args": []
-    }
-  }
-}
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/mcp/sse` | GET | Yes | SSE connection for real-time events |
+| `/mcp/messages` | POST | Yes | Send MCP JSON-RPC messages |
+| `/mcp/tools` | GET | Yes | List available tools |
+| `/health` | GET | No | Health check (for load balancers) |
+| `/info` | GET | No | Agent info (for discovery) |
+
+### Authentication
+
+The SSE server supports three authentication methods:
+
+```bash
+# 1. Authorization header (recommended)
+curl -H "Authorization: Bearer mcp_abc123..." http://host:3458/mcp/tools
+
+# 2. X-API-Key header
+curl -H "X-API-Key: mcp_abc123..." http://host:3458/mcp/tools
+
+# 3. Query parameter (for SSE connections)
+curl "http://host:3458/mcp/sse?api_key=mcp_abc123..."
 ```
 
-#### With npx (No Installation Required)
+### Via Control Server
 
-```json
-{
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "npx",
-      "args": ["mcp-eyes"]
+For distributed setups with multiple agents, the control server acts as a router. The SSE server automatically detects proxied requests:
+
+**Headers set by control server:**
+- `X-Forwarded-For`: Original client IP
+- `X-Client-Id`: Session identifier from Open WebUI
+
+**Example control server routing:**
+
+```javascript
+// Control server receives request from Open WebUI
+// Routes to appropriate agent based on target
+
+app.post('/mcp/messages', async (req, res) => {
+  const targetAgent = req.body.agent || defaultAgent;
+  const agent = agents.get(targetAgent);
+
+  // Forward with tracking headers
+  const response = await fetch(`${agent.url}/mcp/messages`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${agent.apiKey}`,
+      'X-Forwarded-For': req.ip,
+      'X-Client-Id': req.headers['x-client-id'],
     },
-    "mcp-eyes-advanced": {
-      "command": "npx",
-      "args": ["mcp-eyes-advanced"]
-    }
+    body: JSON.stringify(req.body),
+  });
+
+  res.json(await response.json());
+});
+```
+
+### Testing the SSE Server
+
+```bash
+# Health check
+curl http://192.168.11.10:3458/health
+
+# Agent info
+curl http://192.168.11.10:3458/info
+
+# List tools (requires auth)
+curl -H "Authorization: Bearer mcp_abc123..." \
+  http://192.168.11.10:3458/mcp/tools
+
+# Call a tool
+curl -X POST \
+  -H "Authorization: Bearer mcp_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"listApplications","arguments":{}}}' \
+  http://192.168.11.10:3458/mcp/messages
+```
+
+## Control Server (Multi-Agent Management)
+
+The MCP-Eyes Control Server enables centralized management of multiple agents across the internet. It acts as a hub that accepts WebSocket connections from remote agents, routes commands, and provides a unified API for managing distributed automation infrastructure.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MCP Client / Open WebUI                      │
+│                    (Claude, Cursor, etc.)                       │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ HTTP/SSE
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Control Server (Port 3457)                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Agent Registry                                           │  │
+│  │  - WebSocket connections from agents                      │  │
+│  │  - Agent authentication & token validation               │  │
+│  │  - Bonjour/mDNS service discovery                        │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  HTTP API                                                 │  │
+│  │  - List agents: GET /api/agents                          │  │
+│  │  - Execute commands: POST /api/agents/:id/:method        │  │
+│  │  - Agent status: GET /api/agents/:id/status              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└───────┬─────────────────────┬─────────────────────┬─────────────┘
+        │ WebSocket (wss://) │ WebSocket (wss://) │ WebSocket
+        │                    │                    │
+        ▼                    ▼                    ▼
+┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+│   Agent 1     │     │   Agent 2     │     │   Agent 3     │
+│   MacBook Pro │     │   Mac Mini    │     │   Windows PC  │
+│   (Office)    │     │   (Home)      │     │   (Cloud VM)  │
+│               │     │               │     │               │
+│  - SSE Server │     │  - SSE Server │     │  - SSE Server │
+│  - Native API │     │  - Native API │     │  - Native API │
+│  - Browser    │     │  - Browser    │     │  - Browser    │
+└───────────────┘     └───────────────┘     └───────────────┘
+```
+
+### Features
+
+- **Multi-Agent Management**: Connect and manage unlimited agents from a single control server
+- **Internet-Scale**: Agents can connect from anywhere (office, home, cloud VMs)
+- **Service Discovery**: Automatic agent discovery via Bonjour/mDNS
+- **Unified API**: Single HTTP endpoint to control all agents
+- **Agent Authentication**: Token-based authentication for secure connections
+- **Real-Time Status**: Live agent health monitoring and ping tracking
+- **Command Routing**: Automatic routing of commands to the correct agent
+
+### Installation
+
+The control server is located in the `control_server/` directory:
+
+```bash
+cd control_server
+npm install
+npm run build
+npm start
+```
+
+### Starting the Control Server
+
+```bash
+# Default port 3457
+cd control_server
+npm start
+
+# Custom port
+PORT=8080 npm start
+
+# Development mode with auto-reload
+npm run dev
+```
+
+On startup, you'll see:
+
+```
+╔═══════════════════════════════════════════════════════════════╗
+║              MCP-Eyes Control Server v1.0.0                   ║
+╠═══════════════════════════════════════════════════════════════╣
+║  HTTP API:    http://localhost:3457                          ║
+║  WebSocket:   ws://localhost:3457/ws                          ║
+║  Bonjour:     Enabled                                         ║
+╚═══════════════════════════════════════════════════════════════╝
+```
+
+### Agent Registration
+
+Agents connect to the control server via WebSocket and register with authentication tokens:
+
+**Agent Registration Message:**
+```json
+{
+  "type": "register",
+  "agent": "My MacBook Pro",
+  "token": "agt_xxxxxxxxxxxxxxxx",
+  "os": "darwin",
+  "osVersion": "25.1.0",
+  "arch": "arm64"
+}
+```
+
+**Control Server Response:**
+```json
+{
+  "type": "registered",
+  "id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### Agent Token Format
+
+Agent tokens must start with `agt_` prefix. In production, implement proper token validation against a database or authentication service.
+
+**Example tokens:**
+- `agt_abc123def456...` ✅ Valid
+- `agt_production_key_2024` ✅ Valid
+- `mcp_xyz789` ❌ Invalid (wrong prefix)
+
+### HTTP API Endpoints
+
+#### List All Agents
+
+```bash
+GET /api/agents
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "My MacBook Pro",
+    "os": "darwin",
+    "osVersion": "25.1.0",
+    "arch": "arm64",
+    "connectedAt": "2024-01-15T10:30:00.000Z",
+    "lastPing": "2024-01-15T10:35:00.000Z"
+  },
+  {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "name": "Home Mac Mini",
+    "os": "darwin",
+    "osVersion": "24.0.0",
+    "arch": "x64",
+    "connectedAt": "2024-01-15T09:15:00.000Z",
+    "lastPing": "2024-01-15T10:35:00.000Z"
+  }
+]
+```
+
+#### Get Agent Status
+
+```bash
+GET /api/agents/:id/status
+```
+
+**Response:**
+```json
+{
+  "status": "online",
+  "uptime": 3600,
+  "tools": ["listApplications", "screenshot", "click", ...]
+}
+```
+
+#### Execute Command on Agent
+
+```bash
+POST /api/agents/:id/:method
+Content-Type: application/json
+
+{
+  "x": 0.5,
+  "y": 0.3
+}
+```
+
+**Example: Click on agent**
+```bash
+curl -X POST http://control-server:3457/api/agents/550e8400.../click \
+  -H "Content-Type: application/json" \
+  -d '{"x": 0.5, "y": 0.3}'
+```
+
+#### Execute Command by Agent Name
+
+```bash
+POST /api/agents/by-name/:name/:method
+```
+
+**Example:**
+```bash
+curl -X POST http://control-server:3457/api/agents/by-name/My-MacBook-Pro/screenshot \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+#### Health Check
+
+```bash
+GET /health
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "agents": 3
+}
+```
+
+### WebSocket Protocol
+
+Agents connect to `ws://control-server:3457/ws` and communicate using JSON messages:
+
+**Message Types:**
+
+1. **Register** (Agent → Server)
+   ```json
+   {
+     "type": "register",
+     "agent": "Agent Name",
+     "token": "agt_...",
+     "os": "darwin",
+     "osVersion": "25.1.0",
+     "arch": "arm64"
+   }
+   ```
+
+2. **Request** (Server → Agent)
+   ```json
+   {
+     "type": "request",
+     "id": "request-uuid",
+     "method": "screenshot",
+     "params": {}
+   }
+   ```
+
+3. **Response** (Agent → Server)
+   ```json
+   {
+     "type": "response",
+     "id": "request-uuid",
+     "result": { ... }
+   }
+   ```
+
+4. **Error** (Agent → Server)
+   ```json
+   {
+     "type": "error",
+     "id": "request-uuid",
+     "error": "Error message"
+   }
+   ```
+
+5. **Ping/Pong** (Keep-alive)
+   ```json
+   {
+     "type": "ping",
+     "id": "ping-uuid"
+   }
+   ```
+   ```json
+   {
+     "type": "pong",
+     "id": "ping-uuid"
+   }
+   ```
+
+### Bonjour/mDNS Discovery
+
+The control server automatically announces connected agents via Bonjour/mDNS:
+
+- **Service Type**: `mcp-eyes`
+- **Service Name**: `mcp-eyes-{agent-name}`
+- **Port**: Control server port (default 3457)
+- **TXT Records**:
+  - `id`: Agent UUID
+  - `name`: Agent display name
+  - `os`: Operating system
+  - `osVersion`: OS version
+  - `arch`: Architecture
+  - `remote`: `"true"`
+
+**Discovery Example:**
+```bash
+# Using dns-sd (macOS)
+dns-sd -B _mcp-eyes._tcp
+
+# Using avahi-browse (Linux)
+avahi-browse -r _mcp-eyes._tcp
+```
+
+### Agent Connection Example
+
+Here's how an agent would connect to the control server:
+
+```javascript
+import WebSocket from 'ws';
+
+const ws = new WebSocket('wss://control.example.com/ws');
+
+ws.on('open', () => {
+  // Register agent
+  ws.send(JSON.stringify({
+    type: 'register',
+    agent: 'My MacBook Pro',
+    token: 'agt_abc123def456...',
+    os: 'darwin',
+    osVersion: '25.1.0',
+    arch: 'arm64'
+  }));
+});
+
+ws.on('message', (data) => {
+  const msg = JSON.parse(data.toString());
+  
+  if (msg.type === 'request') {
+    // Execute command
+    const result = await executeCommand(msg.method, msg.params);
+    
+    // Send response
+    ws.send(JSON.stringify({
+      type: 'response',
+      id: msg.id,
+      result
+    }));
+  }
+});
+```
+
+### Deployment Scenarios
+
+#### Scenario 1: Single Control Server, Multiple Agents
+
+```
+Control Server (cloud.example.com:3457)
+    ├── Agent 1 (office-mac.local)
+    ├── Agent 2 (home-mac.local)
+    └── Agent 3 (cloud-vm.example.com)
+```
+
+#### Scenario 2: Control Server Behind Reverse Proxy
+
+```nginx
+# nginx.conf
+location /ws {
+    proxy_pass http://localhost:3457;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
+location /api {
+    proxy_pass http://localhost:3457;
+}
+```
+
+#### Scenario 3: Docker Deployment
+
+```dockerfile
+# Dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY control_server/package*.json ./
+RUN npm install
+COPY control_server/ .
+RUN npm run build
+EXPOSE 3457
+CMD ["npm", "start"]
+```
+
+```bash
+docker build -t mcp-eyes-control .
+docker run -p 3457:3457 mcp-eyes-control
+```
+
+### Security Considerations
+
+1. **Token Validation**: Implement proper token validation (database, JWT, etc.)
+2. **TLS/SSL**: Use `wss://` for production WebSocket connections
+3. **Firewall**: Restrict access to control server port
+4. **Rate Limiting**: Implement rate limiting on HTTP API
+5. **Authentication**: Add API key authentication for HTTP endpoints
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3457` | Control server HTTP/WebSocket port |
+
+### Integration with MCP-Eyes Agents
+
+To connect an MCP-Eyes agent to the control server, configure the agent's remote client:
+
+```json
+{
+  "remote": {
+    "enabled": true,
+    "serverUrl": "wss://control.example.com/ws",
+    "agentToken": "agt_abc123def456...",
+    "agentName": "My MacBook Pro"
   }
 }
 ```
 
-#### Multiple Versions Setup
+The agent will automatically:
+1. Connect to the control server via WebSocket
+2. Register with authentication token
+3. Accept and execute commands from the control server
+4. Send responses back through the WebSocket connection
 
-```json
-{
-  "mcpServers": {
-    "mcp-eyes-basic": {
-      "command": "mcp-eyes-basic",
-      "args": []
-    },
-    "mcp-eyes-advanced": {
-      "command": "mcp-eyes-advanced",
-      "args": []
-    }
-  }
-}
+## Configuration Examples
 
-### AI Provider Integration
+### With LM Studio (Local LLM)
 
-#### With LM Studio (Local LLM)
 ```json
 {
   "mcpServers": {
     "mcp-eyes": {
       "command": "npx",
-      "args": [
-        "-y",
-        "mcp-eyes@latest",
-        "mcp"
-      ],
+      "args": ["-y", "mcp-eyes@latest", "mcp"],
       "env": {
         "LLM_PROVIDER": "lm-studio",
         "LLM_BASE_URL": "http://127.0.0.1:1234",
@@ -265,18 +789,14 @@ Add to your Cursor MCP settings (`~/.cursor-mcp/config.json` or via Cursor setti
 }
 ```
 
-#### With OpenAI API
+### With OpenAI API
 
 ```json
 {
   "mcpServers": {
     "mcp-eyes": {
       "command": "npx",
-      "args": [
-        "-y",
-        "mcp-eyes@latest",
-        "mcp"
-      ],
+      "args": ["-y", "mcp-eyes@latest", "mcp"],
       "env": {
         "LLM_PROVIDER": "openai",
         "OPENAI_API_KEY": "sk-your-api-key-here",
@@ -287,18 +807,14 @@ Add to your Cursor MCP settings (`~/.cursor-mcp/config.json` or via Cursor setti
 }
 ```
 
-#### With Claude API
+### With Claude API
 
 ```json
 {
   "mcpServers": {
     "mcp-eyes": {
       "command": "npx",
-      "args": [
-        "-y",
-        "mcp-eyes@latest",
-        "mcp"
-      ],
+      "args": ["-y", "mcp-eyes@latest", "mcp"],
       "env": {
         "LLM_PROVIDER": "anthropic",
         "ANTHROPIC_API_KEY": "sk-ant-your-api-key-here",
@@ -309,493 +825,59 @@ Add to your Cursor MCP settings (`~/.cursor-mcp/config.json` or via Cursor setti
 }
 ```
 
-#### With Ollama (Local)
-
-```json
-{
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-eyes@latest",
-        "mcp"
-      ],
-      "env": {
-        "LLM_PROVIDER": "ollama",
-        "LLM_BASE_URL": "http://127.0.0.1:11434",
-        "LLM_MODEL": "llama3.1:8b"
-      }
-    }
-  }
-}
-```
-
-## 🆕 Recent Improvements
-
-### Latest Features (v1.1.15)
-
-#### Enterprise-Grade Logging System
-- **Structured Logging**: JSON-formatted logs with timestamps, session IDs, and context
-- **Session Tracking**: Unique session identifiers for debugging and troubleshooting
-- **Crash Analysis**: Automatic crash detection and detailed error reporting
-- **Log Levels**: Configurable logging (DEBUG, INFO, WARN, ERROR, FATAL)
-- **Persistent Logs**: Logs saved to `~/.mcp-eyes/mcp_eyes.log` for post-mortem analysis
-- **Global Error Handling**: Comprehensive error capture including unhandled rejections
-
-#### Permission Management System
-- **Automated Permission Checks**: Real-time macOS permission status detection
-- **Permission Guidance**: Step-by-step instructions for granting required permissions
-- **Node.js Path Detection**: Automatic detection of Node.js installation path
-- **Symlink Detection**: Identifies when symlinks are needed for hidden Node installations
-- **Screen Recording**: Automated checking of Screen Recording permission
-- **Accessibility Access**: Automated checking of Accessibility permission
-
-#### CI/CD & Quality Assurance
-- **GitHub Actions Pipeline**: Automated testing on push and pull requests
-- **Multi-Platform Testing**: Tests across macOS, Windows, and Linux
-- **Multi-Version Support**: Validates against Node.js 18.x, 20.x, and 22.x
-- **MCP Structure Validation**: Ensures MCP protocol compliance
-- **Server Startup Tests**: Validates server initialization across all variants
-- **Quality Checks**: Automated markdown linting and code quality validation
-- **Branch Protection**: Automated checks on main, develop, and Claude branches
-
-#### Claude Identity Server
-- **`mcp-eyes-claude`**: New server variant optimized for Claude Desktop integration
-- **Identity Handling**: Proper server identification for Claude compatibility
-- **Simplified Configuration**: Streamlined setup for Claude Desktop users
-
-### Build System Overhaul
-
-- **Clean TypeScript Build**: Simplified build process using `tsc` with proper tsconfig.json
-- **Cross-Platform Clean**: Added `rimraf` for reliable dist directory cleanup across platforms
-- **Optimized Package**: Enhanced `.npmignore` to exclude unnecessary files from NPM distribution
-- **Version Management**: Streamlined to 3 package variants for clarity and maintainability
-- **Executable Scripts**: Automated executable permission setting with `postbuild` hook
-
-### Package Structure
-
-- **`mcp-eyes`**: Advanced version (default) - includes all features and AI analysis
-- **`mcp-eyes-basic`**: Basic version - essential Apple Accessibility and screenshot features only
-- **`mcp-eyes-claude`**: Claude Identity version - optimized for Claude Desktop
-
-### NPM Publishing Ready
-
-- **Automatic Installation**: NPX configuration with `-y` flag for seamless installation
-- **Version Control**: Proper semantic versioning and package management
-- **Clean Distribution**: Optimized package size with only essential files included
-- **Script Automation**: Automated version bumping and publishing workflows
-
-## 🤖 AI Analysis & OCR Capabilities (Advanced Server Only)
-
-The Advanced server includes powerful AI analysis and OCR recognition features that make browser automation and GUI interaction more intelligent and reliable.
-
-### AI-Enhanced Screenshot Analysis
-
-The Advanced server uses computer vision techniques to:
-
-- **Detect UI Elements**: Automatically identify buttons, text fields, links, and other interactive elements
-- **Natural Language Interaction**: Find and click elements using natural language descriptions like "update available button" or "login form"
-- **Smart Workflows**: Execute complex automation sequences with intelligent decision making
-- **Context-Aware Analysis**: Understand the current state of applications and suggest appropriate actions
-
-### OCR Recognition
-
-Advanced OCR capabilities for text detection and analysis:
-
-- **Multi-Method OCR**: Supports macOS built-in OCR, Tesseract, and fallback text detection
-- **Text Element Detection**: Identify text regions with precise bounding boxes
-- **Confidence Scoring**: Each detected element includes confidence levels for reliability
-- **Browser-Friendly**: Optimized for web content and browser automation
-
-### Hybrid Analysis Approach
-
-The Enhanced Analysis Server combines multiple detection methods:
-
-1. **Apple Window Manager**: Native macOS accessibility API for precise element detection
-2. **OCR Analysis**: Text-based element identification using optical character recognition
-3. **Local LLM Analysis**: AI-powered understanding of UI context and interactions
-4. **Fallback Detection**: Heuristic-based detection for maximum compatibility
-
-### Use Cases
-
-**Browser Automation**:
-
-- Automatically detect and interact with web forms
-- Handle dynamic content and JavaScript-rendered elements
-- Navigate complex web applications with natural language commands
-
-**Desktop Application Control**:
-
-- Intelligent interaction with native applications
-- Context-aware automation that adapts to UI changes
-- Reliable element detection across different application states
-
-**Accessibility Testing**:
-
-- Verify UI elements are properly accessible
-- Test screen reader compatibility
-- Ensure applications meet accessibility standards
-
-### Configuration
-
-Configure AI analysis methods in your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "mcp-eyes-ai": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": ["-y", "mcp-eyes-ai"],
-      "env": {
-        "DEBUG": "mcp:*",
-        "AI_ANALYSIS_ENABLED": "true",
-        "OCR_ENABLED": "true"
-      }
-    },
-    "mcp-eyes-analysis": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": ["-y", "mcp-eyes-analysis"],
-      "env": {
-        "DEBUG": "mcp:*",
-        "USE_APPLE_WINDOW_MANAGER": "true",
-        "USE_OCR": "true",
-        "USE_LOCAL_LLM": "true",
-        "LOCAL_LLM_URL": "http://127.0.0.1:1234"
-      }
-    }
-  }
-}
-```
-
-## 🖥️ Platform Support
+## Platform Support
 
 ### macOS
 
-- **JXA Integration**: Native JavaScript for Automation
-- **AppleScript Support**: System Events and UI Element access
-- **Multi-Display**: Full support for multiple displays
-- **Permissions**: Automatic screen recording and accessibility permission handling
+- **Apple Accessibility API**: Native UI element detection
+- **JXA Integration**: JavaScript for Automation
+- **Screen Recording**: Screenshot capture permission
+- **Native App**: Menu bar app for status and settings
 
 ### Windows
 
-- **PowerShell Integration**: Native Windows process management
+- **PowerShell Integration**: Native process management
 - **Administrator Rights**: Automatic detection and handling
-- **Window Management**: Full window control capabilities
 
 ### Linux
 
 - **wmctrl Integration**: X11 window management
 - **X11 Support**: Native Linux GUI control
-- **Process Management**: Comprehensive process listing and control
 
-## 🔧 Configuration
+## Tech Stack
 
-### MCP Client Setup
+### Core Technologies
 
-Add to your MCP client configuration (e.g., Cursor's `mcp.json`):
+- **TypeScript 5.0+**: Type-safe development
+- **Node.js 20+**: Modern JavaScript runtime
+- **Model Context Protocol (MCP)**: Anthropic's SDK for AI tool integration
 
-#### Basic Configuration
+### GUI Automation
 
-```json
-{
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "mcp-eyes",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+- **@nut-tree-fork/nut-js 4.2.6**: Cross-platform desktop automation
+- **screenshot-desktop 1.15.0**: Multi-platform screenshot capture
+- **Sharp 0.33.5**: High-performance image processing
+- **@jxa/run 1.4.0**: macOS AppleScript bridge
 
-{
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-basic": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-basic"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-enhanced": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-enhanced"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-advanced": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-advanced"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-full": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-full"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-cross-platform": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-cross-platform"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-ai": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-ai"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-analysis": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-analysis"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    },
-    "mcp-eyes-accessibility": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes-accessibility"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    }
-  }
-}
-```
+### AI & Computer Vision
 
-#### Cross-Platform Configuration
+- **Tesseract.js 6.0.1**: OCR text detection
+- **fastest-levenshtein 1.0.16**: String similarity matching
+- **node-mac-permissions 1.0.0**: macOS permission management
 
-For Windows users, use the Windows npx path:
+### Browser Integration
 
-```json
-{
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-eyes"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    }
-  }
-}
-```
+- **ws 8.18.3**: WebSocket server for browser bridge
+- **Chrome Extension (MV3)**: Manifest V3 extension
+- **Firefox Extension (MV2)**: Firefox-compatible extension
 
-#### Local Development Configuration
-
-For local development, point directly to the built files:
-
-```json
-{
-  "mcpServers": {
-    "mcp-eyes-local": {
-      "command": "node",
-      "args": ["./dist/cross-platform.js"],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    }
-  }
-}
-```
-
-### Environment Variables
-
-```bash
-# Optional: Set screenshot save directory
-MCP_EYES_SCREENSHOT_DIR=/path/to/screenshots
-
-# Optional: Set log level
-MCP_EYES_LOG_LEVEL=info
-```
-
-## 📖 Usage Examples
-
-### Basic Screenshot
-
-```javascript
-// Take a screenshot of the current focused application
-await mcpClient.callTool('screenshot', { padding: 10 });
-```
-
-### Multi-Display Support
-
-```javascript
-// List all displays
-const displays = await mcpClient.callTool('listDisplays', {});
-
-// Screenshot specific display
-await mcpClient.callTool('screenshotDisplay', { displayId: '1' });
-```
-
-### Application Control
-
-```javascript
-// List running applications
-const apps = await mcpClient.callTool('listApplications', {});
-
-// Focus specific application
-await mcpClient.callTool('focusApplication', { identifier: 'com.apple.Safari' });
-
-// Close an application gracefully
-await mcpClient.callTool('closeApp', { identifier: 'com.apple.Safari' });
-
-// Force close an application if graceful quit fails
-await mcpClient.callTool('closeApp', { identifier: 'iTerm2', force: true });
-
-// Click at normalized coordinates
-await mcpClient.callTool('click', { x: 0.5, y: 0.3 });
-```
-
-### Cross-Platform Example
-
-```javascript
-// Works on macOS, Windows, and Linux
-await mcpClient.callTool('listApplications', {});
-await mcpClient.callTool('focusApplication', { identifier: 'notepad' }); // Windows
-await mcpClient.callTool('focusApplication', { identifier: 'firefox' }); // Linux
-
-// Close applications across platforms
-await mcpClient.callTool('closeApp', { identifier: 'notepad' }); // Windows
-await mcpClient.callTool('closeApp', { identifier: 'firefox' }); // Linux
-await mcpClient.callTool('closeApp', { identifier: 'Safari' }); // macOS
-
-await mcpClient.callTool('click', { x: 0.5, y: 0.5 });
-```
-
-### AI-Enhanced Screenshot Analysis
-
-```javascript
-// Take screenshot with AI analysis
-const result = await mcpClient.callTool('screenshotWithAI', {
-  padding: 10,
-  includeAnalysis: true
-});
-
-// Find and click element by description
-await mcpClient.callTool('findAndClickElement', {
-  description: 'update available button',
-  padding: 10
-});
-
-// Smart screenshot with automatic app detection
-await mcpClient.callTool('smartScreenshot', {
-  appName: 'Safari',
-  includeAnalysis: true
-});
-
-// Execute complex workflow
-await mcpClient.callTool('executeWorkflow', {
-  appName: 'ChatGPT',
-  actions: [
-    { type: 'click', target: 'new chat button' },
-    { type: 'wait', duration: 1000 },
-    { type: 'click', target: 'text input field' },
-    { type: 'type', text: 'Hello, how can you help me?' }
-  ]
-});
-```
-
-### OCR Recognition and Analysis
-
-```javascript
-// Analyze screenshot with OCR
-const analysis = await mcpClient.callTool('analyzeScreenshot', {
-  imageData: 'base64-encoded-image-data',
-  mimeType: 'image/png'
-});
-
-// Get clickable elements with OCR detection
-const elements = await mcpClient.callTool('findClickableElements', {
-  appName: 'Chrome',
-  elementTypes: ['button', 'link'],
-  searchText: 'login'
-});
-```
-
-### Enhanced Analysis with Hybrid Methods
-
-```javascript
-// Comprehensive window analysis
-const analysis = await mcpClient.callTool('analyzeWindow', {
-  appName: 'Safari',
-  methods: ['apple-window-manager', 'ocr', 'local-llm'],
-  includeBoundingBoxes: true
-});
-
-// Get element choices for user selection
-const choices = await mcpClient.callTool('getElementChoices', {
-  appName: 'Finder',
-  filterByText: 'settings',
-  filterByType: 'button'
-});
-
-// Click element by choice index
-await mcpClient.callTool('clickElementByChoice', {
-  appName: 'Finder',
-  elementIndex: 0,
-  button: 'left'
-});
-
-// Screenshot with multi-method analysis
-await mcpClient.callTool('screenshotWithAnalysis', {
-  appName: 'Visual Studio Code',
-  analysisMethods: ['all'],
-  includeImage: true
-});
-```
-
-## 🛠️ Development
+## Development
 
 ### Prerequisites
 
-- Node.js >= 18.0.0
+- Node.js >= 20.0.0
 - TypeScript >= 5.0.0
-- Platform-specific dependencies (see below)
+- Platform-specific dependencies (see platform sections)
 
 ### Installation
 
@@ -808,998 +890,152 @@ npm install
 ### Building
 
 ```bash
-# Clean build (recommended)
+# Clean build
 npm run build:clean
 
 # Standard build
 npm run build
 
-# Development mode (watch)
+# Development mode
 npm run dev
 ```
 
 ### Testing
 
 ```bash
-# Run all tests (recommended)
+# Run all tests
 npm run test:all
 
-# Run MCP structure validation
+# MCP structure validation
 npm run test:validate-mcp
 
-# Run server startup tests
+# Server startup tests
 npm run test:startup
-
-# Run basic test suite
-npm test
-
-# Lint markdown documentation
-npm run lint:md
-
-# Auto-fix markdown issues
-npm run lint:md:fix
 ```
 
-### Logging & Debugging
+### Project Structure
 
-MCP-Eyes includes a comprehensive logging system for troubleshooting and debugging:
+```
+mcp-eyes/
+├── src/                    # TypeScript source files
+│   ├── mcp-sse-server.ts          # SSE server for Open WebUI
+│   ├── mcp-proxy-server.ts        # MCP proxy with browser tools
+│   ├── browser-bridge-server.ts   # WebSocket bridge for browser extensions
+│   ├── basic-server.ts            # Basic MCP server (stdio)
+│   └── advanced-server-simple.ts  # Advanced MCP server (stdio)
+├── extension/              # Browser extensions
+│   ├── chrome/            # Chrome/Edge extension (MV3)
+│   ├── firefox/           # Firefox extension (MV2)
+│   ├── shared/            # Shared extension code
+│   └── native-host/       # Native messaging host
+├── macos/                  # Native macOS app
+│   └── MCPEyes/           # Xcode project
+├── native/                 # Native C++ components
+│   └── src/               # HTTP server, discovery, web UI
+├── web/                    # Web UI dashboard
+│   └── index.html         # Configuration interface
+├── docs/                   # Documentation
+│   ├── CONTRIBUTING.md
+│   ├── LOGGING_SYSTEM.md
+│   ├── LOCAL_DEVELOPMENT.md
+│   └── ...
+└── dist/                   # Compiled JavaScript
+```
 
-#### Log Location
+## macOS Permissions
+
+MCP-Eyes requires specific permissions on macOS:
+
+### Screen Recording (Required)
 ```bash
-# Logs are stored in your home directory
-~/.mcp-eyes/mcp_eyes.log
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
 ```
 
-#### Log Levels
+### Accessibility (Required for advanced features)
 ```bash
-# Set log level via environment variable
-export MCP_EYES_LOG_LEVEL=debug  # DEBUG, INFO, WARN, ERROR, FATAL
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 ```
 
-#### View Logs
+> **Note**: Grant permissions to your MCP client (Claude, Cursor, VS Code), not to Node.js directly.
+
+## Logging & Debugging
+
+Logs are stored at `~/.mcp-eyes/mcp_eyes.log`:
+
 ```bash
 # Tail logs in real-time
 tail -f ~/.mcp-eyes/mcp_eyes.log
 
-# View recent logs
-tail -100 ~/.mcp-eyes/mcp_eyes.log
-
-# Search for errors
-grep "ERROR" ~/.mcp-eyes/mcp_eyes.log
-
-# View specific session
-grep "session-abc123" ~/.mcp-eyes/mcp_eyes.log
+# Set log level
+export MCP_EYES_LOG_LEVEL=debug  # DEBUG, INFO, WARN, ERROR, FATAL
 ```
 
-#### Log Format
-Each log entry includes:
-- **Timestamp**: ISO 8601 format with timezone
-- **Level**: Log severity (DEBUG, INFO, WARN, ERROR, FATAL)
-- **Session ID**: Unique identifier for each server instance
-- **PID**: Process ID
-- **Hostname**: Machine hostname
-- **Message**: Human-readable message
-- **Context**: Additional structured data
-- **Stack Trace**: For errors and crashes
+## Usage Examples
 
-#### Crash Analysis
-Crashes are automatically logged with full stack traces and context:
-```bash
-# View crash reports
-grep "CRASH" ~/.mcp-eyes/mcp_eyes.log
-```
-
-## 📋 Requirements
-
-### macOS
-
-- macOS 10.15+ (Catalina or later)
-- Screen Recording permission
-- Accessibility permission (for advanced features)
-
-### Windows
-
-- Windows 10/11
-- PowerShell 5.1+ or PowerShell 7+
-- Administrator rights (for some operations)
-
-### Linux
-
-- Ubuntu 18.04+ or equivalent
-- wmctrl package: `sudo apt install wmctrl`
-- X11 display server
-
-## 🔒 Platform-Specific Setup & Permissions
-
-### macOS Permissions & Setup
-
-MCP-Eyes requires specific macOS permissions to function properly. These permissions are essential for GUI
-automation and screenshot functionality.
-
-#### Required Permissions
-
-> **💡 Quick Reference**: When using mcp-eyes through an MCP client (Claude, Cursor, VS Code), grant permissions to **your MCP client application**, not to Node.js or Terminal.
-
-1. **Screen Recording Permission** (Critical)
-   - Required for: Screenshots, window capture, display analysis
-   - **How to grant**:
-
-     ```bash
-     # Open System Preferences via terminal
-     open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-     ```
-
-   - Manual steps:
-     - System Preferences > Security & Privacy > Privacy > Screen Recording
-     - Click the lock icon and enter your password
-     - Check the box next to your MCP client (Claude, Cursor, VS Code, etc.) or Terminal
-     - Restart the application after granting permission
-
-2. **Accessibility Permission** (For advanced features)
-   - Required for: Advanced GUI control, window management, click automation
-   - **How to grant**:
-
-     ```bash
-     # Open Accessibility preferences
-     open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-     ```
-
-   - Manual steps:
-     - System Preferences > Security & Privacy > Privacy > Accessibility
-     - Click the lock icon and enter your password
-     - Check the box next to your MCP client or Terminal
-
-#### ⚠️ **Important: MCP Client Permissions**
-
-When using mcp-eyes through an MCP client (like Claude, Cursor, or VS Code), **the MCP client application** will appear in the accessibility permissions list, not the Node.js process.
-
-**What you'll see in System Preferences:**
-- **Using Claude**: `Claude` will appear in the accessibility list
-- **Using Cursor**: `Cursor` will appear in the accessibility list
-- **Using VS Code**: `Visual Studio Code` will appear in the accessibility list
-- **Using Terminal**: `Terminal` will appear in the accessibility list
-
-**Why this happens:**
-- MCP runs as a subprocess of your MCP client
-- Permission requests originate from the parent application (your MCP client)
-- You must grant permissions to the **MCP client**, not the Node.js process
-
-**After granting permissions:**
-- Restart your MCP client application
-- mcp-eyes will inherit the permissions from the MCP client
-
-#### Permission Verification
-
-Test if permissions are properly granted:
-
-```bash
-# Test Screen Recording permission
-node -e "
-const { spawn } = require('child_process');
-spawn('screencapture', ['-t', 'png', '/tmp/test.png'], { stdio: 'inherit' });
-console.log('If no permission dialog appears, Screen Recording is granted');
-"
-
-# Test Accessibility permission (requires @jxa/run)
-node -e "
-const { run } = require('@jxa/run');
-try {
-  const result = run(() => {
-    return Application('System Events').processes.whose({name: 'Finder'})[0].name();
-  });
-  console.log('Accessibility permission granted:', result);
-} catch (error) {
-  console.log('Accessibility permission needed:', error.message);
-}
-"
-```
-
-#### Automated Permission Check
-
-Use the built-in permission checker:
-
-```bash
-# Check all permissions at once
-npx mcp-eyes mcp --check-permissions
-
-# Or test programmatically
-node -e "
-const { run } = require('@jxa/run');
-const { hasScreenRecordingPermission } = require('node-mac-permissions');
-
-console.log('Screen Recording:', hasScreenRecordingPermission());
-try {
-  run(() => Application('System Events').processes.name());
-  console.log('Accessibility: ✅ Granted');
-} catch (e) {
-  console.log('Accessibility: ❌ Needed');
-}
-"
-```
-
-#### Common macOS Issues
-
-**Problem**: Screenshots return 20x20px images
-
-```bash
-# Solution: Grant Screen Recording permission and restart
-sudo tccutil reset ScreenCapture  # Reset permissions
-# Re-grant permission through System Preferences
-```
-
-**Problem**: "Operation not permitted" errors
-
-```bash
-# Solution: Grant Accessibility permission
-sudo tccutil reset Accessibility
-# Re-grant permission through System Preferences
-```
-
-#### macOS Example Commands
-
-```bash
-# List applications with bundle IDs and window bounds
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "listApplications"}'
-
-# Focus Safari by bundle ID
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "focusApplication", "arguments": {"identifier": "com.apple.Safari"}}'
-
-# Take screenshot of focused window
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "screenshot", "arguments": {"padding": 20}}'
-```
-
-### Windows PowerShell Usage & Setup
-
-MCP-Eyes leverages Windows PowerShell for native Windows GUI automation and process management.
-
-#### PowerShell Requirements
-
-1. **PowerShell Version**
-
-   ```powershell
-   # Check PowerShell version
-   $PSVersionTable.PSVersion
-   # Required: PowerShell 5.1+ or PowerShell 7+
-   ```
-
-2. **Execution Policy** (if needed)
-
-   ```powershell
-   # Check current execution policy
-   Get-ExecutionPolicy
-
-   # Set execution policy if needed (run as Administrator)
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-   ```
-
-#### Administrator Rights
-
-Some operations require elevated permissions:
-
-```powershell
-# Check if running as Administrator
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-Write-Host "Running as Administrator: $isAdmin"
-
-# Restart PowerShell as Administrator (if needed)
-if (-NOT $isAdmin) {
-    Start-Process powershell -Verb RunAs
-}
-```
-
-#### Windows-Specific Features
-
-1. **Process Management**
-
-   ```powershell
-   # List all processes with window titles
-   Get-Process | Where-Object {$_.MainWindowTitle -ne ""} | Select-Object Id, ProcessName, MainWindowTitle
-   ```
-
-2. **Window Focus Control**
-
-   ```powershell
-   # Focus application by process name
-   $process = Get-Process -Name "notepad" -ErrorAction SilentlyContinue
-   if ($process) {
-       [Microsoft.VisualBasic.Interaction]::AppActivate($process.Id)
-   }
-   ```
-
-#### Windows Example Commands
-
-```bash
-# List Windows applications with process names and window titles
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "listApplications"}'
-
-# Focus Notepad by process name
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "focusApplication", "arguments": {"identifier": "notepad"}}'
-
-# Focus by Process ID
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "focusApplication", "arguments": {"identifier": "1234"}}'
-
-# Click at center of focused window
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "click", "arguments": {"x": 0.5, "y": 0.5}}'
-```
-
-#### Advanced Windows PowerShell Operations
-
-```powershell
-# Get detailed process information
-Get-Process | Where-Object {$_.MainWindowTitle -ne ""} |
-Select-Object Id, ProcessName, MainWindowTitle, StartTime | Format-Table
-
-# Find processes by partial name
-Get-Process | Where-Object {$_.ProcessName -like "*chrome*"} |
-Select-Object Id, ProcessName, MainWindowTitle
-
-# Check if a window is visible and responsive
-$process = Get-Process -Name "notepad" -ErrorAction SilentlyContinue
-if ($process) {
-    Write-Host "Process found: $($process.MainWindowTitle)"
-    Write-Host "Window Handle: $($process.MainWindowHandle)"
-    Write-Host "Responding: $($process.Responding)"
-}
-
-# Focus window with error handling
-try {
-    $process = Get-Process -Name "notepad" -ErrorAction Stop
-    [Microsoft.VisualBasic.Interaction]::AppActivate($process.Id)
-    Write-Host "Successfully focused Notepad"
-} catch {
-    Write-Host "Failed to focus Notepad: $($_.Exception.Message)"
-}
-```
-
-#### Windows Automation Scripts
-
-Create reusable PowerShell scripts for common tasks:
-
-```powershell
-# Save as focus-app.ps1
-param(
-    [string]$AppName
-)
-
-$process = Get-Process -Name $AppName -ErrorAction SilentlyContinue
-if ($process) {
-    [Microsoft.VisualBasic.Interaction]::AppActivate($process.Id)
-    Write-Host "Focused $AppName (PID: $($process.Id))"
-} else {
-    Write-Host "Process $AppName not found"
-    # List similar processes
-    Get-Process | Where-Object {$_.ProcessName -like "*$AppName*"} |
-    Select-Object ProcessName, Id, MainWindowTitle
-}
-
-# Usage: .\focus-app.ps1 -AppName "chrome"
-```
-
-#### Troubleshooting Windows Issues
-
-**Problem**: PowerShell execution policy errors
-
-```powershell
-# Solution: Update execution policy
-Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
-```
-
-**Problem**: Access denied errors
-
-```powershell
-# Solution: Run as Administrator
-# Right-click PowerShell/Terminal → "Run as Administrator"
-```
-
-**Problem**: Process not found
-
-```powershell
-# Check if process exists
-Get-Process | Where-Object {$_.ProcessName -like "*notepad*"}
-```
-
-### Linux wmctrl Setup & Configuration
-
-MCP-Eyes uses wmctrl for Linux window management and X11 integration.
-
-#### wmctrl Installation
-
-**Ubuntu/Debian**:
-
-```bash
-# Update package list
-sudo apt update
-
-# Install wmctrl
-sudo apt install wmctrl
-
-# Verify installation
-wmctrl -m
-```
-
-**CentOS/RHEL/Fedora**:
-
-```bash
-# CentOS/RHEL
-sudo yum install wmctrl
-
-# Fedora
-sudo dnf install wmctrl
-
-# Verify installation
-wmctrl -m
-```
-
-**Arch Linux**:
-
-```bash
-# Install wmctrl
-sudo pacman -S wmctrl
-
-# Verify installation
-wmctrl -m
-```
-
-#### X11 Requirements
-
-MCP-Eyes requires X11 display server (Wayland is not supported):
-
-```bash
-# Check current session type
-echo $XDG_SESSION_TYPE
-# Should output: x11
-
-# Check if X11 is running
-echo $DISPLAY
-# Should output something like: :0 or :1
-
-# Switch to X11 session (if using Wayland)
-# Log out and select "X11" session at login screen
-```
-
-#### wmctrl Verification & Testing
-
-```bash
-# Test wmctrl functionality
-wmctrl -l                    # List all windows
-wmctrl -d                    # List all desktops
-wmctrl -m                    # Display window manager info
-
-# Test window operations
-wmctrl -a firefox            # Focus Firefox window
-wmctrl -c firefox            # Close Firefox window
-wmctrl -r firefox -b add,maximized_vert,maximized_horz  # Maximize
-```
-
-#### Advanced wmctrl Operations
-
-```bash
-# List windows with detailed information
-wmctrl -l -p -G              # List with PID and geometry
-wmctrl -l -x                 # List with WM_CLASS
-
-# Find windows by title or class
-wmctrl -l | grep -i "terminal"           # Find terminal windows
-wmctrl -l -x | grep -i "firefox"         # Find Firefox windows
-
-# Window positioning and sizing
-wmctrl -r "Terminal" -e 0,100,100,800,600    # Move and resize
-wmctrl -r "Terminal" -b add,above             # Keep above other windows
-wmctrl -r "Terminal" -b remove,maximized_vert,maximized_horz  # Unmaximize
-
-# Desktop switching
-wmctrl -s 1                  # Switch to desktop 1
-wmctrl -r "Terminal" -t 2    # Move window to desktop 2
-
-# Advanced window states
-wmctrl -r "Terminal" -b add,sticky           # Show on all desktops
-wmctrl -r "Terminal" -b add,shaded           # Shade/roll up window
-wmctrl -r "Terminal" -b toggle,fullscreen    # Toggle fullscreen
-```
-
-#### Linux Window Management Scripts
-
-Create automation scripts for complex window operations:
-
-```bash
-#!/bin/bash
-# Save as focus-or-launch.sh
-APP_NAME="$1"
-APP_COMMAND="$2"
-
-# Try to focus existing window
-if wmctrl -a "$APP_NAME" 2>/dev/null; then
-    echo "Focused existing $APP_NAME window"
-else
-    echo "Launching new $APP_NAME instance"
-    if [ -n "$APP_COMMAND" ]; then
-        $APP_COMMAND &
-        sleep 2  # Wait for app to launch
-        wmctrl -a "$APP_NAME"
-    else
-        echo "No launch command provided"
-    fi
-fi
-
-# Usage: ./focus-or-launch.sh "Firefox" "firefox"
-```
-
-```bash
-#!/bin/bash
-# Save as workspace-setup.sh
-# Set up a development workspace
-
-# Open terminal on left half
-gnome-terminal &
-sleep 1
-wmctrl -r "Terminal" -e 0,0,0,960,1080
-
-# Open code editor on right half
-code &
-sleep 3
-wmctrl -r "Visual Studio Code" -e 0,960,0,960,1080
-
-# Open browser on desktop 2
-wmctrl -s 1
-firefox &
-sleep 2
-wmctrl -r "Firefox" -b add,maximized_vert,maximized_horz
-
-# Switch back to desktop 1
-wmctrl -s 0
-
-echo "Workspace setup complete!"
-```
-
-#### Linux Permission Requirements
-
-```bash
-# Ensure user has X11 access
-xhost +local:                # Grant local access (if needed)
-
-# Check X11 permissions
-ls -la /tmp/.X11-unix/       # Should show X11 sockets
-
-# Test X11 access
-xdpyinfo > /dev/null && echo "X11 access OK" || echo "X11 access failed"
-```
-
-#### Linux Example Commands
-
-```bash
-# List all Linux windows
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "listApplications"}'
-
-# Focus Firefox window
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "focusApplication", "arguments": {"identifier": "firefox"}}'
-
-# Focus by partial window title
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "focusApplication", "arguments": {"identifier": "Terminal"}}'
-
-# Take screenshot of focused window
-npx mcp-eyes mcp <<< '{"method": "call", "tool": "screenshot", "arguments": {"padding": 10}}'
-```
-
-#### Linux Distribution-Specific Setup
-
-**Ubuntu/Debian**:
-
-```bash
-# Update package lists
-sudo apt update
-
-# Install wmctrl and dependencies
-sudo apt install wmctrl x11-utils xdotool
-
-# Install additional tools for enhanced functionality
-sudo apt install xprop xwininfo scrot
-
-# Verify installation
-wmctrl --version
-xdotool version
-```
-
-**CentOS/RHEL 8+**:
-
-```bash
-# Enable EPEL repository
-sudo dnf install epel-release
-
-# Install wmctrl and dependencies
-sudo dnf install wmctrl xorg-x11-utils xdotool
-
-# Verify installation
-wmctrl --version
-```
-
-**Fedora**:
-
-```bash
-# Install wmctrl and dependencies
-sudo dnf install wmctrl xorg-x11-utils xdotool xprop
-
-# Verify installation
-wmctrl --version
-```
-
-**Arch Linux**:
-
-```bash
-# Install wmctrl and dependencies
-sudo pacman -S wmctrl xorg-xprop xorg-xwininfo xdotool
-
-# Verify installation
-wmctrl --version
-```
-
-#### Linux Troubleshooting
-
-**Problem**: wmctrl command not found
-
-```bash
-# Solution: Install wmctrl (see distribution-specific sections above)
-which wmctrl  # Check if installed
-echo $PATH    # Verify PATH includes /usr/bin
-
-# Alternative installation from source (if package unavailable)
-sudo apt install build-essential libx11-dev libxmu-dev libglib2.0-dev
-wget http://tomas.styblo.name/wmctrl/dist/wmctrl-1.07.tar.gz
-tar -xzf wmctrl-1.07.tar.gz
-cd wmctrl-1.07
-make
-sudo make install
-```
-
-**Problem**: Cannot open display
-
-```bash
-# Check DISPLAY variable
-echo $DISPLAY
-
-# Set DISPLAY if needed
-export DISPLAY=:0
-
-# Test X11 connection
-xdpyinfo | head -10
-
-# For remote sessions (SSH)
-ssh -X user@hostname  # Enable X11 forwarding
-```
-
-**Problem**: Wayland session detected
-
-```bash
-# Check session type
-echo $XDG_SESSION_TYPE
-echo $WAYLAND_DISPLAY
-
-# Force X11 environment variables
-unset WAYLAND_DISPLAY
-export XDG_SESSION_TYPE=x11
-
-# Permanent switch to X11 session:
-# 1. Log out
-# 2. At login screen, click gear icon
-# 3. Select "Ubuntu on Xorg" or "GNOME on Xorg"
-# 4. Log in
-
-# Verify X11 session
-loginctl show-session $XDG_SESSION_ID -p Type
-```
-
-**Problem**: Permission denied or X11 access issues
-
-```bash
-# Grant X11 access (temporary)
-xhost +local:$USER
-
-# Grant X11 access (persistent)
-echo "xhost +local:$USER" >> ~/.xsessionrc
-
-# Check user groups
-groups $USER
-# Should include groups like: audio, video, input
-
-# Add user to necessary groups
-sudo usermod -a -G audio,video,input $USER
-# Log out and back in for changes to take effect
-
-# Test X11 connection
-xdpyinfo > /dev/null && echo "X11 OK" || echo "X11 failed"
-```
-
-**Problem**: Desktop environment specific issues
-
-```bash
-# GNOME: Enable window management extensions
-gnome-extensions list
-gnome-extensions enable window-list@gnome-shell-extensions.gcampax.github.com
-
-# KDE: Check KWin configuration
-kreadconfig5 --group Windows --key FocusPolicy
-
-# XFCE: Verify window manager
-xfconf-query -c xfwm4 -l
-
-# i3/Awesome: wmctrl compatibility may be limited
-# Consider using i3-msg or awesome-client instead
-```
-
-**Problem**: Window focus not working
-
-```bash
-# Test different focus methods
-wmctrl -a "Firefox"              # Focus by title
-wmctrl -i -a 0x03400006          # Focus by window ID
-xdotool search --name "Firefox" windowactivate
-
-# Debug window information
-wmctrl -l -p -G -x               # Detailed window list
-xwininfo -tree -root             # X11 window tree
-
-# Alternative focus using xdotool
-xdotool search --name "Firefox" windowfocus
-xdotool search --class "firefox" windowactivate %1
-```
-
-### Cross-Platform Testing
-
-Verify your setup works across platforms:
-
-```bash
-# Test platform detection
-node -e "console.log('Platform:', process.platform)"
-
-# Test cross-platform server
-npx mcp-eyes mcp
-
-# Test with actual MCP client (example with Cursor)
-# Add to cursor-mcp-config.json:
-{
-  "mcpServers": {
-    "mcp-eyes": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": [
-        "-y",
-        "mcp-eyes"
-      ],
-      "env": {
-        "DEBUG": "mcp:*"
-      }
-    }
-  }
-}
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-#### Screenshots return small images (20x20px)
-
-- Ensure Screen Recording permission is granted on macOS
-- Check that the target application is visible and not minimized
-
-#### "Permission denied" errors
-
-- Grant required permissions in System Preferences (macOS)
-- Run with administrator rights (Windows)
-- Check X11 access (Linux)
-
-#### Cross-platform server not working
-
-- Verify platform-specific dependencies are installed
-- Check that the target platform is supported
-
-### Debug Mode
-
-Enable debug logging:
-
-```bash
-MCP_EYES_LOG_LEVEL=debug mcp-eyes mcp
-```
-
-## 📚 API Reference
-
-### Core Tools
-
-#### `listApplications`
-
-List all running applications with window bounds and metadata.
-
-**Parameters**: None
-
-**Returns**: Array of application objects with:
-
-- `name`: Application name
-- `bundleId`: Bundle identifier (macOS) or process name
-- `pid`: Process ID
-- `bounds`: Window bounds [x, y, width, height]
-- `displayId`: Display identifier (multi-display setups)
-
-#### `focusApplication`
-
-Focus a specific application by identifier.
-
-**Parameters**:
-
-- `identifier`: Bundle ID (macOS), process name (Windows/Linux), or PID
-
-**Returns**: Success confirmation
-
-#### `closeApp`
-
-Close/quit a specific application gracefully or forcefully.
-
-**Parameters**:
-
-- `identifier`: Bundle ID (macOS), app name, or PID of the application to close
-- `force` (optional): Force close the application if graceful quit fails (default: false)
-
-**Returns**: Success confirmation with method used (graceful/force)
-
-**Examples**:
+### Natural Mode (Real mouse movement)
 
 ```javascript
-// Graceful close
-await mcpClient.callTool('closeApp', { identifier: 'com.apple.Safari' });
-
-// Force close if graceful fails
-await mcpClient.callTool('closeApp', { identifier: 'iTerm2', force: true });
-
-// Close by PID
-await mcpClient.callTool('closeApp', { identifier: '12345' });
+// Get element coordinates
+const elements = await mcpClient.callTool('browser_getInteractiveElements', {});
+// Move real mouse and click
+await mcpClient.callTool('click', { x: 0.5, y: 0.3 });
 ```
 
-#### `click`
+### Silent Mode (Direct DOM manipulation)
 
-Perform a mouse click at normalized coordinates.
+```javascript
+// Click via JavaScript injection
+await mcpClient.callTool('browser_clickElement', { selector: '#submit-btn' });
 
-**Parameters**:
-
-- `x`: X coordinate (0-1, normalized to window)
-- `y`: Y coordinate (0-1, normalized to window)
-- `button`: Mouse button ("left", "right", "middle")
-
-**Returns**: Success confirmation
-
-#### `screenshot`
-
-Take a screenshot of the focused application window.
-
-**Parameters**:
-
-- `padding`: Padding around window in pixels (default: 10)
-- `format`: Image format ("png", "jpg")
-- `quality`: JPEG quality 1-100 (default: 90)
-
-**Returns**: Base64 encoded image or file path
-
-### Advanced Tools
-
-#### `listDisplays`
-
-List all available displays.
-
-**Returns**: Array of display objects with:
-
-- `id`: Display identifier
-- `name`: Display name
-- `bounds`: Display bounds [x, y, width, height]
-- `primary`: Whether this is the primary display
-
-#### `screenshotRegion`
-
-Take a screenshot of a specific screen region.
-
-**Parameters**:
-
-- `x`: X coordinate of region
-- `y`: Y coordinate of region
-- `width`: Width of region
-- `height`: Height of region
-- `format`: Image format ("png", "jpg")
-- `quality`: JPEG quality 1-100
-
-**Returns**: Base64 encoded image or file path
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Setup
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-### Code Style
-
-- Use TypeScript for all new code
-- Follow existing naming conventions
-- Add JSDoc comments for public APIs
-- Include tests for new functionality
-
-## 🔢 Version Management
-
-This project uses a centralized version management system. The version is stored in `version.json` and automatically synchronized across all files.
-
-### Quick Commands
-
-```bash
-# Bump patch version (1.1.2 → 1.1.3)
-npm run version:patch
-
-# Bump minor version (1.1.2 → 1.2.0)
-npm run version:minor
-
-# Bump major version (1.1.2 → 2.0.0)
-npm run version:major
-
-# Update all files to current version
-npm run update-version
+// Fill form field
+await mcpClient.callTool('browser_fillElement', {
+  selector: 'input[name="email"]',
+  value: 'user@example.com'
+});
 ```
 
-See [VERSION_MANAGEMENT.md](VERSION_MANAGEMENT.md) for detailed documentation.
+### Multi-Browser Targeting
 
-## 📄 License
+```javascript
+// List connected browsers
+await mcpClient.callTool('browser_listConnected', {});
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+// Target specific browser
+await mcpClient.callTool('browser_getTabs', { browser: 'firefox' });
 
-## 🙏 Acknowledgments
+// Set default browser
+await mcpClient.callTool('browser_setDefaultBrowser', { browser: 'chrome' });
+```
 
-- [Model Context Protocol](https://modelcontextprotocol.io/) for the MCP framework
-- [nut.js](https://github.com/nut-tree/nut.js) for cross-platform GUI automation
-- [screenshot-desktop](https://github.com/bencevans/screenshot-desktop) for screenshot capabilities
-- [@jxa/run](https://github.com/JXA-userland/JXA) for macOS JavaScript for Automation
+## Troubleshooting
 
-## 📞 Support
+### Screenshots return small images (20x20px)
+- Ensure Screen Recording permission is granted
+- Restart your MCP client after granting permissions
 
-- **Issues**: [GitHub Issues](https://github.com/datagram1/mcp-eyes/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/datagram1/mcp-eyes/discussions)
-- **Documentation**: [Wiki](https://github.com/datagram1/mcp-eyes/wiki)
+### Browser extension not connecting
+- Verify native messaging host is installed
+- Check browser console for errors
+- See [extension/README.md](extension/README.md) for debugging
 
-## 🗺️ Roadmap
+### Permission denied errors
+- Grant Accessibility permission to your MCP client
+- On Linux, ensure X11 access and wmctrl is installed
 
-### ✅ Completed Features
+## Contributing
 
-- [x] **AI-Enhanced Screenshot Analysis** - Intelligent UI element detection and natural language interaction
-- [x] **OCR Recognition** - Multi-method text detection for browser automation
-- [x] **Hybrid Analysis** - Combined Apple Window Manager, OCR, and Local LLM approaches
-- [x] **Enhanced Analysis Server** - Comprehensive UI analysis with multiple detection methods
-- [x] **Accessibility-First Server** - Optimized for accessibility and screen reader compatibility
-- [x] **Clean Build System** - Modern TypeScript build with rimraf for cross-platform compatibility
-- [x] **NPM Publishing Ready** - Optimized package structure with automatic installation via NPX
-- [x] **Package Consolidation** - Streamlined to 3 clear variants: Basic, Advanced, and Claude Identity
-- [x] **Local LLM Integration** - Support for LM Studio, Ollama, and other local AI providers
-- [x] **Enterprise Logging System** - Comprehensive logging with session tracking and crash analysis
-- [x] **Permission Management** - Automated macOS permission checking and guidance
-- [x] **CI/CD Pipeline** - GitHub Actions with multi-platform testing and quality checks
-- [x] **MCP Validation** - Automated protocol compliance testing
-- [x] **Server Health Checks** - Startup validation for all server variants
-- [x] **Claude Desktop Integration** - Dedicated server variant for Claude compatibility
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 
-### 🚧 In Progress
+## License
 
-- [ ] Enhanced Windows PowerShell integration
-- [ ] Linux Wayland support
-- [ ] Advanced computer vision integration
+MIT License - see [LICENSE](LICENSE) for details.
 
-### 📋 Planned Features
+## Links
 
-- [ ] Plugin system for custom tools
-- [ ] Web-based configuration interface
-- [ ] Performance optimization for large screenshots
-- [ ] Advanced multi-display window management
-- [ ] Real-time UI state monitoring
-- [ ] Advanced workflow automation with conditional logic
-- [ ] Visual element detection using ML models
-- [ ] Browser extension for enhanced web automation
-- [ ] Recording and playback of automation workflows
-- [ ] Distributed testing across multiple machines
+- **NPM Package**: [npmjs.com/package/mcp-eyes](https://www.npmjs.com/package/mcp-eyes)
+- **GitHub**: [github.com/datagram1/mcp-eyes](https://github.com/datagram1/mcp-eyes)
+- **Issues**: [github.com/datagram1/mcp-eyes/issues](https://github.com/datagram1/mcp-eyes/issues)
 
 ---
 
-## Made with ❤️ for the AI automation community
+Made with care for the AI automation community.

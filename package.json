@@ -6,7 +6,9 @@
   "bin": {
     "mcp-eyes": "./dist/advanced-server-simple.js",
     "mcp-eyes-basic": "./dist/basic-server.js",
-    "mcp-eyes-claude": "./dist/claude-identity-server.js"
+    "mcp-eyes-claude": "./dist/claude-identity-server.js",
+    "mcp-eyes-sse": "./dist/mcp-sse-server.js",
+    "mcp-eyes-bridge": "./dist/browser-bridge-server.js"
   },
   "scripts": {
     "build": "npm run update-version && tsc",
@@ -17,6 +19,8 @@
     "start:basic": "node dist/basic-server.js",
     "start:advanced": "node dist/advanced-server-simple.js",
     "start:claude": "node dist/claude-identity-server.js",
+    "start:sse": "node dist/mcp-sse-server.js",
+    "start:bridge": "node dist/browser-bridge-server.js",
     "test": "npm run test:validate-mcp && npm run test:startup",
     "test:validate-mcp": "node tests/validate-mcp-structure.js",
     "test:startup": "node tests/test-server-startup.js",
@@ -66,7 +70,10 @@
     "hybrid-analysis",
     "local-llm",
     "tesseract",
-    "apple-window-manager"
+    "apple-window-manager",
+    "open-webui",
+    "sse",
+    "server-sent-events"
   ],
   "author": "Richard Brown",
   "license": "MIT",
@@ -80,11 +87,13 @@
     "platform": "^1.3.6",
     "screenshot-desktop": "^1.15.0",
     "sharp": "^0.33.5",
-    "tesseract.js": "^6.0.1"
+    "tesseract.js": "^6.0.1",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
+    "@types/ws": "^8.18.1",
     "markdownlint-cli": "^0.33.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.0.0"

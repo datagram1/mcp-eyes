@@ -341,6 +341,42 @@ export class OCRAnalyzer {
       return false;
     }
   }
+
+  /**
+   * Analyze image - wrapper for analyzeScreenshot that accepts base64 image
+   * This is the interface expected by the MCP server
+   */
+  async analyzeImage(base64Image: string): Promise<string> {
+    try {
+      // Convert base64 to buffer
+      const imageBuffer = Buffer.from(base64Image, 'base64');
+
+      // Get image dimensions
+      const metadata = await sharp(imageBuffer).metadata();
+      const width = metadata.width || 800;
+      const height = metadata.height || 600;
+
+      // Run analysis
+      const analysis = await this.analyzeScreenshot(imageBuffer, width, height);
+
+      // Format result as string for MCP response
+      const lines: string[] = [
+        `Found ${analysis.elements.length} text elements`,
+        '',
+        'Elements:',
+        ...analysis.elements.map((el, i) =>
+          `  ${i}. "${el.text}" at (${el.normalizedPosition.x.toFixed(3)}, ${el.normalizedPosition.y.toFixed(3)}) [confidence: ${el.confidence.toFixed(2)}]`
+        ),
+        '',
+        'Suggested Actions:',
+        ...analysis.suggestedActions.map(a => `  - ${a}`)
+      ];
+
+      return lines.join('\n');
+    } catch (error) {
+      return `OCR analysis failed: ${error}`;
+    }
+  }
 }
 
 export default OCRAnalyzer;

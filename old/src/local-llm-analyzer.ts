@@ -54,16 +54,16 @@ interface LLMAnalysis {
 export class LocalLLMAnalyzer {
   private config: LLMConfig;
   private tempDir: string;
-  
-  constructor(config: LLMConfig) {
+
+  constructor(config?: Partial<LLMConfig>) {
     this.config = {
-      baseUrl: config.baseUrl || 'http://127.0.0.1:1234',
-      apiKey: config.apiKey,
-      model: config.model || 'gpt-oss-20b',
-      maxTokens: config.maxTokens || 2000,
-      temperature: config.temperature || 0.1
+      baseUrl: config?.baseUrl || 'http://127.0.0.1:1234',
+      apiKey: config?.apiKey,
+      model: config?.model || 'gpt-oss-20b',
+      maxTokens: config?.maxTokens || 2000,
+      temperature: config?.temperature || 0.1
     };
-    
+
     this.tempDir = path.join(__dirname, '../../tmp/llm');
     this.ensureTempDir();
   }
@@ -374,6 +374,45 @@ Provide accurate coordinates and normalized positions (0-1) for each element.`;
   async getClickableElements(imageBuffer: Buffer, windowWidth: number, windowHeight: number): Promise<LLMElement[]> {
     const analysis = await this.analyzeScreenshot(imageBuffer, windowWidth, windowHeight);
     return analysis.elements.filter(element => element.isClickable && element.isEnabled);
+  }
+
+  /**
+   * Analyze image - wrapper for analyzeScreenshot that accepts base64 image and prompt
+   * This is the interface expected by the MCP server
+   */
+  async analyzeImage(base64Image: string, prompt: string): Promise<string> {
+    try {
+      // Convert base64 to buffer
+      const imageBuffer = Buffer.from(base64Image, 'base64');
+
+      // Get image dimensions using sharp
+      const sharp = (await import('sharp')).default;
+      const metadata = await sharp(imageBuffer).metadata();
+      const width = metadata.width || 800;
+      const height = metadata.height || 600;
+
+      // Run analysis
+      const analysis = await this.analyzeScreenshot(imageBuffer, width, height);
+
+      // Format result as string for MCP response
+      const lines: string[] = [
+        `AI Analysis for: "${prompt}"`,
+        '',
+        analysis.summary,
+        '',
+        `Found ${analysis.elements.length} UI elements:`,
+        ...analysis.elements.map((el, i) =>
+          `  ${i}. "${el.text || el.type}" (${el.type}) at (${el.normalizedPosition.x.toFixed(3)}, ${el.normalizedPosition.y.toFixed(3)}) [confidence: ${el.confidence.toFixed(2)}]`
+        ),
+        '',
+        'Suggested Actions:',
+        ...analysis.suggestedActions.map(a => `  - ${a}`)
+      ];
+
+      return lines.join('\n');
+    } catch (error) {
+      return `AI analysis failed: ${error}`;
+    }
   }
 }
 

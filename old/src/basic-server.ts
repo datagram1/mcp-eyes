@@ -6,16 +6,15 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+// @ts-ignore
 import { screenshotDesktop } from 'screenshot-desktop';
-import { mouse, Button, keyboard, Key } from '@nut-tree-fork/nut-js';
+import { mouse, Button } from '@nut-tree-fork/nut-js';
 import { run } from '@jxa/run';
 import sharp from 'sharp';
+// @ts-ignore
 import { checkPermissions } from 'node-mac-permissions';
-import { AppleWindowManager } from './apple-window-manager.js';
-import { OCRAnalyzer } from './ocr-analyzer.js';
-import { LocalLLMAnalyzer } from './local-llm-analyzer.js';
-import { WebContentDetector } from './web-content-detector.js';
 import { getWindowBoundsAppleScript } from './window-bounds-helper.js';
+import { logger, setupGlobalErrorHandlers } from './logger.js';
 
 // Type declarations for modules without types
 declare const Application: any;
@@ -39,52 +38,38 @@ interface WindowBounds {
   height: number;
 }
 
-class AdvancedServer {
+class BasicServer {
   private server: Server;
   private currentApp: AppInfo | null = null;
-  private appleWindowManager: AppleWindowManager;
-  private ocrAnalyzer: OCRAnalyzer;
-  private localLLMAnalyzer: LocalLLMAnalyzer;
-  private webContentDetector: WebContentDetector;
 
   constructor() {
-    this.server = new Server(
-      {
-        name: 'mcp-eyes-advanced',
-        version: '1.1.15',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
-    this.appleWindowManager = new AppleWindowManager();
-    this.ocrAnalyzer = new OCRAnalyzer();
-    this.localLLMAnalyzer = new LocalLLMAnalyzer();
-    this.webContentDetector = new WebContentDetector();
+    // Initialize global error handlers first
+    setupGlobalErrorHandlers(logger);
+    
+    this.server = new Server({
+      name: 'mcp-eyes-basic',
+      version: '1.1.15',
+    });
 
     this.setupToolHandlers();
     this.setupErrorHandling();
+    
+    logger.logServerEvent('BasicServer initialized', {
+      serverName: 'mcp-eyes-basic',
+      version: '1.1.15'
+    });
   }
 
   private setupErrorHandling(): void {
     this.server.onerror = (error) => {
-      console.error('[MCP Error]', error);
+      logger.error('MCP Server error', { error: error.message }, error);
     };
-
-    process.on('SIGINT', async () => {
-      await this.server.close();
-      process.exit(0);
-    });
   }
 
   private setupToolHandlers(): void {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
         tools: [
-          // Basic Tools
           {
             name: 'listApplications',
             description: '🎯 MCP-EYES: List all running applications with their window bounds and identifiers. Essential for finding apps before closing them.',
@@ -201,7 +186,6 @@ class AdvancedServer {
               },
             },
           },
-          // Apple Accessibility Tools
           {
             name: 'getClickableElements',
             description: 'Get all clickable elements in the focused application using Apple Accessibility.',
@@ -222,183 +206,6 @@ class AdvancedServer {
                 },
               },
               required: ['elementIndex'],
-            },
-          },
-          // AI Analysis Tools
-          {
-            name: 'analyzeImageWithAI',
-            description: 'Analyze a screenshot using AI to find UI elements and their locations.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                prompt: {
-                  type: 'string',
-                  description: 'What to look for in the image (e.g., "Find the Update Available button")',
-                },
-                padding: {
-                  type: 'number',
-                  description: 'Padding around the window in pixels',
-                  default: 10,
-                },
-              },
-              required: ['prompt'],
-            },
-          },
-          {
-            name: 'findAndClickElement',
-            description: 'Find and click an element using AI analysis with fallback methods.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                elementDescription: {
-                  type: 'string',
-                  description: 'Description of the element to find and click',
-                },
-                padding: {
-                  type: 'number',
-                  description: 'Padding around the window in pixels',
-                  default: 10,
-                },
-              },
-              required: ['elementDescription'],
-            },
-          },
-          // OCR Tools
-          {
-            name: 'analyzeImageWithOCR',
-            description: 'Analyze a screenshot using OCR to find text and buttons.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                padding: {
-                  type: 'number',
-                  description: 'Padding around the window in pixels',
-                  default: 10,
-                },
-              },
-            },
-          },
-          // Web Content Tools
-          {
-            name: 'getWebElements',
-            description: 'Get web elements (links, buttons, inputs) from the focused browser.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                padding: {
-                  type: 'number',
-                  description: 'Padding around the window in pixels',
-                  default: 10,
-                },
-              },
-            },
-          },
-          {
-            name: 'clickWebElement',
-            description: 'Click a web element by index from getWebElements.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                elementIndex: {
-                  type: 'number',
-                  description: 'Index of the web element to click',
-                },
-              },
-              required: ['elementIndex'],
-            },
-          },
-          {
-            name: 'findAndClickWebElement',
-            description: 'Find and click a web element by text or description.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                elementDescription: {
-                  type: 'string',
-                  description: 'Text or description of the web element to find',
-                },
-                padding: {
-                  type: 'number',
-                  description: 'Padding around the window in pixels',
-                  default: 10,
-                },
-              },
-              required: ['elementDescription'],
-            },
-          },
-          // Text Input Tools
-          {
-            name: 'typeText',
-            description: 'Type text into a focused input field.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                appName: {
-                  type: 'string',
-                  description: 'Name of the application to type into',
-                },
-                elementIndex: {
-                  type: 'number',
-                  description: 'Index of the input element (from getWebElements)',
-                },
-                text: {
-                  type: 'string',
-                  description: 'Text to type',
-                },
-                clearFirst: {
-                  type: 'boolean',
-                  description: 'Clear existing text before typing',
-                  default: true,
-                },
-              },
-              required: ['appName', 'elementIndex', 'text'],
-            },
-          },
-          {
-            name: 'googleSearch',
-            description: 'Perform a complete Google search workflow.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                appName: {
-                  type: 'string',
-                  description: 'Name of the browser application',
-                  default: 'Google Chrome',
-                },
-                searchQuery: {
-                  type: 'string',
-                  description: 'Search query to type',
-                },
-                searchButtonText: {
-                  type: 'string',
-                  description: 'Text of the search button to click',
-                  default: 'Google Search',
-                },
-              },
-              required: ['searchQuery'],
-            },
-          },
-          // Utility Tools
-          {
-            name: 'testAnalysisMethods',
-            description: 'Test all analysis methods (Accessibility, AI, OCR) on the current screen.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                padding: {
-                  type: 'number',
-                  description: 'Padding around the window in pixels',
-                  default: 10,
-                },
-              },
-            },
-          },
-          {
-            name: 'getAvailableLLMProviders',
-            description: 'Get list of available LLM providers and their status.',
-            inputSchema: {
-              type: 'object',
-              properties: {},
             },
           },
           {
@@ -428,76 +235,56 @@ class AdvancedServer {
       const { name, arguments: args } = request.params;
 
       try {
+        logger.debug(`Tool called: ${name}`, { args });
+        
+        let result;
         switch (name) {
-          // Basic Tools
           case 'listApplications':
-            return await this.listApplications();
+            result = await this.listApplications();
+            break;
 
           case 'focusApplication':
-            return await this.focusApplication(args.identifier);
+            result = await this.focusApplication(args?.identifier as string);
+            break;
 
           case 'closeApp':
-            return await this.closeApp(args.identifier, args.force || false);
+            result = await this.closeApp(args?.identifier as string, (args?.force as boolean) || false);
+            break;
 
           case 'click':
-            return await this.click(args.x, args.y, args.button || 'left');
+            result = await this.click(args?.x as number, args?.y as number, (args?.button as string) || 'left');
+            break;
 
           case 'moveMouse':
-            return await this.moveMouse(args.x, args.y);
+            result = await this.moveMouse(args?.x as number, args?.y as number);
+            break;
 
           case 'screenshot':
-            return await this.screenshot(args.padding || 10, args.format || 'png', args.quality || 90);
+            result = await this.screenshot((args?.padding as number) || 10, (args?.format as string) || 'png', (args?.quality as number) || 90);
+            break;
 
-          // Apple Accessibility Tools
           case 'getClickableElements':
-            return await this.getClickableElements();
+            result = await this.getClickableElements();
+            break;
 
           case 'clickElement':
-            return await this.clickElement(args.elementIndex);
-
-          // AI Analysis Tools
-          case 'analyzeImageWithAI':
-            return await this.analyzeImageWithAI(args.prompt, args.padding || 10);
-
-          case 'findAndClickElement':
-            return await this.findAndClickElement(args.elementDescription, args.padding || 10);
-
-          // OCR Tools
-          case 'analyzeImageWithOCR':
-            return await this.analyzeImageWithOCR(args.padding || 10);
-
-          // Web Content Tools
-          case 'getWebElements':
-            return await this.getWebElements(args.padding || 10);
-
-          case 'clickWebElement':
-            return await this.clickWebElement(args.elementIndex);
-
-          case 'findAndClickWebElement':
-            return await this.findAndClickWebElement(args.elementDescription, args.padding || 10);
-
-          // Text Input Tools
-          case 'typeText':
-            return await this.typeText(args.appName, args.elementIndex, args.text, args.clearFirst !== false);
-
-          case 'googleSearch':
-            return await this.googleSearch(args.appName || 'Google Chrome', args.searchQuery, args.searchButtonText || 'Google Search');
-
-          // Utility Tools
-          case 'testAnalysisMethods':
-            return await this.testAnalysisMethods(args.padding || 10);
-
-          case 'getAvailableLLMProviders':
-            return await this.getAvailableLLMProviders();
+            result = await this.clickElement(args?.elementIndex as number);
+            break;
 
           case 'findAndCloseApp':
-            return await this.findAndCloseApp(args.appName, args.force || false);
+            result = await this.findAndCloseApp(args?.appName as string, (args?.force as boolean) || false);
+            break;
 
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
+        
+        logger.logToolExecution(name, args, result);
+        return result;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.logToolExecution(name, args, null, error instanceof Error ? error : new Error(errorMessage));
+        
         return {
           content: [
             {
@@ -510,9 +297,9 @@ class AdvancedServer {
     });
   }
 
-  // Basic Tools Implementation
   private async listApplications(): Promise<any> {
     try {
+      logger.debug('Listing applications');
       const apps = await run(() => {
         const app = Application.currentApplication();
         app.includeStandardAdditions = true;
@@ -550,7 +337,7 @@ class AdvancedServer {
         return appList;
       });
 
-      return {
+      const result = {
         content: [
           {
             type: 'text',
@@ -563,13 +350,18 @@ class AdvancedServer {
           },
         ],
       };
+      
+      logger.info(`Listed ${(apps as any[]).length} applications`);
+      return result;
     } catch (error) {
+      logger.error('Failed to list applications', { error: error instanceof Error ? error.message : String(error) }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to list applications: ${error}`);
     }
   }
 
   private async focusApplication(identifier: string): Promise<any> {
     try {
+      logger.debug(`Focusing application: ${identifier}`);
       // Use the same approach as listApplications for consistency
       const apps = await run(() => {
         const app = Application.currentApplication();
@@ -681,7 +473,7 @@ class AdvancedServer {
 
       this.currentApp = targetApp;
 
-      return {
+      const result = {
         content: [
           {
             type: 'text',
@@ -689,14 +481,19 @@ class AdvancedServer {
           },
         ],
       };
+      
+      logger.logAppInteraction('focus', targetApp);
+      return result;
     } catch (error) {
+      logger.error(`Failed to focus application: ${identifier}`, { identifier }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to focus application: ${error}`);
     }
   }
 
   private async closeApp(identifier: string, force: boolean = false): Promise<any> {
     try {
-      const result = await run((identifier, force) => {
+      logger.debug(`Closing application: ${identifier}`, { force });
+      const closeResult = await run((identifier, force) => {
         const app = Application.currentApplication();
         app.includeStandardAdditions = true;
 
@@ -766,7 +563,7 @@ class AdvancedServer {
         }
       }, identifier, force);
 
-      const typedResult = result as {
+      const typedResult = closeResult as {
         success: boolean;
         method: string;
         appInfo: { name: string; bundleId: string; pid: number };
@@ -780,7 +577,7 @@ class AdvancedServer {
         this.currentApp = null;
       }
 
-      return {
+      const closeAppResult = {
         content: [
           {
             type: 'text',
@@ -788,7 +585,11 @@ class AdvancedServer {
           },
         ],
       };
+      
+      logger.logAppInteraction('close', typedResult.appInfo, { method: typedResult.method });
+      return closeAppResult;
     } catch (error) {
+      logger.error(`Failed to close application: ${identifier}`, { identifier, force }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to close application: ${error}`);
     }
   }
@@ -799,6 +600,11 @@ class AdvancedServer {
     }
 
     try {
+      logger.debug(`Clicking at (${x}, ${y}) with ${button} button`, { 
+        normalized: { x, y }, 
+        app: this.currentApp.name 
+      });
+      
       // Convert normalized coordinates to absolute screen coordinates
       const screenX = this.currentApp.bounds.x + (x * this.currentApp.bounds.width);
       const screenY = this.currentApp.bounds.y + (y * this.currentApp.bounds.height);
@@ -813,7 +619,7 @@ class AdvancedServer {
       await mouse.setPosition({ x: screenX, y: screenY });
       await mouse.click(buttonMap[button]);
 
-      return {
+      const result = {
         content: [
           {
             type: 'text',
@@ -821,7 +627,19 @@ class AdvancedServer {
           },
         ],
       };
+      
+      logger.logAppInteraction('click', this.currentApp, { 
+        normalized: { x, y }, 
+        screen: { x: screenX, y: screenY }, 
+        button 
+      });
+      return result;
     } catch (error) {
+      logger.error(`Failed to click at (${x}, ${y})`, { 
+        normalized: { x, y }, 
+        button, 
+        app: this.currentApp?.name 
+      }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to click: ${error}`);
     }
   }
@@ -857,8 +675,17 @@ class AdvancedServer {
     }
 
     try {
+      logger.debug(`Taking screenshot`, { 
+        padding, 
+        format, 
+        quality, 
+        app: this.currentApp.name 
+      });
+      
       // Check permissions
       const screenRecordingStatus = await checkPermissions('screen');
+      logger.logPermissionCheck('screen', screenRecordingStatus);
+      
       if (screenRecordingStatus !== 'authorized') {
         throw new Error('Screen Recording permission is required. Please grant permission in System Preferences > Security & Privacy > Privacy > Screen Recording.');
       }
@@ -892,7 +719,7 @@ class AdvancedServer {
       const base64Image = croppedImage.toString('base64');
       const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
 
-      return {
+      const result = {
         content: [
           {
             type: 'text',
@@ -905,28 +732,105 @@ class AdvancedServer {
           },
         ],
       };
+      
+      logger.logAppInteraction('screenshot', this.currentApp, { 
+        dimensions: { width: cropWidth, height: cropHeight },
+        format,
+        quality,
+        padding
+      });
+      return result;
     } catch (error) {
+      logger.error(`Failed to take screenshot`, { 
+        app: this.currentApp?.name,
+        padding,
+        format,
+        quality
+      }, error instanceof Error ? error : undefined);
       throw new Error(`Failed to take screenshot: ${error}`);
     }
   }
 
-  // Apple Accessibility Tools Implementation
   private async getClickableElements(): Promise<any> {
     if (!this.currentApp) {
       throw new Error('No application focused. Use focusApplication first.');
     }
 
     try {
-      const elements = await this.appleWindowManager.getClickableElements(this.currentApp.name);
-      
+      const currentAppBounds = this.currentApp.bounds;
+      const currentAppBundleId = this.currentApp.bundleId;
+
+      const elements = await run((appBundleId, appBounds) => {
+        const app = Application.currentApplication();
+        app.includeStandardAdditions = true;
+
+        const runningApps = Application('System Events').applicationProcesses();
+        let targetApp = null;
+
+        // Find the current app
+        for (let i = 0; i < runningApps.length; i++) {
+          if (runningApps[i].bundleIdentifier() === appBundleId) {
+            targetApp = runningApps[i];
+            break;
+          }
+        }
+
+        if (!targetApp) {
+          throw new Error('Target application not found');
+        }
+
+        const elements = [];
+        const windows = targetApp.windows();
+
+        if (windows.length > 0) {
+          const window = windows[0];
+          const uiElements = window.UIElements();
+
+          for (let i = 0; i < uiElements.length; i++) {
+            const element = uiElements[i];
+            const elementType = element.class();
+            const elementText = element.value() || element.title() || '';
+            const elementBounds = element.bounds();
+            const isClickable = element.clickable();
+            const isEnabled = element.enabled();
+
+            if (isClickable && isEnabled) {
+              elements.push({
+                index: elements.length,
+                type: elementType,
+                text: elementText,
+                bounds: {
+                  x: elementBounds[0],
+                  y: elementBounds[1],
+                  width: elementBounds[2] - elementBounds[0],
+                  height: elementBounds[3] - elementBounds[1],
+                },
+                normalizedPosition: {
+                  x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                  y: (elementBounds[1] - appBounds.y) / appBounds.height,
+                },
+                screenPosition: {
+                  x: elementBounds[0],
+                  y: elementBounds[1],
+                },
+                isClickable: isClickable,
+                isEnabled: isEnabled,
+              });
+            }
+          }
+        }
+
+        return elements;
+      }, currentAppBundleId, currentAppBounds);
+
       return {
         content: [
           {
             type: 'text',
-            text: `Found ${elements.length} clickable elements in ${this.currentApp.name}:\n\n${elements
+            text: `Found ${(elements as any[]).length} clickable elements in ${this.currentApp!.name}:\n\n${(elements as any[])
               .map(
-                (element: any, index: number) =>
-                  `${index}. "${element.text}" (${element.type})\n   Screen: (${element.screenPosition.x}, ${element.screenPosition.y})\n   Normalized: (${element.normalizedPosition.x.toFixed(3)}, ${element.normalizedPosition.y.toFixed(3)})`
+                (element: any) =>
+                  `${element.index}. "${element.text}" (${element.type})\n   Screen: (${element.screenPosition.x}, ${element.screenPosition.y})\n   Normalized: (${element.normalizedPosition.x.toFixed(3)}, ${element.normalizedPosition.y.toFixed(3)})`
               )
               .join('\n\n')}`,
           },
@@ -943,13 +847,77 @@ class AdvancedServer {
     }
 
     try {
-      const elements = await this.appleWindowManager.getClickableElements(this.currentApp.name);
-      
-      if (elementIndex < 0 || elementIndex >= elements.length) {
-        throw new Error(`Element index ${elementIndex} is out of range. Available elements: 0-${elements.length - 1}`);
+      const currentAppBounds = this.currentApp.bounds;
+      const currentAppBundleId = this.currentApp.bundleId;
+
+      const elements = await run((appBundleId, appBounds) => {
+        const app = Application.currentApplication();
+        app.includeStandardAdditions = true;
+
+        const runningApps = Application('System Events').applicationProcesses();
+        let targetApp = null;
+
+        // Find the current app
+        for (let i = 0; i < runningApps.length; i++) {
+          if (runningApps[i].bundleIdentifier() === appBundleId) {
+            targetApp = runningApps[i];
+            break;
+          }
+        }
+
+        if (!targetApp) {
+          throw new Error('Target application not found');
+        }
+
+        const elements = [];
+        const windows = targetApp.windows();
+
+        if (windows.length > 0) {
+          const window = windows[0];
+          const uiElements = window.UIElements();
+
+          for (let i = 0; i < uiElements.length; i++) {
+            const element = uiElements[i];
+            const elementType = element.class();
+            const elementText = element.value() || element.title() || '';
+            const elementBounds = element.bounds();
+            const isClickable = element.clickable();
+            const isEnabled = element.enabled();
+
+            if (isClickable && isEnabled) {
+              elements.push({
+                index: elements.length,
+                type: elementType,
+                text: elementText,
+                bounds: {
+                  x: elementBounds[0],
+                  y: elementBounds[1],
+                  width: elementBounds[2] - elementBounds[0],
+                  height: elementBounds[3] - elementBounds[1],
+                },
+                normalizedPosition: {
+                  x: (elementBounds[0] - appBounds.x) / appBounds.width,
+                  y: (elementBounds[1] - appBounds.y) / appBounds.height,
+                },
+                screenPosition: {
+                  x: elementBounds[0],
+                  y: elementBounds[1],
+                },
+                isClickable: isClickable,
+                isEnabled: isEnabled,
+              });
+            }
+          }
+        }
+
+        return elements;
+      }, currentAppBundleId, currentAppBounds);
+
+      if (elementIndex < 0 || elementIndex >= (elements as any[]).length) {
+        throw new Error(`Element index ${elementIndex} is out of range. Available elements: 0-${(elements as any[]).length - 1}`);
       }
 
-      const element = elements[elementIndex];
+      const element = (elements as any[])[elementIndex];
       const normalizedX = element.normalizedPosition.x;
       const normalizedY = element.normalizedPosition.y;
 
@@ -957,379 +925,6 @@ class AdvancedServer {
       return await this.click(normalizedX, normalizedY, 'left');
     } catch (error) {
       throw new Error(`Failed to click element: ${error}`);
-    }
-  }
-
-  // AI Analysis Tools Implementation
-  private async analyzeImageWithAI(prompt: string, padding: number): Promise<any> {
-    if (!this.currentApp) {
-      throw new Error('No application focused. Use focusApplication first.');
-    }
-
-    try {
-      // Take screenshot first
-      const screenshotResult = await this.screenshot(padding, 'png', 90);
-      const imageData = screenshotResult.content[1].data;
-
-      // Analyze with AI
-      const analysis = await this.localLLMAnalyzer.analyzeImage(imageData, prompt);
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `AI Analysis Results:\n\n${analysis}`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to analyze image with AI: ${error}`);
-    }
-  }
-
-  private async findAndClickElement(elementDescription: string, padding: number): Promise<any> {
-    if (!this.currentApp) {
-      throw new Error('No application focused. Use focusApplication first.');
-    }
-
-    try {
-      // Try Apple Accessibility first
-      try {
-        const elements = await this.appleWindowManager.getClickableElements(this.currentApp.name);
-        const matchingElement = elements.find((element: any) => 
-          element.text.toLowerCase().includes(elementDescription.toLowerCase())
-        );
-
-        if (matchingElement) {
-          const normalizedX = matchingElement.normalizedPosition.x;
-          const normalizedY = matchingElement.normalizedPosition.y;
-          await this.click(normalizedX, normalizedY, 'left');
-          
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `Found and clicked "${matchingElement.text}" using Apple Accessibility at normalized (${normalizedX.toFixed(3)}, ${normalizedY.toFixed(3)})`,
-              },
-            ],
-          };
-        }
-      } catch (accessibilityError) {
-        console.log('Apple Accessibility failed, trying AI analysis...');
-      }
-
-      // Fallback to AI analysis
-      const analysis = await this.analyzeImageWithAI(`Find and click the "${elementDescription}" element`, padding);
-      
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `AI Analysis completed. Please review the results and use click() with the provided coordinates.`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to find and click element: ${error}`);
-    }
-  }
-
-  // OCR Tools Implementation
-  private async analyzeImageWithOCR(padding: number): Promise<any> {
-    if (!this.currentApp) {
-      throw new Error('No application focused. Use focusApplication first.');
-    }
-
-    try {
-      // Take screenshot first
-      const screenshotResult = await this.screenshot(padding, 'png', 90);
-      const imageData = screenshotResult.content[1].data;
-
-      // Analyze with OCR
-      const analysis = await this.ocrAnalyzer.analyzeImage(imageData);
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `OCR Analysis Results:\n\n${analysis}`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to analyze image with OCR: ${error}`);
-    }
-  }
-
-  // Web Content Tools Implementation
-  private async getWebElements(padding: number): Promise<any> {
-    if (!this.currentApp) {
-      throw new Error('No application focused. Use focusApplication first.');
-    }
-
-    try {
-      // Take screenshot first
-      const screenshotResult = await this.screenshot(padding, 'png', 90);
-      const imageData = screenshotResult.content[1].data;
-
-      // Analyze web content
-      const elements = await this.webContentDetector.analyzeImage(imageData);
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Web Elements for ${this.currentApp.name}:\n\nWindow bounds: ${this.currentApp.bounds.width}x${this.currentApp.bounds.height} at (${this.currentApp.bounds.x}, ${this.currentApp.bounds.y})\n\nFound ${elements.length} web elements:\n\n${elements
-              .map(
-                (element: any, index: number) =>
-                  `${index}. "${element.text}" (${element.type}) - Screen: (${element.screenPosition.x}, ${element.screenPosition.y}) | Normalized: (${element.normalizedPosition.x.toFixed(3)}, ${element.normalizedPosition.y.toFixed(3)}) | Confidence: ${element.confidence} | Method: ${element.detectionMethod}`
-              )
-              .join('\n')}`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to get web elements: ${error}`);
-    }
-  }
-
-  private async clickWebElement(elementIndex: number): Promise<any> {
-    if (!this.currentApp) {
-      throw new Error('No application focused. Use focusApplication first.');
-    }
-
-    try {
-      // Get web elements
-      const screenshotResult = await this.screenshot(10, 'png', 90);
-      const imageData = screenshotResult.content[1].data;
-      const elements = await this.webContentDetector.analyzeImage(imageData);
-
-      if (elementIndex < 0 || elementIndex >= elements.length) {
-        throw new Error(`Element index ${elementIndex} is out of range. Available elements: 0-${elements.length - 1}`);
-      }
-
-      const element = elements[elementIndex];
-      const normalizedX = element.normalizedPosition.x;
-      const normalizedY = element.normalizedPosition.y;
-
-      // Use the existing click method
-      return await this.click(normalizedX, normalizedY, 'left');
-    } catch (error) {
-      throw new Error(`Failed to click web element: ${error}`);
-    }
-  }
-
-  private async findAndClickWebElement(elementDescription: string, padding: number): Promise<any> {
-    if (!this.currentApp) {
-      throw new Error('No application focused. Use focusApplication first.');
-    }
-
-    try {
-      // Get web elements
-      const screenshotResult = await this.screenshot(padding, 'png', 90);
-      const imageData = screenshotResult.content[1].data;
-      const elements = await this.webContentDetector.analyzeImage(imageData);
-
-      // Find matching element
-      const matchingElement = elements.find((element: any) => 
-        element.text.toLowerCase().includes(elementDescription.toLowerCase())
-      );
-
-      if (!matchingElement) {
-        throw new Error(`Web element "${elementDescription}" not found`);
-      }
-
-      const normalizedX = matchingElement.normalizedPosition.x;
-      const normalizedY = matchingElement.normalizedPosition.y;
-      await this.click(normalizedX, normalizedY, 'left');
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Found and clicked web element "${matchingElement.text}" at normalized (${normalizedX.toFixed(3)}, ${normalizedY.toFixed(3)})`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to find and click web element: ${error}`);
-    }
-  }
-
-  // Text Input Tools Implementation
-  private async typeText(appName: string, elementIndex: number, text: string, clearFirst: boolean): Promise<any> {
-    try {
-      // Focus the application first
-      await this.focusApplication(appName);
-
-      // Get web elements to find the input field
-      const screenshotResult = await this.screenshot(10, 'png', 90);
-      const imageData = screenshotResult.content[1].data;
-      const elements = await this.webContentDetector.analyzeImage(imageData);
-
-      if (elementIndex < 0 || elementIndex >= elements.length) {
-        throw new Error(`Element index ${elementIndex} is out of range. Available elements: 0-${elements.length - 1}`);
-      }
-
-      const element = elements[elementIndex];
-      const normalizedX = element.normalizedPosition.x;
-      const normalizedY = element.normalizedPosition.y;
-
-      // Convert to screen coordinates
-      const screenX = this.currentApp!.bounds.x + (normalizedX * this.currentApp!.bounds.width);
-      const screenY = this.currentApp!.bounds.y + (normalizedY * this.currentApp!.bounds.height);
-
-      // Move mouse and click to focus the input field
-      await mouse.setPosition({ x: screenX, y: screenY });
-      await mouse.click(Button.LEFT);
-
-      // Clear existing text if requested
-      if (clearFirst) {
-        await keyboard.pressKey(Key.LeftCmd, Key.A);
-        await keyboard.pressKey(Key.Delete);
-      }
-
-      // Type the text
-      await keyboard.type(text);
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Typed "${text}" into element ${elementIndex} ("${element.text}") at normalized (${normalizedX.toFixed(3)}, ${normalizedY.toFixed(3)})`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to type text: ${error}`);
-    }
-  }
-
-  private async googleSearch(appName: string, searchQuery: string, searchButtonText: string): Promise<any> {
-    try {
-      // Focus the browser
-      await this.focusApplication(appName);
-
-      // Get web elements
-      const screenshotResult = await this.screenshot(10, 'png', 90);
-      const imageData = screenshotResult.content[1].data;
-      const elements = await this.webContentDetector.analyzeImage(imageData);
-
-      // Find search box
-      const searchBox = elements.find((element: any) => 
-        element.isInput && (element.text.toLowerCase().includes('search') || element.placeholder?.toLowerCase().includes('search'))
-      );
-
-      if (!searchBox) {
-        throw new Error('Search box not found');
-      }
-
-      // Find search button
-      const searchButton = elements.find((element: any) => 
-        element.text.toLowerCase().includes(searchButtonText.toLowerCase())
-      );
-
-      if (!searchButton) {
-        throw new Error(`Search button "${searchButtonText}" not found`);
-      }
-
-      // Type in search box
-      const searchBoxIndex = elements.indexOf(searchBox);
-      await this.typeText(appName, searchBoxIndex, searchQuery, true);
-
-      // Click search button
-      const searchButtonIndex = elements.indexOf(searchButton);
-      await this.clickWebElement(searchButtonIndex);
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Successfully performed Google search for "${searchQuery}" using "${searchButtonText}" button`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to perform Google search: ${error}`);
-    }
-  }
-
-  // Utility Tools Implementation
-  private async testAnalysisMethods(padding: number): Promise<any> {
-    if (!this.currentApp) {
-      throw new Error('No application focused. Use focusApplication first.');
-    }
-
-    try {
-      const results = [];
-
-      // Test Apple Accessibility
-      try {
-        const accessibilityElements = await this.appleWindowManager.getClickableElements(this.currentApp.name);
-        results.push(`✅ Apple Accessibility: Found ${accessibilityElements.length} elements`);
-      } catch (error) {
-        results.push(`❌ Apple Accessibility: Failed - ${error}`);
-      }
-
-      // Test AI Analysis
-      try {
-        const screenshotResult = await this.screenshot(padding, 'png', 90);
-        const imageData = screenshotResult.content[1].data;
-        await this.localLLMAnalyzer.analyzeImage(imageData, 'Test analysis');
-        results.push(`✅ AI Analysis: Working`);
-      } catch (error) {
-        results.push(`❌ AI Analysis: Failed - ${error}`);
-      }
-
-      // Test OCR
-      try {
-        const screenshotResult = await this.screenshot(padding, 'png', 90);
-        const imageData = screenshotResult.content[1].data;
-        await this.ocrAnalyzer.analyzeImage(imageData);
-        results.push(`✅ OCR Analysis: Working`);
-      } catch (error) {
-        results.push(`❌ OCR Analysis: Failed - ${error}`);
-      }
-
-      // Test Web Content Detection
-      try {
-        const screenshotResult = await this.screenshot(padding, 'png', 90);
-        const imageData = screenshotResult.content[1].data;
-        const webElements = await this.webContentDetector.analyzeImage(imageData);
-        results.push(`✅ Web Content Detection: Found ${webElements.length} elements`);
-      } catch (error) {
-        results.push(`❌ Web Content Detection: Failed - ${error}`);
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Analysis Methods Test Results for ${this.currentApp.name}:\n\n${results.join('\n')}`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to test analysis methods: ${error}`);
-    }
-  }
-
-  private async getAvailableLLMProviders(): Promise<any> {
-    try {
-      const providers = await this.webContentDetector.getAvailableProviders();
-      
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Available LLM Providers:\n\n${providers
-              .map((provider: any) => `• ${provider.name}: ${provider.status}`)
-              .join('\n')}`,
-          },
-        ],
-      };
-    } catch (error) {
-      throw new Error(`Failed to get LLM providers: ${error}`);
     }
   }
 
@@ -1413,11 +1008,24 @@ class AdvancedServer {
   }
 
   async run(): Promise<void> {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('MCP Eyes Advanced Server running on stdio');
+    try {
+      logger.logServerEvent('Starting BasicServer');
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      logger.logServerEvent('BasicServer connected to stdio transport');
+      console.error('MCP Eyes Basic Server running on stdio');
+    } catch (error) {
+      logger.error('Failed to start BasicServer', { error: error instanceof Error ? error.message : String(error) }, error instanceof Error ? error : undefined);
+      throw error;
+    }
   }
 }
 
-const server = new AdvancedServer();
-server.run().catch(console.error);
+const server = new BasicServer();
+server.run().catch((error) => {
+  logger.logCrash(error instanceof Error ? error : new Error(String(error)), { 
+    context: 'BasicServer startup' 
+  });
+  console.error('MCP Eyes Basic Server failed to start:', error);
+  process.exit(1);
+});

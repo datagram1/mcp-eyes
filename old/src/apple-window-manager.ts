@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { run } from '@jxa/run';
+import { run } from './jxa-runner.js';
 
 interface ClickableElement {
   type: 'button' | 'text' | 'input' | 'link' | 'image' | 'menu' | 'checkbox' | 'radio' | 'slider' | 'unknown';
@@ -36,11 +36,11 @@ interface WindowAnalysis {
 }
 
 export class AppleWindowManager {
-  
+
   /**
    * Analyze a window using Apple's accessibility system to find all clickable elements
    */
-  static async analyzeWindow(appName: string): Promise<WindowAnalysis | null> {
+  async analyzeWindow(appName: string): Promise<WindowAnalysis | null> {
     try {
       const result = await run((appName: string) => {
         // @ts-ignore
@@ -188,61 +188,61 @@ export class AppleWindowManager {
   /**
    * Get clickable elements for a specific application
    */
-  static async getClickableElements(appName: string): Promise<ClickableElement[]> {
+  async getClickableElements(appName: string): Promise<ClickableElement[]> {
     const analysis = await this.analyzeWindow(appName);
     return analysis ? analysis.interactiveElements : [];
   }
-  
+
   /**
    * Find elements by text content
    */
-  static async findElementsByText(appName: string, searchText: string): Promise<ClickableElement[]> {
+  async findElementsByText(appName: string, searchText: string): Promise<ClickableElement[]> {
     const analysis = await this.analyzeWindow(appName);
     if (!analysis) return [];
-    
+
     const lowerSearchText = searchText.toLowerCase();
-    return analysis.elements.filter(element => 
+    return analysis.elements.filter(element =>
       element.text && element.text.toLowerCase().includes(lowerSearchText)
     );
   }
-  
+
   /**
    * Find elements by type
    */
-  static async findElementsByType(appName: string, elementType: string): Promise<ClickableElement[]> {
+  async findElementsByType(appName: string, elementType: string): Promise<ClickableElement[]> {
     const analysis = await this.analyzeWindow(appName);
     if (!analysis) return [];
-    
+
     return analysis.elements.filter(element => element.type === elementType);
   }
-  
+
   /**
    * Get element at specific coordinates
    */
-  static async getElementAtCoordinates(appName: string, x: number, y: number): Promise<ClickableElement | null> {
+  async getElementAtCoordinates(appName: string, x: number, y: number): Promise<ClickableElement | null> {
     const analysis = await this.analyzeWindow(appName);
     if (!analysis) return null;
-    
+
     // Convert normalized coordinates to absolute coordinates
     const absX = analysis.windowBounds.x + (x * analysis.windowBounds.width);
     const absY = analysis.windowBounds.y + (y * analysis.windowBounds.height);
-    
+
     // Find element that contains these coordinates
-    return analysis.elements.find(element => 
-      absX >= element.bounds.x && 
+    return analysis.elements.find(element =>
+      absX >= element.bounds.x &&
       absX <= element.bounds.x + element.bounds.width &&
-      absY >= element.bounds.y && 
+      absY >= element.bounds.y &&
       absY <= element.bounds.y + element.bounds.height
     ) || null;
   }
-  
+
   /**
    * Get detailed window information including all UI elements
    */
-  static async getWindowDetails(appName: string): Promise<any> {
+  async getWindowDetails(appName: string): Promise<any> {
     const analysis = await this.analyzeWindow(appName);
     if (!analysis) return null;
-    
+
     return {
       appName,
       windowBounds: analysis.windowBounds,
@@ -255,22 +255,22 @@ export class AppleWindowManager {
       elementTypes: this.getElementTypeCounts(analysis.elements)
     };
   }
-  
+
   /**
    * Get counts of different element types
    */
-  private static getElementTypeCounts(elements: ClickableElement[]): Record<string, number> {
+  private getElementTypeCounts(elements: ClickableElement[]): Record<string, number> {
     const counts: Record<string, number> = {};
     elements.forEach(element => {
       counts[element.type] = (counts[element.type] || 0) + 1;
     });
     return counts;
   }
-  
+
   /**
    * Validate that an element is actually clickable
    */
-  static async validateElementClickability(appName: string, element: ClickableElement): Promise<boolean> {
+  async validateElementClickability(appName: string, element: ClickableElement): Promise<boolean> {
     try {
       const result = await run((appName: string, elementBounds: any) => {
         // @ts-ignore

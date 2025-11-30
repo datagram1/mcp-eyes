@@ -17,8 +17,7 @@
     "moduleResolution": "node"
   },
   "include": [
-    "src/basic-server.ts",
-    "src/advanced-server-simple.ts"
+    "src/**/*.ts"
   ],
   "exclude": [
     "node_modules",

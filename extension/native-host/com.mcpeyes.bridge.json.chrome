@@ -1,0 +1,9 @@
+{
+  "name": "com.mcpeyes.bridge",
+  "description": "MCP Eyes Browser Bridge - Native messaging host for LLM-driven web automation",
+  "path": "HOST_PATH_PLACEHOLDER",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID_PLACEHOLDER/"
+  ]
+}

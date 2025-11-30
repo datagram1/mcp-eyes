@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="eyeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5BA3EC"/>
+      <stop offset="100%" style="stop-color:#3A7BC8"/>
+    </linearGradient>
+  </defs>
+  <circle cx="64" cy="64" r="58" fill="url(#eyeGradient)" stroke="#2E5C8A" stroke-width="4"/>
+  <circle cx="64" cy="64" r="28" fill="#1A1A1A"/>
+  <circle cx="64" cy="64" r="14" fill="#FFFFFF"/>
+  <circle cx="72" cy="56" r="6" fill="#FFFFFF" opacity="0.6"/>
+</svg>

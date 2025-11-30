@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP-Eyes Agent</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --card: #16213e;
+            --primary: #0f3460;
+            --accent: #e94560;
+            --text: #eee;
+            --text-dim: #888;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #f87171;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .logo {
+            font-size: 2rem;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card h2 {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--primary);
+            padding-bottom: 0.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            color: var(--text-dim);
+            margin-bottom: 0.25rem;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--primary);
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 1rem;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+        }
+
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            color: var(--text);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .api-key-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .api-key-group input {
+            flex: 1;
+            font-family: monospace;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover {
+            opacity: 0.8;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--primary);
+            color: var(--text);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .status-dot.ok { background: var(--success); }
+        .status-dot.warn { background: var(--warning); }
+        .status-dot.error { background: var(--error); }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .info-item {
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: 8px;
+        }
+
+        .info-item label {
+            font-size: 0.75rem;
+        }
+
+        .info-item .value {
+            font-size: 1rem;
+            font-weight: 500;
+            margin-top: 0.25rem;
+        }
+
+        .test-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .save-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--card);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            border-top: 1px solid var(--primary);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 5rem;
+            right: 2rem;
+            background: var(--success);
+            color: black;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.error {
+            background: var(--error);
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <span class="logo">🎯</span>
+            <h1>MCP-Eyes Agent</h1>
+        </header>
+
+        <!-- Agent Name -->
+        <div class="card">
+            <h2>Agent Identity</h2>
+            <div class="form-group">
+                <label for="name">Agent Name</label>
+                <input type="text" id="name" placeholder="My MacBook Pro">
+            </div>
+        </div>
+
+        <!-- Network Settings -->
+        <div class="card">
+            <h2>Network</h2>
+            <div class="form-group">
+                <label>Network Mode</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="network_mode" value="localhost" checked> Localhost only</label>
+                    <label><input type="radio" name="network_mode" value="lan"> LAN</label>
+                    <label><input type="radio" name="network_mode" value="wan"> WAN</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="port">Port</label>
+                <input type="number" id="port" value="3456">
+            </div>
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="tls_enabled">
+                    <label for="tls_enabled">Enable HTTPS/TLS</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Remote Control Server -->
+        <div class="card">
+            <h2>Remote Control</h2>
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="remote_enabled">
+                    <label for="remote_enabled">Connect to Control Server</label>
+                </div>
+            </div>
+            <div class="form-group" id="remote_settings" style="display: none;">
+                <label for="control_server">Control Server URL</label>
+                <input type="text" id="control_server" placeholder="wss://control.example.com/ws">
+            </div>
+            <div class="form-group" id="remote_token_group" style="display: none;">
+                <label for="agent_token">Agent Token</label>
+                <div class="api-key-group">
+                    <input type="text" id="agent_token" placeholder="agt_xxxxxxxxxx">
+                    <button class="btn btn-secondary" onclick="generateToken()">Generate</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security -->
+        <div class="card">
+            <h2>Security</h2>
+            <div class="form-group">
+                <label for="api_key">API Key</label>
+                <div class="api-key-group">
+                    <input type="text" id="api_key" readonly>
+                    <button class="btn btn-secondary" onclick="copyKey()">Copy</button>
+                    <button class="btn btn-secondary" onclick="regenerateKey()">Regenerate</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="allowed_ips">Allowed IPs (comma-separated, blank = any)</label>
+                <input type="text" id="allowed_ips" placeholder="192.168.1.0/24, 10.0.0.0/8">
+            </div>
+        </div>
+
+        <!-- Permissions -->
+        <div class="card">
+            <h2>Permissions</h2>
+            <div class="status-item">
+                <span class="status-dot" id="perm_accessibility"></span>
+                <span>Accessibility</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="perm_screen_recording"></span>
+                <span>Screen Recording</span>
+            </div>
+            <div class="status-item">
+                <span class="status-dot" id="perm_automation"></span>
+                <span>Automation</span>
+            </div>
+        </div>
+
+        <!-- Status -->
+        <div class="card">
+            <h2>System Info</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <label>OS</label>
+                    <div class="value" id="info_os">-</div>
+                </div>
+                <div class="info-item">
+                    <label>Version</label>
+                    <div class="value" id="info_version">-</div>
+                </div>
+                <div class="info-item">
+                    <label>Architecture</label>
+                    <div class="value" id="info_arch">-</div>
+                </div>
+                <div class="info-item">
+                    <label>Hostname</label>
+                    <div class="value" id="info_hostname">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Test Actions -->
+        <div class="card">
+            <h2>Test Actions</h2>
+            <div class="test-buttons">
+                <button class="btn btn-secondary" onclick="testScreenshot()">📸 Screenshot</button>
+                <button class="btn btn-secondary" onclick="testClick()">👆 Click</button>
+                <button class="btn btn-secondary" onclick="testOCR()">👁 OCR</button>
+                <button class="btn btn-secondary" onclick="testElements()">🔲 Elements</button>
+            </div>
+        </div>
+
+        <!-- Spacer for save bar -->
+        <div style="height: 80px;"></div>
+    </div>
+
+    <div class="save-bar">
+        <button class="btn btn-secondary" onclick="loadSettings()">Reset</button>
+        <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+    </div>
+
+    <script>
+        // Load settings on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSettings();
+            loadStatus();
+
+            // Toggle remote settings visibility
+            document.getElementById('remote_enabled').addEventListener('change', (e) => {
+                const show = e.target.checked;
+                document.getElementById('remote_settings').style.display = show ? 'block' : 'none';
+                document.getElementById('remote_token_group').style.display = show ? 'block' : 'none';
+            });
+        });
+
+        async function loadSettings() {
+            try {
+                const res = await fetch('/api/settings');
+                const settings = await res.json();
+
+                document.getElementById('name').value = settings.name || '';
+                document.getElementById('port').value = settings.port || 3456;
+                document.getElementById('api_key').value = settings.api_key || '';
+                document.getElementById('tls_enabled').checked = settings.tls_enabled || false;
+                document.getElementById('allowed_ips').value = (settings.allowed_ips || []).join(', ');
+
+                // Network mode
+                const mode = settings.network_mode || 'localhost';
+                document.querySelector(`input[name="network_mode"][value="${mode}"]`).checked = true;
+            } catch (e) {
+                console.error('Failed to load settings:', e);
+            }
+        }
+
+        async function loadStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const status = await res.json();
+
+                // Update system info
+                document.getElementById('info_os').textContent = status.os || '-';
+                document.getElementById('info_version').textContent = status.os_version || '-';
+                document.getElementById('info_arch').textContent = status.arch || '-';
+                document.getElementById('info_hostname').textContent = status.hostname || '-';
+
+                // Update permissions
+                const perms = status.permissions || {};
+                setPermissionStatus('perm_accessibility', perms.accessibility);
+                setPermissionStatus('perm_screen_recording', perms.screen_recording);
+                setPermissionStatus('perm_automation', perms.automation);
+            } catch (e) {
+                console.error('Failed to load status:', e);
+            }
+        }
+
+        function setPermissionStatus(elementId, granted) {
+            const el = document.getElementById(elementId);
+            el.classList.remove('ok', 'warn', 'error');
+            el.classList.add(granted ? 'ok' : 'error');
+        }
+
+        async function saveSettings() {
+            const settings = {
+                name: document.getElementById('name').value,
+                network_mode: document.querySelector('input[name="network_mode"]:checked').value,
+                port: parseInt(document.getElementById('port').value),
+                tls_enabled: document.getElementById('tls_enabled').checked,
+                allowed_ips: document.getElementById('allowed_ips').value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(s => s)
+            };
+
+            try {
+                const res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+
+                if (res.ok) {
+                    showToast('Settings saved!');
+                } else {
+                    showToast('Failed to save settings', true);
+                }
+            } catch (e) {
+                showToast('Failed to save settings', true);
+            }
+        }
+
+        function copyKey() {
+            const key = document.getElementById('api_key').value;
+            navigator.clipboard.writeText(key);
+            showToast('API key copied!');
+        }
+
+        async function regenerateKey() {
+            if (!confirm('Regenerate API key? This will invalidate the current key.')) return;
+
+            try {
+                const res = await fetch('/api/regenerate-key', { method: 'POST' });
+                if (res.ok) {
+                    await loadSettings();
+                    showToast('API key regenerated!');
+                }
+            } catch (e) {
+                showToast('Failed to regenerate key', true);
+            }
+        }
+
+        function generateToken() {
+            const token = 'agt_' + Array.from(crypto.getRandomValues(new Uint8Array(16)))
+                .map(b => b.toString(16).padStart(2, '0')).join('');
+            document.getElementById('agent_token').value = token;
+        }
+
+        async function testScreenshot() {
+            showToast('Taking screenshot...');
+            try {
+                const res = await fetch('/screenshot', { method: 'POST' });
+                const data = await res.json();
+                if (data.image) {
+                    // Open in new window
+                    const img = new Image();
+                    img.src = 'data:image/png;base64,' + data.image;
+                    const w = window.open('');
+                    w.document.write(img.outerHTML);
+                }
+            } catch (e) {
+                showToast('Screenshot failed', true);
+            }
+        }
+
+        async function testClick() {
+            showToast('Click test: clicking center of screen');
+            try {
+                await fetch('/click', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ x: 0.5, y: 0.5 })
+                });
+            } catch (e) {
+                showToast('Click test failed', true);
+            }
+        }
+
+        async function testOCR() {
+            showToast('Running OCR...');
+            try {
+                const res = await fetch('/analyzeWithOCR');
+                const data = await res.json();
+                alert('OCR found ' + data.length + ' text regions:\n\n' +
+                    data.slice(0, 5).map(r => r.text).join('\n'));
+            } catch (e) {
+                showToast('OCR failed', true);
+            }
+        }
+
+        async function testElements() {
+            showToast('Getting clickable elements...');
+            try {
+                const res = await fetch('/getClickableElements');
+                const data = await res.json();
+                alert('Found ' + data.length + ' clickable elements:\n\n' +
+                    data.slice(0, 10).map(e => `${e.type}: ${e.text}`).join('\n'));
+            } catch (e) {
+                showToast('Failed to get elements', true);
+            }
+        }
+
+        function showToast(message, isError = false) {
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.className = 'toast' + (isError ? ' error' : '');
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => toast.remove(), 3000);
+        }
+    </script>
+</body>
+</html>

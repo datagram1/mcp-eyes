@@ -61,8 +61,8 @@ class ClaudeIdentityServer {
       // Start MCP-eyes with Claude's identity
       await this.startMCPEyesWithClaudeIdentity();
       
-    } catch (error) {
-      logger.error('Failed to start ClaudeIdentityServer', { error: error.message }, error);
+    } catch (error: any) {
+      logger.error('Failed to start ClaudeIdentityServer', { error: error?.message }, error);
       process.exit(1);
     }
   }
@@ -82,8 +82,8 @@ class ClaudeIdentityServer {
         
         return { pid, path };
       }
-    } catch (error) {
-      logger.warn('Could not find Claude process', { error: error.message });
+    } catch (error: any) {
+      logger.warn('Could not find Claude process', { error: error?.message });
     }
     
     return null;
@@ -118,8 +118,6 @@ class ClaudeIdentityServer {
     this.mcpProcess = spawn('node', [mcpEyesPath, ...process.argv.slice(2)], {
       env,
       stdio: ['inherit', 'inherit', 'inherit'],
-      // Set process title
-      title: 'Claude MCP Server',
       // Inherit parent's permissions
       detached: false
     });
@@ -148,7 +146,7 @@ class ClaudeIdentityServer {
 
 // Start the server
 const server = new ClaudeIdentityServer();
-server.start().catch((error) => {
-  logger.error('Failed to start server', { error: error.message }, error);
+server.start().catch((error: any) => {
+  logger.error('Failed to start server', { error: error?.message }, error);
   process.exit(1);
 });
