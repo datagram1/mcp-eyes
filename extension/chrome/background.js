@@ -208,6 +208,14 @@ const browserAPI = (() => {
             result = await sendToContentScript(payload?.tabId, { action, payload });
             break;
 
+          case 'createTab':
+            result = await createTab(payload?.url);
+            break;
+
+          case 'closeTab':
+            result = await closeTab(payload?.tabId);
+            break;
+
           default:
             result = { error: `Unknown action: ${action}` };
         }
@@ -412,6 +420,10 @@ const browserAPI = (() => {
 
         case 'createTab':
           response = await createTab(payload.url);
+          break;
+
+        case 'closeTab':
+          response = await closeTab(payload.tabId);
           break;
 
         case 'ping':
@@ -654,6 +666,18 @@ const browserAPI = (() => {
     try {
       const tab = await browserAPI.tabs.update(tabId, { active: true });
       await browserAPI.windows.update(tab.windowId, { focused: true });
+      return { success: true, tabId };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Close a specific tab
+   */
+  async function closeTab(tabId) {
+    try {
+      await browserAPI.tabs.remove(tabId);
       return { success: true, tabId };
     } catch (error) {
       return { error: error.message };

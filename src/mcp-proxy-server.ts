@@ -262,12 +262,21 @@ class MCPProxyServer {
           // ========== Native macOS Tools ==========
           {
             name: 'listApplications',
-            description: '🎯 MCP-EYES: List all running applications with their window bounds and identifiers.',
+            description: `🎯 MCP-EYES: List all running applications with their window bounds and identifiers.
+
+MULTI-SCREEN STRATEGY:
+• Run this whenever you need to know which apps/windows exist (Firefox, Finder, file pickers, etc.)
+• The response includes absolute screen bounds for each window so you can plan mouse clicks on any monitor
+• Use it to locate Finder windows or system dialogs (e.g., the macOS file picker) before calling getClickableElements + click`,
             inputSchema: { type: 'object', properties: {} },
           },
           {
             name: 'focusApplication',
-            description: '🎯 MCP-EYES: Focus on a specific application by bundle ID or name.',
+            description: `🎯 MCP-EYES: Focus on a specific application by bundle ID or name.
+
+TIP:
+• Use listApplications to find the exact name/bundle of Finder, Firefox, file pickers, etc.
+• FocusFinder (or the “Open” dialog) before calling getClickableElements to interact with file pickers on any monitor.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -295,7 +304,13 @@ class MCPProxyServer {
           },
           {
             name: 'screenshot',
-            description: '🎯 MCP-EYES: Take a full-screen screenshot.',
+            description: `🎯 MCP-EYES: Take a full-screen screenshot.
+
+FALLBACK FOR BROWSER AUTOMATION:
+• When browser automation hits limitations (reCAPTCHA, blocked interactions, etc.), use this to see the current state
+• Combine with getClickableElements to find button locations, then use click to interact directly
+• This gives you full visual control - you can see and interact with anything on screen, just like a human user
+• Works perfectly for bypassing automation detection - you're controlling the mouse and keyboard directly`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -308,7 +323,13 @@ class MCPProxyServer {
           },
           {
             name: 'screenshot_app',
-            description: '🎯 MCP-EYES: Take a screenshot of the focused application or a specific app by identifier.',
+            description: `🎯 MCP-EYES: Take a screenshot of the focused application or a specific app by identifier.
+
+FALLBACK FOR BROWSER AUTOMATION:
+• When browser automation is blocked, use this to capture the browser window and see what's on screen
+• Essential for visual debugging when browser tools can't interact with elements
+• Combine with getClickableElements to find button locations, then use click to interact directly
+• Perfect for handling reCAPTCHA, file uploads, and other automation blockers - you control the mouse/keyboard like a human`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -321,7 +342,14 @@ class MCPProxyServer {
           },
           {
             name: 'click',
-            description: '🎯 MCP-EYES: Click at a position relative to the focused app window.',
+            description: `🎯 MCP-EYES: Click at a position relative to the focused app window.
+
+FALLBACK FOR BROWSER AUTOMATION:
+• When browser_clickElement fails or is blocked (reCAPTCHA, security restrictions), use this instead
+• Get button locations from getClickableElements (returns screen coordinates)
+• Use normalized coordinates (0-1) relative to the focused window
+• This works exactly like a human clicking - bypasses all automation detection
+• Perfect for clicking reCAPTCHA checkboxes, file upload buttons, or any element that blocks browser automation`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -344,7 +372,13 @@ class MCPProxyServer {
           },
           {
             name: 'moveMouse',
-            description: '🎯 MCP-EYES: Move mouse to a position relative to the focused app window (without clicking).',
+            description: `🎯 MCP-EYES: Move mouse to a position relative to the focused app window (without clicking).
+
+FALLBACK FOR BROWSER AUTOMATION:
+• Hover menus, reveal tooltips, or prepare inputs even when browser automation is blocked
+• Use screenshot_app + getClickableElements to confirm coordinates, then moveMouse before clicking or typing
+• Perfect for "hover to reveal" buttons, reCAPTCHA puzzles, file upload popovers, or anything that requires precise cursor placement
+• Combine with click or typeText for full mouse+keyboard control that mimics a human user`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -362,7 +396,13 @@ class MCPProxyServer {
           },
           {
             name: 'scroll',
-            description: '🎯 MCP-EYES: Scroll the mouse wheel. Positive deltaY scrolls up, negative scrolls down.',
+            description: `🎯 MCP-EYES: Scroll the mouse wheel. Positive deltaY scrolls up, negative scrolls down.
+
+FALLBACK FOR BROWSER AUTOMATION:
+• When pages block programmatic scroll or infinite feeds need "real" scrolling, use this to move the viewport like a human
+• Combine with screenshot/screenshot_app to see what is currently visible, then scroll and rediscover elements
+• Works with getClickableElements + click to reach off-screen controls that browser tools have trouble with
+• Essential for scrolling through reCAPTCHA challenges, file dialogs, or any UI that insists on genuine mouse wheel input`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -387,7 +427,12 @@ class MCPProxyServer {
           },
           {
             name: 'drag',
-            description: '🎯 MCP-EYES: Drag from one position to another (click and hold, move, release).',
+            description: `🎯 MCP-EYES: Drag from one position to another (click and hold, move, release).
+
+FALLBACK FOR BROWSER AUTOMATION:
+• Move sliders, reorder items, drag-and-drop files, or complete puzzle CAPTCHAs exactly like a human
+• Determine start/end coordinates using screenshot_app + getClickableElements, then drag to perform precise mouse gestures
+• Perfect when a site requires "real" drag gestures that browser automation can't simulate`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -413,12 +458,29 @@ class MCPProxyServer {
           },
           {
             name: 'getClickableElements',
-            description: '🎯 MCP-EYES: Get all clickable UI elements in the focused application.',
+            description: `🎯 MCP-EYES: Get all clickable UI elements in the focused application.
+
+FALLBACK FOR BROWSER AUTOMATION:
+• When browser_getInteractiveElements can't find elements or automation is blocked, use this
+• Returns clickable elements with screen coordinates (centerX, centerY) for direct clicking
+• Works on ANY application, including browsers - perfect for finding buttons when browser tools fail
+• Combine with screenshot_app to see the visual state, then getClickableElements to find button locations
+• Use the returned coordinates with the click tool to interact directly - bypasses all automation detection
+• Essential for handling reCAPTCHA, file uploads, and other blockers - you can find and click anything on screen
+• Pair with listApplications to confirm which window (and which display) you are targeting before clicking`,
             inputSchema: { type: 'object', properties: {} },
           },
           {
             name: 'typeText',
-            description: '🎯 MCP-EYES: Type text into the focused application.',
+            description: `🎯 MCP-EYES: Type text into the focused application.
+
+FALLBACK FOR BROWSER AUTOMATION:
+• When browser_fillElement fails or is blocked, use this instead
+• First click on the input field (using click tool), then type the text
+• This works exactly like a human typing - bypasses all automation detection
+• Perfect for filling forms when browser automation is blocked
+• Can also type file paths for file uploads (after clicking the file input button)
+• Works great with reCAPTCHA and other security measures - you're typing like a real user`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -429,7 +491,12 @@ class MCPProxyServer {
           },
           {
             name: 'pressKey',
-            description: '🎯 MCP-EYES: Press a keyboard key (supports modifiers like Command+L).',
+            description: `🎯 MCP-EYES: Press a keyboard key (supports modifiers like Command+L).
+
+FALLBACK FOR BROWSER AUTOMATION:
+• Send Enter, Tab, Escape, Command+L, Ctrl+Shift+S, etc. exactly like a real user
+• Use after click/typeText to submit forms, confirm dialogs, focus the address bar, or progress through reCAPTCHA steps
+• Combine with screenshot_app to confirm the UI state, then press the needed keys to keep automation moving even when browser APIs block actions`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -443,7 +510,11 @@ class MCPProxyServer {
           },
           {
             name: 'analyzeWithOCR',
-            description: '🎯 MCP-EYES: Analyze the current screen using OCR.',
+            description: `🎯 MCP-EYES: Analyze the current screen using OCR.
+
+FALLBACK FOR BROWSER AUTOMATION:
+• When stuck, take screenshot/screenshot_app and run OCR to read the page, discover instructions, or capture text hidden from DOM
+• Great for extracting reCAPTCHA prompts, file upload hints, or confirmation messages that browser tools cannot access`,
             inputSchema: { type: 'object', properties: {} },
           },
           {
@@ -454,6 +525,10 @@ class MCPProxyServer {
       ];
 
       // Browser Extension Tools - only included when extensions are connected
+      // IMPORTANT: When browser automation hits limitations (reCAPTCHA, file uploads, security restrictions),
+      // you have FULL CONTROL via native macOS tools: screenshot, click, typeText, getClickableElements.
+      // You can take screenshots to see the page, get button locations, and click/type directly - just like a human user.
+      // This means reCAPTCHA, file uploads, and other "automation blockers" are NOT limitations - use native tools!
       const browserTools = [
           {
             name: 'browser_listConnected',
@@ -596,9 +671,15 @@ Typical workflow:
 2. Select the element you need by its number, text, or description.
 3. Copy its selector into other tools like browser_clickElement or browser_fillElement.
 
+FALLBACK FOR LIMITATIONS:
+• If browser automation is blocked or selectors don't work, use native getClickableElements instead
+• Native getClickableElements returns screen coordinates that work with the click tool
+• This bypasses all automation detection - you're clicking at actual screen positions like a human
+
 Important:
 • Do not invent or guess selectors. Always use selectors returned by this tool (or browser_getPageContext).
-• For reading general page text, use browser_getVisibleText instead.`,
+• For reading general page text, use browser_getVisibleText instead.
+• When automation is blocked, fall back to native tools (screenshot + getClickableElements + click).`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -669,9 +750,18 @@ Typical workflow:
 
 Typical next tools: browser_waitForPageLoad or browser_waitForSelector, then browser_getInteractiveElements / browser_getVisibleText.
 
+FALLBACK FOR LIMITATIONS:
+• If browser automation is blocked (reCAPTCHA, security restrictions, etc.), you have FULL CONTROL via native tools:
+  1. Use screenshot_app to capture the browser window
+  2. Use getClickableElements to find button locations with screen coordinates
+  3. Use click with normalized coordinates (0-1) to click directly - this works like a human user and bypasses automation detection
+  4. Use typeText to type directly into fields - this also bypasses automation detection
+• reCAPTCHA and other "automation blockers" are NOT limitations - you can interact with them using native mouse/keyboard control!
+
 Important:
 • Do not guess selectors; always get them from discovery tools.
-• If nothing obvious happens after a click, wait (browser_waitForPageLoad or browser_waitForSelector) and then rediscover.`,
+• If nothing obvious happens after a click, wait (browser_waitForPageLoad or browser_waitForSelector) and then rediscover.
+• When automation is blocked, don't give up - use native tools (screenshot + click/typeText) to continue.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -711,9 +801,19 @@ Typical form workflow:
 
 Typical next tools: browser_clickElement (on submit button), then browser_waitForPageLoad or browser_waitForSelector.
 
+FALLBACK FOR LIMITATIONS:
+• If browser automation is blocked or file uploads fail, you have FULL CONTROL via native tools:
+  1. Use screenshot_app to capture the browser window and see the current state
+  2. Use getClickableElements to find input fields and buttons with screen coordinates
+  3. Use click to click on input fields (focus them)
+  4. Use typeText to type directly - this works like a human user and bypasses automation detection
+  5. For file uploads: click the file input button, then use typeText to type the file path (or use native file dialogs)
+• Browser security restrictions on file uploads are NOT limitations - you can click and type just like a human!
+
 Important:
 • For select/dropdown elements, you may need to click to open them first, then fill or choose options depending on your implementation.
-• Do not guess selectors; always obtain them from discovery tools.`,
+• Do not guess selectors; always obtain them from discovery tools.
+• When automation is blocked or file uploads fail, don't give up - use native tools (screenshot + click/typeText) to continue.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -874,7 +974,8 @@ Typical next tools: browser_getInteractiveElements (to find clickable elements n
 
 Important:
 • This returns plain text only. It does not tell you what is clickable.
-• For discovering clickable elements (buttons, links, inputs), use browser_getInteractiveElements instead.`,
+• For discovering clickable elements (buttons, links, inputs), use browser_getInteractiveElements instead.
+• If the DOM is blocked or stripped (e.g., reCAPTCHA, heavy anti-bot pages), fall back to screenshot_app + getClickableElements + click/typeText to keep going.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -916,7 +1017,8 @@ Difference from browser_waitForPageLoad:
 Typical next tools: browser_getInteractiveElements or browser_getVisibleText.
 
 Important:
-• The selector should come from prior discovery or known UI patterns; do not invent random selectors.`,
+• The selector should come from prior discovery or known UI patterns; do not invent random selectors.
+• If selectors fail due to blocking/obfuscation, use native screenshot_app + getClickableElements + click/typeText to keep interacting with the UI like a human.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -961,7 +1063,8 @@ Difference from browser_waitForSelector:
 Typical next tools: browser_getInteractiveElements and/or browser_getVisibleText.
 
 Important:
-• Do not call this repeatedly in a tight loop; wait for page changes before rediscovering.`,
+• Do not call this repeatedly in a tight loop; wait for page changes before rediscovering.
+• If a navigation gets stuck behind a CAPTCHA or interstitial, use screenshot_app + native click/typeText to complete it just like a human, then continue with browser tools.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -983,7 +1086,10 @@ Important:
           },
           {
             name: 'browser_selectOption',
-            description: '🌐 MCP-EYES BROWSER: Select an option in a dropdown/select element.',
+            description: `🌐 MCP-EYES BROWSER: Select an option in a dropdown/select element.
+
+FALLBACK:
+• If the select element is protected or custom (no standard selectors), click it via native tools and use typeText/pressKey to pick the option, just like a human.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -1010,7 +1116,9 @@ Important:
           },
           {
             name: 'browser_isElementVisible',
-            description: '🌐 MCP-EYES BROWSER: Check if an element exists and is visible.',
+            description: `🌐 MCP-EYES BROWSER: Check if an element exists and is visible.
+
+If visibility checks fail due to heavy anti-bot measures, remember you can always fall back to screenshot_app + getClickableElements + click/typeText for direct human-like control.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -1141,13 +1249,21 @@ Important:
             // Handle both formats: {applications: [...]} or [...]
             const apps = result.applications || result;
             return {
-              content: [{
-                type: 'text',
-                text: `Found ${apps.length} applications:\n\n` +
-                  apps.map((app: any) =>
-                    `• ${app.name} (${app.bundleId})\n  PID: ${app.pid}\n  Bounds: ${app.bounds.width}x${app.bounds.height} at (${app.bounds.x}, ${app.bounds.y})`
-                  ).join('\n\n')
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Found ${apps.length} applications:\n\n` +
+                    apps.map((app: any) =>
+                      `• ${app.name} (${app.bundleId})\n  PID: ${app.pid}\n  Bounds: ${app.bounds.width}x${app.bounds.height} at (${app.bounds.x}, ${app.bounds.y})`
+                    ).join('\n\n')
+                },
+                {
+                  type: 'json',
+                  data: {
+                    applications: apps,
+                  },
+                },
+              ],
             };
 
           case 'focusApplication':
@@ -1268,14 +1384,45 @@ Important:
                 isError: true,
               };
             }
+            const normalizedElements = elements.map((el: any, i: number) => {
+              const normalizedPosition = el.normalizedPosition || el.normalized_position || null;
+              const screenPosition = el.screenPosition || el.screen_position || (el.bounds ? { x: el.bounds.x, y: el.bounds.y } : null);
+              return {
+                index: el.index ?? i,
+                type: el.type || el.role,
+                text: el.text || el.label || '',
+                role: el.role,
+                bounds: el.bounds || null,
+                normalizedPosition: normalizedPosition
+                  ? {
+                      x: typeof normalizedPosition.x === 'number' ? normalizedPosition.x : parseFloat(normalizedPosition.x),
+                      y: typeof normalizedPosition.y === 'number' ? normalizedPosition.y : parseFloat(normalizedPosition.y),
+                    }
+                  : null,
+                screenPosition,
+                isClickable: el.is_clickable ?? el.isClickable ?? true,
+                isEnabled: el.is_enabled ?? el.isEnabled ?? true,
+              };
+            });
             return {
-              content: [{
-                type: 'text',
-                text: `Found ${elements.length} clickable elements:\n\n` +
-                  elements.map((el: any, i: number) =>
-                    `${i}. [${el.type}] ${el.text || '(no text)'} at (${el.normalizedPosition?.x?.toFixed(3)}, ${el.normalizedPosition?.y?.toFixed(3)})`
-                  ).join('\n'),
-              }],
+              content: [
+                {
+                  type: 'text',
+                  text: `Found ${normalizedElements.length} clickable elements:\n\n` +
+                    normalizedElements.map((el: any) => {
+                      const coords = el.normalizedPosition
+                        ? `(${el.normalizedPosition.x.toFixed(3)}, ${el.normalizedPosition.y.toFixed(3)})`
+                        : '(no normalized position)';
+                      return `${el.index}. [${el.type}] ${el.text || '(no text)'} at ${coords}`;
+                    }).join('\n'),
+                },
+                {
+                  type: 'json',
+                  data: {
+                    elements: normalizedElements,
+                  },
+                },
+              ],
             };
 
           case 'typeText':

@@ -89,83 +89,65 @@ extern "C" {
 #pragma mark - Googly Eyes Icon
 
 - (void)updateStatusBarIcon:(BOOL)locked {
-    CGFloat size = 16.0;
-    NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(size, size)];
-
-    [image lockFocus];
-
-    // Eye dimensions - compact to fit in menu bar
-    CGFloat eyeRadius = 3.0;
-    CGFloat pupilRadius = 1.2;
-    CGFloat eyeGap = 1.5;  // gap between eyes
-
-    // Center both eyes
-    CGFloat leftEyeX = (size / 2.0) - eyeGap/2.0 - eyeRadius;
-    CGFloat rightEyeX = (size / 2.0) + eyeGap/2.0 + eyeRadius;
-    CGFloat eyeY = size / 2.0;
-
-    // Choose color based on mode
-    NSColor *eyeColor;
-    if (self.isRemoteMode) {
-        // Amber/orange for remote mode
-        eyeColor = [NSColor colorWithRed:1.0 green:0.65 blue:0.0 alpha:1.0];
-    } else {
-        eyeColor = [NSColor blackColor];
+    // Load app icon from bundle (uses the icon from Assets.xcassets)
+    NSImage *appIcon = [[NSWorkspace sharedWorkspace] iconForFile:[NSBundle mainBundle].bundlePath];
+    
+    // If that doesn't work, try loading from asset catalog directly
+    if (!appIcon || appIcon.size.width == 0) {
+        appIcon = [NSImage imageNamed:@"AppIcon"];
     }
-
-    [eyeColor setFill];
-    [eyeColor setStroke];
-
-    // Left eye outline
-    NSBezierPath *leftEye = [NSBezierPath bezierPathWithOvalInRect:
-        NSMakeRect(leftEyeX - eyeRadius, eyeY - eyeRadius, eyeRadius * 2, eyeRadius * 2)];
-    leftEye.lineWidth = 1.2;
-    [leftEye stroke];
-
-    // Right eye outline
-    NSBezierPath *rightEye = [NSBezierPath bezierPathWithOvalInRect:
-        NSMakeRect(rightEyeX - eyeRadius, eyeY - eyeRadius, eyeRadius * 2, eyeRadius * 2)];
-    rightEye.lineWidth = 1.2;
-    [rightEye stroke];
-
-    if (locked) {
-        // X's over eyes when locked
-        NSBezierPath *leftX = [NSBezierPath bezierPath];
-        leftX.lineWidth = 1.2;
-        [leftX moveToPoint:NSMakePoint(leftEyeX - 1.5, eyeY - 1.5)];
-        [leftX lineToPoint:NSMakePoint(leftEyeX + 1.5, eyeY + 1.5)];
-        [leftX moveToPoint:NSMakePoint(leftEyeX + 1.5, eyeY - 1.5)];
-        [leftX lineToPoint:NSMakePoint(leftEyeX - 1.5, eyeY + 1.5)];
-        [leftX stroke];
-
-        NSBezierPath *rightX = [NSBezierPath bezierPath];
-        rightX.lineWidth = 1.2;
-        [rightX moveToPoint:NSMakePoint(rightEyeX - 1.5, eyeY - 1.5)];
-        [rightX lineToPoint:NSMakePoint(rightEyeX + 1.5, eyeY + 1.5)];
-        [rightX moveToPoint:NSMakePoint(rightEyeX + 1.5, eyeY - 1.5)];
-        [rightX lineToPoint:NSMakePoint(rightEyeX - 1.5, eyeY + 1.5)];
-        [rightX stroke];
+    
+    // Menu bar icon size (standard macOS menu bar height is 22 points)
+    // For Retina displays, this will automatically scale to 44x44 pixels
+    CGFloat menuBarSize = 22.0;
+    
+    if (appIcon && appIcon.size.width > 0) {
+        // Create a resized version for the menu bar
+        NSImage *menuBarIcon = [[NSImage alloc] initWithSize:NSMakeSize(menuBarSize, menuBarSize)];
+        [menuBarIcon lockFocus];
+        
+        // Draw the app icon scaled to menu bar size with high quality
+        NSGraphicsContext *context = [NSGraphicsContext currentContext];
+        [context setImageInterpolation:NSImageInterpolationHigh];
+        
+        [appIcon drawInRect:NSMakeRect(0, 0, menuBarSize, menuBarSize)
+                    fromRect:NSZeroRect
+                   operation:NSCompositingOperationSourceOver
+                    fraction:1.0];
+        
+        // If locked, draw X overlay
+        if (locked) {
+            NSBezierPath *xPath = [NSBezierPath bezierPath];
+            xPath.lineWidth = 2.0;
+            [[NSColor systemRedColor] setStroke];
+            
+            // Left X
+            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.25 - 3, menuBarSize * 0.5 - 3)];
+            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.25 + 3, menuBarSize * 0.5 + 3)];
+            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.25 + 3, menuBarSize * 0.5 - 3)];
+            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.25 - 3, menuBarSize * 0.5 + 3)];
+            
+            // Right X
+            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.75 - 3, menuBarSize * 0.5 - 3)];
+            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.75 + 3, menuBarSize * 0.5 + 3)];
+            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.75 + 3, menuBarSize * 0.5 - 3)];
+            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.75 - 3, menuBarSize * 0.5 + 3)];
+            
+            [xPath stroke];
+        }
+        
+        [menuBarIcon unlockFocus];
+        [menuBarIcon setTemplate:NO]; // Keep original colors from PNG
+        self.statusItem.button.image = menuBarIcon;
     } else {
-        // Pupils - looking right
-        CGFloat pupilOffsetX = 0.8;
-        CGFloat pupilOffsetY = 0;
-
-        NSBezierPath *leftPupil = [NSBezierPath bezierPathWithOvalInRect:
-            NSMakeRect(leftEyeX - pupilRadius + pupilOffsetX,
-                       eyeY - pupilRadius + pupilOffsetY,
-                       pupilRadius * 2, pupilRadius * 2)];
-        [leftPupil fill];
-
-        NSBezierPath *rightPupil = [NSBezierPath bezierPathWithOvalInRect:
-            NSMakeRect(rightEyeX - pupilRadius + pupilOffsetX,
-                       eyeY - pupilRadius + pupilOffsetY,
-                       pupilRadius * 2, pupilRadius * 2)];
-        [rightPupil fill];
+        // Fallback: create a simple placeholder if icon can't be loaded
+        NSImage *fallbackImage = [[NSImage alloc] initWithSize:NSMakeSize(menuBarSize, menuBarSize)];
+        [fallbackImage lockFocus];
+        [[NSColor systemGrayColor] setFill];
+        NSRectFill(NSMakeRect(0, 0, menuBarSize, menuBarSize));
+        [fallbackImage unlockFocus];
+        self.statusItem.button.image = fallbackImage;
     }
-
-    [image unlockFocus];
-    [image setTemplate:YES];
-    self.statusItem.button.image = image;
 }
 
 #pragma mark - Status Menu
@@ -530,7 +512,10 @@ extern "C" {
 
 - (NSString *)generateAPIKey {
     NSMutableData *data = [NSMutableData dataWithLength:32];
-    SecRandomCopyBytes(kSecRandomDefault, 32, data.mutableBytes);
+    OSStatus status = SecRandomCopyBytes(kSecRandomDefault, 32, data.mutableBytes);
+    if (status != errSecSuccess) {
+        NSLog(@"Warning: SecRandomCopyBytes failed with status %d", (int)status);
+    }
 
     NSMutableString *hexString = [NSMutableString stringWithCapacity:64];
     const unsigned char *bytes = data.bytes;

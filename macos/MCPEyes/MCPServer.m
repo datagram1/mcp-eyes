@@ -20,6 +20,7 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 @property (nonatomic, assign) NSUInteger serverPort;
 @property (nonatomic, strong) NSString *currentAppBundleId;
 @property (nonatomic, strong) NSDictionary *currentAppBounds;
+@property (nonatomic, strong) NSURLSession *urlSession;
 @end
 
 @implementation MCPServer
@@ -41,6 +42,10 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         _apiKey = apiKey;
         _serverSocket = -1;
         _shouldStop = NO;
+        // Create URL session for proxying browser commands
+        NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        config.timeoutIntervalForRequest = 30.0;
+        _urlSession = [NSURLSession sessionWithConfiguration:config];
     }
     return self;
 }
@@ -280,9 +285,34 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
             return result;
         }
         else if ([path isEqualToString:@"/screenshot"]) {
+            // Full-screen screenshot
             NSData *imageData = [self takeScreenshot];
             if (!imageData) {
                 return @{@"error": @"Failed to take screenshot"};
+            }
+            NSString *base64 = [imageData base64EncodedStringWithOptions:0];
+            return @{@"image": base64, @"format": @"png"};
+        }
+        else if ([path isEqualToString:@"/screenshot_app"]) {
+            // Screenshot of focused or named app
+            NSString *appIdentifier = params[@"identifier"];
+            CGWindowID windowID = kCGNullWindowID;
+            
+            if (appIdentifier) {
+                // Use the specified app
+                windowID = [self getWindowIDForApp:appIdentifier];
+            } else if (self.currentAppBundleId) {
+                // Use the currently focused app
+                windowID = [self getWindowIDForCurrentApp];
+            }
+            
+            NSData *imageData = nil;
+            if (windowID != kCGNullWindowID) {
+                imageData = [self takeScreenshotOfWindow:windowID];
+            }
+            
+            if (!imageData) {
+                return @{@"error": @"Failed to take screenshot. No app focused or app not found."};
             }
             NSString *base64 = [imageData base64EncodedStringWithOptions:0];
             return @{@"image": base64, @"format": @"png"};
@@ -345,10 +375,14 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
             if (self.currentAppBundleId) {
                 return @{@"bundleId": self.currentAppBundleId, @"bounds": self.currentAppBounds ?: @{}};
             }
-            return [NSNull null];
+            return @{@"bundleId": [NSNull null], @"bounds": @{}};
         }
         else if ([path isEqualToString:@"/getClickableElements"]) {
             return [self getClickableElements];
+        }
+        // Browser command proxy - forward to browser bridge server on port 3457
+        else if ([path hasPrefix:@"/browser/"]) {
+            return [self proxyBrowserCommand:path body:body params:params];
         }
         else {
             return @{@"error": @"Not found", @"path": path};
@@ -688,6 +722,58 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 
     NSData *pngData = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
     return pngData;
+}
+
+- (CGWindowID)getWindowIDForCurrentApp {
+    if (!self.currentAppBundleId) return kCGNullWindowID;
+    return [self getWindowIDForApp:self.currentAppBundleId];
+}
+
+- (CGWindowID)getWindowIDForApp:(NSString *)identifier {
+    // Find the app by bundle ID or name
+    NSRunningApplication *app = nil;
+    for (NSRunningApplication *runningApp in [[NSWorkspace sharedWorkspace] runningApplications]) {
+        if ([runningApp.bundleIdentifier isEqualToString:identifier] ||
+            [runningApp.localizedName caseInsensitiveCompare:identifier] == NSOrderedSame) {
+            app = runningApp;
+            break;
+        }
+    }
+    
+    if (!app) return kCGNullWindowID;
+    
+    // Get window list and find the front window for this app
+    CFArrayRef windowList = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID
+    );
+    
+    if (!windowList) return kCGNullWindowID;
+    
+    CGWindowID windowID = kCGNullWindowID;
+    NSNumber *targetPID = @(app.processIdentifier);
+    
+    // Find the frontmost window (lowest layer, typically 0)
+    NSInteger lowestLayer = NSIntegerMax;
+    
+    for (NSDictionary *window in (__bridge NSArray *)windowList) {
+        NSNumber *ownerPID = window[(__bridge NSString *)kCGWindowOwnerPID];
+        if ([ownerPID isEqual:targetPID]) {
+            NSNumber *windowIDNum = window[(__bridge NSString *)kCGWindowNumber];
+            NSNumber *layer = window[(__bridge NSString *)kCGWindowLayer];
+            
+            if (windowIDNum && layer) {
+                NSInteger layerValue = layer.integerValue;
+                if (layerValue < lowestLayer) {
+                    lowestLayer = layerValue;
+                    windowID = windowIDNum.unsignedIntValue;
+                }
+            }
+        }
+    }
+    
+    CFRelease(windowList);
+    return windowID;
 }
 
 - (NSData *)takeScreenshotOfWindow:(CGWindowID)windowID {
@@ -1228,6 +1314,61 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         }
         CFRelease(children);
     }
+}
+
+#pragma mark - Browser Command Proxy
+
+- (NSDictionary *)proxyBrowserCommand:(NSString *)path body:(NSString *)body params:(NSDictionary *)params {
+    // Proxy browser commands to browser bridge server on port 3457
+    NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:3457%@", path]];
+    if (!url) {
+        return @{@"error": @"Invalid URL"};
+    }
+    
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    [request setHTTPMethod:@"POST"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    
+    // Forward the request body
+    if (body.length > 0) {
+        [request setHTTPBody:[body dataUsingEncoding:NSUTF8StringEncoding]];
+    } else if (params.count > 0) {
+        NSError *jsonError;
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:params options:0 error:&jsonError];
+        if (jsonData) {
+            [request setHTTPBody:jsonData];
+        }
+    }
+    
+    // Synchronous request (for simplicity - could be async)
+    __block NSDictionary *result = nil;
+    __block NSError *requestError = nil;
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    
+    NSURLSessionDataTask *task = [self.urlSession dataTaskWithRequest:request
+                                                     completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            requestError = error;
+            result = @{@"error": error.localizedDescription};
+        } else {
+            NSError *jsonError;
+            id jsonObject = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+            if (jsonObject && [jsonObject isKindOfClass:[NSDictionary class]]) {
+                result = jsonObject;
+            } else if (jsonObject && [jsonObject isKindOfClass:[NSArray class]]) {
+                result = @{@"result": jsonObject};
+            } else {
+                NSString *stringResult = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                result = @{@"result": stringResult ?: @""};
+            }
+        }
+        dispatch_semaphore_signal(semaphore);
+    }];
+    
+    [task resume];
+    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+    
+    return result ?: @{@"error": @"Request timeout or failed"};
 }
 
 @end

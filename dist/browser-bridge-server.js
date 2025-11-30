@@ -280,6 +280,8 @@ class BrowserBridgeServer {
                 return await this.sendToExtension('focusTab', { tabId: body.tabId }, targetBrowser);
             case 'createTab':
                 return await this.sendToExtension('createTab', { url: body.url }, targetBrowser);
+            case 'closeTab':
+                return await this.sendToExtension('closeTab', { tabId: body.tabId }, targetBrowser);
             case 'getPageInfo':
                 return await this.sendToExtension('getPageInfo', { tabId: body.tabId }, targetBrowser);
             case 'getInteractiveElements':

@@ -936,6 +936,45 @@ npm run build
 npm run dev
 ```
 
+### Rebuilding the MCP Proxy Tool
+
+The proxy that Cursor/Claude launch (`dist/mcp-proxy-server.js`) is compiled from `src/mcp-proxy-server.ts`. Rebuild it any time you change the TypeScript source or pull new changes:
+
+1. **Install dependencies** (only needed once per checkout):
+   ```bash
+   npm install
+   ```
+2. **Run the standard build**:
+   ```bash
+   npm run build
+   ```
+   - The `build` script first runs `scripts/update-version.js` and then executes `tsc` with `tsconfig.json`, compiling every file under `src/` into `dist/`, including `mcp-proxy-server.ts → dist/mcp-proxy-server.js`.
+   - After TypeScript finishes, `scripts/set-executable.js` runs automatically (npm `postbuild`) so the generated proxy stays executable when you call it via `node dist/mcp-proxy-server.js`.
+3. **Point your MCP client at the rebuilt file**, for example:
+   ```json
+   {
+     "mcpServers": {
+       "mcp-eyes": {
+         "command": "node",
+         "args": ["/Users/you/path/mcp-eyes/dist/mcp-proxy-server.js"]
+       }
+     }
+   }
+   ```
+   Using a local absolute path keeps Cursor/Claude on the latest code you just compiled. (If you publish to npm, the same file is bundled inside the package.)
+
+### Native Mouse / Multi-Screen Workflow
+
+When browser automation hits CAPTCHAs, file pickers, or anything that insists on “real” user input, drive the Mac exactly like a person:
+
+1. **Discover windows** – Call `listApplications` to get every running app and its window bounds (including Finder and macOS file pickers on secondary displays). The MCP proxy now returns both human-readable text *and* JSON with each app’s coordinates.
+2. **Focus the target** – Use `focusApplication` with the bundle or name from step 1 (e.g., `Finder`, `Firefox`, or `Open`). This ensures mouse/keyboard events go to the right window even on another monitor.
+3. **See the UI** – Capture it with `screenshot_app` to confirm which display the window is on. For dialogs on far-right monitors, this is the fastest way to verify their location.
+4. **Map clickable elements** – Run `getClickableElements`. The response includes normalized positions, absolute screen positions, and a JSON payload you can parse programmatically. Use this for Finder sidebars, “Open” buttons, drag handles, etc.
+5. **Act like a human** – Feed those coordinates into `click`, `moveMouse`, `drag`, `scroll`, `typeText`, and `pressKey`. Because they operate on normalized positions relative to the focused window, multi-monitor setups “just work” once the correct window is focused.
+
+This workflow lets the LLM complete file uploads (including Finder navigation), drag-and-drop flows, slider CAPTCHAs, and any other interaction that DOM-level tools can’t reach. Always rediscover (`getClickableElements`) after the UI changes so the coordinates stay accurate.
+
 ### Testing
 
 ```bash
