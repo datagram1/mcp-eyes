@@ -1,0 +1,58 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision">
+  <defs>
+    <!-- Gradient for eye highlight -->
+    <radialGradient id="eyeHighlight" cx="50%" cy="35%" r="45%">
+      <stop offset="0%" style="stop-color:#f8f8f8;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0" />
+    </radialGradient>
+    <!-- Gradient for eye shadow -->
+    <radialGradient id="eyeShadow" cx="50%" cy="65%" r="45%">
+      <stop offset="0%" style="stop-color:#e0e0e0;stop-opacity:0.5" />
+      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0" />
+    </radialGradient>
+    <!-- Gradient for pupil highlight -->
+    <radialGradient id="pupilHighlight" cx="35%" cy="35%" r="35%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1024" height="1024" fill="#000000"/>
+  
+  <!-- Left Eye -->
+  <g transform="translate(256, 256)">
+    <!-- Eye sclera (white circle) - base layer -->
+    <circle cx="256" cy="256" r="240" fill="#ffffff"/>
+    <!-- Eye shadow (bottom) -->
+    <ellipse cx="256" cy="280" rx="220" ry="200" fill="url(#eyeShadow)"/>
+    <!-- Eye highlight (top) -->
+    <ellipse cx="256" cy="220" rx="200" ry="180" fill="url(#eyeHighlight)"/>
+    <!-- Subtle top edge highlight -->
+    <ellipse cx="256" cy="120" rx="210" ry="35" fill="#f0f0f0" opacity="0.7"/>
+    <!-- Subtle bottom edge shadow -->
+    <ellipse cx="256" cy="370" rx="210" ry="45" fill="#e0e0e0" opacity="0.4"/>
+    <!-- Pupil (black circle) - positioned bottom-right quadrant -->
+    <circle cx="300" cy="300" r="110" fill="#000000"/>
+    <!-- Pupil highlight -->
+    <circle cx="285" cy="285" r="35" fill="url(#pupilHighlight)"/>
+  </g>
+  
+  <!-- Right Eye -->
+  <g transform="translate(512, 256)">
+    <!-- Eye sclera (white circle) - base layer -->
+    <circle cx="256" cy="256" r="240" fill="#ffffff"/>
+    <!-- Eye shadow (bottom) -->
+    <ellipse cx="256" cy="280" rx="220" ry="200" fill="url(#eyeShadow)"/>
+    <!-- Eye highlight (top) -->
+    <ellipse cx="256" cy="220" rx="200" ry="180" fill="url(#eyeHighlight)"/>
+    <!-- Subtle top edge highlight -->
+    <ellipse cx="256" cy="120" rx="210" ry="35" fill="#f0f0f0" opacity="0.7"/>
+    <!-- Subtle bottom edge shadow -->
+    <ellipse cx="256" cy="370" rx="210" ry="45" fill="#e0e0e0" opacity="0.4"/>
+    <!-- Pupil (black circle) - positioned bottom-left quadrant -->
+    <circle cx="212" cy="300" r="110" fill="#000000"/>
+    <!-- Pupil highlight -->
+    <circle cx="227" cy="285" r="35" fill="url(#pupilHighlight)"/>
+  </g>
+</svg>

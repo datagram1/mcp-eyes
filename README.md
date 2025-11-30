@@ -25,6 +25,8 @@
 - **Web Configuration UI**: Browser-based dashboard for agent configuration
 - **MCP Proxy Architecture**: Secure HTTP backend with API key authentication
 - **Control Server**: Centralized management of multiple agents across the internet with WebSocket connections, Bonjour discovery, and unified API
+- **LLM-Optimized Tool Descriptions**: Workflow-focused descriptions that teach LLMs proper automation patterns instead of just listing verbs
+- **Improved Result Formatting**: Clean, direct result formats for `browser_executeScript` with better error handling
 
 ## Architecture
 
@@ -111,14 +113,48 @@ mcp-eyes mcp
 | `browser_getActiveTab` | Get active tab info |
 | `browser_focusTab` | Focus a specific tab by ID |
 | `browser_getPageInfo` | Get page URL, title, and metadata |
-| `browser_getInteractiveElements` | Get all buttons, links, inputs, etc. |
-| `browser_getPageContext` | Combined page info and elements |
-| `browser_clickElement` | Click element by CSS selector |
-| `browser_fillElement` | Fill form field by CSS selector |
+| `browser_getInteractiveElements` | **Primary discovery tool** - Get all buttons, links, inputs with selectors |
+| `browser_getPageContext` | Combined page info and elements (convenience tool) |
+| `browser_clickElement` | Click element by CSS selector (from discovery) |
+| `browser_fillElement` | Fill form field by CSS selector (from discovery) |
 | `browser_scrollTo` | Scroll to position or element |
-| `browser_executeScript` | Execute JavaScript in page context |
+| `browser_executeScript` | Execute JavaScript - **primary use: extract href URLs without clicking** |
 | `browser_getFormData` | Get all form data from page |
 | `browser_setWatchMode` | Enable DOM change watching |
+| `browser_getVisibleText` | Read all visible text content (for parsing, not clicking) |
+| `browser_waitForSelector` | Wait for element to appear (after dynamic content) |
+| `browser_waitForPageLoad` | Wait for page to load (after navigation) |
+
+### LLM-Friendly Web Automation Workflows
+
+MCP-Eyes tool descriptions are designed to teach LLMs proper automation patterns:
+
+**Core Workflow Pattern:**
+1. **Discover** → Use `browser_getInteractiveElements` to see all clickable elements
+2. **Select** → Find the element you need by text/description
+3. **Copy Selector** → Use the selector from discovery (never guess)
+4. **Interact** → Use `browser_clickElement` or `browser_fillElement` with the selector
+5. **Wait** → Use `browser_waitForPageLoad` (navigation) or `browser_waitForSelector` (dynamic content)
+6. **Rediscover** → Call `browser_getInteractiveElements` again to see new elements
+
+**Link Extraction Pattern:**
+1. Use `browser_getInteractiveElements` to find links
+2. Match link by text content
+3. Use `browser_executeScript` with `return document.querySelector('SELECTOR').href` to extract URL
+4. Use the URL without clicking
+
+**Form Automation Pattern:**
+1. `browser_getInteractiveElements` → Find input fields
+2. `browser_fillElement` → Fill each field (using selectors from step 1)
+3. `browser_getInteractiveElements` → Find submit button
+4. `browser_clickElement` → Click submit
+5. `browser_waitForPageLoad` → Wait for result
+
+All tool descriptions include:
+- **When to use** guidance
+- **Typical workflow** steps
+- **Typical next tools** suggestions
+- **Important** warnings (e.g., "Do not guess selectors")
 
 ## Browser Extension Setup
 
@@ -972,6 +1008,68 @@ export MCP_EYES_LOG_LEVEL=debug  # DEBUG, INFO, WARN, ERROR, FATAL
 
 ## Usage Examples
 
+### Web Automation Workflow (Recommended Pattern)
+
+```javascript
+// 1. Discover available elements
+const elements = await mcpClient.callTool('browser_getInteractiveElements', {});
+// Returns numbered list with selectors, types, and text
+
+// 2. Find the element you need (e.g., "Login" button)
+// Look for element with text containing "Login"
+
+// 3. Click using the selector from discovery
+await mcpClient.callTool('browser_clickElement', { 
+  selector: '#login-button' // From browser_getInteractiveElements
+});
+
+// 4. Wait for page to load
+await mcpClient.callTool('browser_waitForPageLoad', {});
+
+// 5. Rediscover elements on new page
+const newElements = await mcpClient.callTool('browser_getInteractiveElements', {});
+```
+
+### Link Extraction (Without Clicking)
+
+```javascript
+// 1. Discover links
+const elements = await mcpClient.callTool('browser_getInteractiveElements', {});
+// Find link by text (e.g., "About Us")
+
+// 2. Extract href URL without clicking
+const url = await mcpClient.callTool('browser_executeScript', {
+  script: "return document.querySelector('#about-link').href;"
+});
+// Returns: "https://example.com/about"
+```
+
+### Form Automation
+
+```javascript
+// 1. Discover form fields
+const elements = await mcpClient.callTool('browser_getInteractiveElements', {});
+
+// 2. Fill fields using selectors from discovery
+await mcpClient.callTool('browser_fillElement', {
+  selector: '#email', // From discovery
+  value: 'user@example.com'
+});
+
+await mcpClient.callTool('browser_fillElement', {
+  selector: '#password', // From discovery
+  value: 'secret123'
+});
+
+// 3. Find and click submit button
+await mcpClient.callTool('browser_clickElement', {
+  selector: '#submit-btn' // From discovery
+});
+
+// 4. Wait for result
+await mcpClient.callTool('browser_waitForPageLoad', {});
+```
+
 ### Natural Mode (Real mouse movement)
 
 ```javascript
@@ -979,19 +1077,6 @@ export MCP_EYES_LOG_LEVEL=debug  # DEBUG, INFO, WARN, ERROR, FATAL
 const elements = await mcpClient.callTool('browser_getInteractiveElements', {});
 // Move real mouse and click
 await mcpClient.callTool('click', { x: 0.5, y: 0.3 });
-```
-
-### Silent Mode (Direct DOM manipulation)
-
-```javascript
-// Click via JavaScript injection
-await mcpClient.callTool('browser_clickElement', { selector: '#submit-btn' });
-
-// Fill form field
-await mcpClient.callTool('browser_fillElement', {
-  selector: 'input[name="email"]',
-  value: 'user@example.com'
-});
 ```
 
 ### Multi-Browser Targeting

@@ -295,13 +295,26 @@ class MCPProxyServer {
           },
           {
             name: 'screenshot',
-            description: '🎯 MCP-EYES: Take a screenshot of the focused application.',
+            description: '🎯 MCP-EYES: Take a full-screen screenshot.',
             inputSchema: {
               type: 'object',
               properties: {
                 padding: {
                   type: 'number',
-                  description: 'Padding around the window in pixels (default: 10)',
+                  description: 'Padding around the window in pixels (default: 10) - ignored for full-screen',
+                },
+              },
+            },
+          },
+          {
+            name: 'screenshot_app',
+            description: '🎯 MCP-EYES: Take a screenshot of the focused application or a specific app by identifier.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                identifier: {
+                  type: 'string',
+                  description: 'Optional: Bundle ID (e.g., com.apple.Safari) or app name (e.g., Safari, Firefox). If not provided, uses the currently focused app.',
                 },
               },
             },
@@ -510,6 +523,44 @@ class MCPProxyServer {
             },
           },
           {
+            name: 'browser_createTab',
+            description: '🌐 MCP-EYES BROWSER: Create a new browser tab and navigate to a URL.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                url: {
+                  type: 'string',
+                  description: 'URL to navigate to in the new tab',
+                },
+                browser: {
+                  type: 'string',
+                  enum: ['firefox', 'chrome', 'safari', 'edge'],
+                  description: 'Target browser (optional, uses default if not specified)',
+                },
+              },
+              required: ['url'],
+            },
+          },
+          {
+            name: 'browser_closeTab',
+            description: '🌐 MCP-EYES BROWSER: Close a browser tab by ID.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                tabId: {
+                  type: 'number',
+                  description: 'The tab ID to close (from browser_getTabs)',
+                },
+                browser: {
+                  type: 'string',
+                  enum: ['firefox', 'chrome', 'safari', 'edge'],
+                  description: 'Target browser (optional, uses default if not specified)',
+                },
+              },
+              required: ['tabId'],
+            },
+          },
+          {
             name: 'browser_getPageInfo',
             description: '🌐 MCP-EYES BROWSER: Get current page URL, title, and metadata.',
             inputSchema: {
@@ -529,7 +580,25 @@ class MCPProxyServer {
           },
           {
             name: 'browser_getInteractiveElements',
-            description: '🌐 MCP-EYES BROWSER: Get all interactive DOM elements (buttons, links, inputs, etc.).',
+            description: `🌐 MCP-EYES BROWSER: Primary tool for discovering clickable and interactive elements on the current page.
+
+Returns a numbered list of interactive elements (buttons, links, inputs, selects, etc.) with:
+• A stable CSS selector for each element
+• Element type (e.g. button, link, input, select)
+• Visible text/label (if any)
+
+When to use:
+• As the first step on a new page to see what you can click or interact with
+• Whenever the page changes after a click or navigation and you need an updated map of interactive elements
+
+Typical workflow:
+1. Call browser_getInteractiveElements to list all clickable/interactive elements.
+2. Select the element you need by its number, text, or description.
+3. Copy its selector into other tools like browser_clickElement or browser_fillElement.
+
+Important:
+• Do not invent or guess selectors. Always use selectors returned by this tool (or browser_getPageContext).
+• For reading general page text, use browser_getVisibleText instead.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -547,7 +616,24 @@ class MCPProxyServer {
           },
           {
             name: 'browser_getPageContext',
-            description: '🌐 MCP-EYES BROWSER: Get combined page info and interactive elements.',
+            description: `🌐 MCP-EYES BROWSER: Convenience tool that returns a combined snapshot of the current page, typically including:
+• Visible text (similar to browser_getVisibleText)
+• Key interactive elements with selectors (similar to browser_getInteractiveElements)
+
+When to use:
+• When you first arrive on a page and want both the main content and the interactive elements in a single call.
+• When you want to reduce the number of separate tool calls for efficiency.
+
+Typical workflow:
+• Call browser_getPageContext to understand both content and available actions.
+• Pick relevant interactive elements and copy their selectors for use with browser_clickElement or browser_fillElement.
+• For more detailed or filtered interactive-element discovery, follow up with browser_getInteractiveElements.
+
+Typical next tools: browser_clickElement, browser_fillElement, or browser_getVisibleText for more detail.
+
+Important:
+• This is a convenience tool, not a replacement for specialized tools.
+• For precise interactions or targeted discovery, still rely on browser_getInteractiveElements.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -565,13 +651,33 @@ class MCPProxyServer {
           },
           {
             name: 'browser_clickElement',
-            description: '🌐 MCP-EYES BROWSER: Click a DOM element by CSS selector.',
+            description: `🌐 MCP-EYES BROWSER: Click a specific interactive element (button, link, etc.) using its selector.
+
+When to use:
+• To press a button, follow a link, toggle a checkbox, open a dropdown, etc.
+
+Required input:
+• A valid selector (usually obtained from browser_getInteractiveElements or browser_getPageContext).
+
+Typical workflow:
+1. Call browser_getInteractiveElements to discover elements.
+2. Identify the desired element by its text/description and copy its selector.
+3. Call browser_clickElement with that selector.
+4. After clicking, do one of the following:
+   • If you expect navigation: call browser_waitForPageLoad, then rediscover elements.
+   • If you expect dynamic content to appear/change: call browser_waitForSelector for a specific new element, then rediscover with browser_getInteractiveElements or read with browser_getVisibleText.
+
+Typical next tools: browser_waitForPageLoad or browser_waitForSelector, then browser_getInteractiveElements / browser_getVisibleText.
+
+Important:
+• Do not guess selectors; always get them from discovery tools.
+• If nothing obvious happens after a click, wait (browser_waitForPageLoad or browser_waitForSelector) and then rediscover.`,
             inputSchema: {
               type: 'object',
               properties: {
                 selector: {
                   type: 'string',
-                  description: 'CSS selector for the element to click (e.g., "#submit-btn", ".login-button")',
+                  description: 'CSS selector from browser_getInteractiveElements (e.g., "#submit-btn", "a[href=\'/login\']")',
                 },
                 tabId: {
                   type: 'number',
@@ -588,13 +694,32 @@ class MCPProxyServer {
           },
           {
             name: 'browser_fillElement',
-            description: '🌐 MCP-EYES BROWSER: Fill a form field by CSS selector.',
+            description: `🌐 MCP-EYES BROWSER: Fill text inputs, textareas, or other form fields using their selector and the desired value.
+
+When to use:
+• To type into login forms, search boxes, registration fields, or any editable field.
+
+Typical form workflow:
+1. Call browser_getInteractiveElements to discover inputs and their selectors.
+2. Identify the correct field by its label/placeholder/nearby text.
+3. Call browser_fillElement with:
+   • The field's selector
+   • The value to type into the field
+4. Repeat for all required fields.
+5. Use browser_clickElement on the form's submit button.
+6. After submitting, call browser_waitForPageLoad or browser_waitForSelector for the result area, then rediscover/read content.
+
+Typical next tools: browser_clickElement (on submit button), then browser_waitForPageLoad or browser_waitForSelector.
+
+Important:
+• For select/dropdown elements, you may need to click to open them first, then fill or choose options depending on your implementation.
+• Do not guess selectors; always obtain them from discovery tools.`,
             inputSchema: {
               type: 'object',
               properties: {
                 selector: {
                   type: 'string',
-                  description: 'CSS selector for the input element (e.g., "#username", "input[name=email]")',
+                  description: 'CSS selector from browser_getInteractiveElements (e.g., "#username", "input[name=email]")',
                 },
                 value: {
                   type: 'string',
@@ -645,13 +770,32 @@ class MCPProxyServer {
           },
           {
             name: 'browser_executeScript',
-            description: '🌐 MCP-EYES BROWSER: Execute JavaScript in the page context.',
+            description: `🌐 MCP-EYES BROWSER: Execute a custom script (e.g. JavaScript) in the page context to extract or compute values, usually when built-in tools are not enough.
+
+Primary use for automation:
+• Extract href URLs or other attributes without clicking links.
+
+Typical link-extraction pattern:
+1. Use browser_getInteractiveElements to find the link by its text/description.
+2. Take its selector from the results.
+3. Call browser_executeScript with a script like:
+   – For a single link: return document.querySelector('<SELECTOR>').href;
+   – For multiple links: return Array.from(document.querySelectorAll('<SELECTOR>')).map(a => a.href);
+4. Use the extracted URL for navigation or reporting instead of clicking.
+
+Other uses:
+• Read or compute advanced page state that is not exposed by other tools.
+
+Important:
+• Always base selectors on results from browser_getInteractiveElements or browser_getPageContext, not guesses.
+• Keep scripts simple, deterministic, and read-only (no complex DOM modifications).
+• Script MUST include an explicit 'return' statement. Result is returned directly (not nested).`,
             inputSchema: {
               type: 'object',
               properties: {
                 script: {
                   type: 'string',
-                  description: 'JavaScript code to execute',
+                  description: 'JavaScript code with explicit return. Example: "return document.querySelector(\'#link\').href;"',
                 },
                 tabId: {
                   type: 'number',
@@ -712,7 +856,25 @@ class MCPProxyServer {
 
           {
             name: 'browser_getVisibleText',
-            description: '🌐 MCP-EYES BROWSER: Get all visible text content from the page. Returns full text including content that requires scrolling.',
+            description: `🌐 MCP-EYES BROWSER: Read the visible text content of the current page (or a specific section) as plain text.
+
+When to use:
+• To understand page content and structure
+• To locate specific sections, headings, or labels before interacting with nearby elements
+• To extract data, descriptions, or instructions
+
+Typical workflow:
+• Call with no selector to read the main page text, then decide what to do next.
+• Or call with a selector (e.g. a container or section) to read just that part.
+• Combine with browser_getInteractiveElements to:
+  – Read context using browser_getVisibleText
+  – Then find relevant buttons/links nearby using browser_getInteractiveElements
+
+Typical next tools: browser_getInteractiveElements (to find clickable elements near the text you read).
+
+Important:
+• This returns plain text only. It does not tell you what is clickable.
+• For discovering clickable elements (buttons, links, inputs), use browser_getInteractiveElements instead.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -734,13 +896,33 @@ class MCPProxyServer {
           },
           {
             name: 'browser_waitForSelector',
-            description: '🌐 MCP-EYES BROWSER: Wait for an element to appear in the DOM. Use after clicking or navigating.',
+            description: `🌐 MCP-EYES BROWSER: Wait until a specific element appears, becomes visible, or is ready on the current page, using its selector.
+
+When to use:
+• After clicking a button that reveals/hides dynamic content without a full page navigation
+• When expecting a modal, dropdown, or result list to appear
+
+Typical workflow:
+1. Use browser_clickElement on a button or link.
+2. Call browser_waitForSelector with the selector of the element you expect to appear (e.g. result container, modal).
+3. Once it resolves, call:
+   • browser_getVisibleText to read the new content, and/or
+   • browser_getInteractiveElements to discover new clickable elements.
+
+Difference from browser_waitForPageLoad:
+• browser_waitForSelector is for dynamic changes on the same page (no navigation).
+• browser_waitForPageLoad is for full page navigations.
+
+Typical next tools: browser_getInteractiveElements or browser_getVisibleText.
+
+Important:
+• The selector should come from prior discovery or known UI patterns; do not invent random selectors.`,
             inputSchema: {
               type: 'object',
               properties: {
                 selector: {
                   type: 'string',
-                  description: 'CSS selector to wait for',
+                  description: 'CSS selector to wait for (from browser_getInteractiveElements)',
                 },
                 timeout: {
                   type: 'number',
@@ -761,7 +943,25 @@ class MCPProxyServer {
           },
           {
             name: 'browser_waitForPageLoad',
-            description: '🌐 MCP-EYES BROWSER: Wait for the page to fully load. Use after navigation or clicking links.',
+            description: `🌐 MCP-EYES BROWSER: Wait until the current page finishes loading after navigation.
+
+When to use:
+• After clicking a link or submit button that navigates to a new page
+• After initiating a redirect or manual navigation
+
+Typical workflow:
+1. Use browser_clickElement (or your navigation method).
+2. Call browser_waitForPageLoad to wait for the new page to fully load.
+3. Then call browser_getInteractiveElements and/or browser_getVisibleText to understand and interact with the new page.
+
+Difference from browser_waitForSelector:
+• Use this when the URL or page changes.
+• For changes within the same page (modals, accordions, etc.), use browser_waitForSelector instead.
+
+Typical next tools: browser_getInteractiveElements and/or browser_getVisibleText.
+
+Important:
+• Do not call this repeatedly in a tight loop; wait for page changes before rediscovering.`,
             inputSchema: {
               type: 'object',
               properties: {
@@ -986,6 +1186,22 @@ class MCPProxyServer {
               }],
             };
 
+          case 'screenshot_app':
+            result = await this.proxyCall('/screenshot_app', 'POST', { identifier: args?.identifier });
+            if (result.error) {
+              return {
+                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                isError: true,
+              };
+            }
+            return {
+              content: [{
+                type: 'image',
+                data: result.image,
+                mimeType: 'image/png',
+              }],
+            };
+
           case 'click':
             result = await this.proxyCall('/click', 'POST', {
               x: args?.x,
@@ -1173,6 +1389,40 @@ class MCPProxyServer {
               }],
             };
 
+          case 'browser_createTab':
+            result = await this.browserProxyCall('/browser/createTab', 'POST', { url: args?.url, browser: args?.browser });
+            if (result.error) {
+              return {
+                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                isError: true,
+              };
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: result.success
+                  ? `Created new tab: ${result.url}\n  Tab ID: ${result.tabId}\n  Title: ${result.title || 'Loading...'}`
+                  : `Failed to create tab: ${result.error || 'Unknown error'}`,
+              }],
+            };
+
+          case 'browser_closeTab':
+            result = await this.browserProxyCall('/browser/closeTab', 'POST', { tabId: args?.tabId, browser: args?.browser });
+            if (result.error) {
+              return {
+                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                isError: true,
+              };
+            }
+            return {
+              content: [{
+                type: 'text',
+                text: result.success
+                  ? `Closed tab ${args?.tabId}`
+                  : `Failed to close tab: ${result.error || 'Unknown error'}`,
+              }],
+            };
+
           case 'browser_getPageInfo':
             result = await this.browserProxyCall('/browser/getPageInfo', 'POST', { tabId: args?.tabId, browser: args?.browser });
             if (result.error) {
@@ -1274,16 +1524,34 @@ class MCPProxyServer {
               tabId: args?.tabId,
               browser: args?.browser,
             });
-            if (result.error) {
+            
+            // Handle error case
+            if (result.error || (result.success === false)) {
               return {
-                content: [{ type: 'text', text: `Script error: ${result.error}` }],
+                content: [{ type: 'text', text: `Script error: ${result.error || 'Unknown error'}` }],
                 isError: true,
               };
             }
+            
+            // Handle success case - extract the actual result value
+            const scriptResult = result.result !== undefined ? result.result : result;
+            
+            // Format the result in a clear way
+            let resultText: string;
+            if (scriptResult === null || scriptResult === undefined) {
+              resultText = 'Script executed successfully but returned no value (undefined/null).\nMake sure your script includes an explicit return statement.';
+            } else if (typeof scriptResult === 'string') {
+              resultText = scriptResult;
+            } else if (typeof scriptResult === 'object') {
+              resultText = JSON.stringify(scriptResult, null, 2);
+            } else {
+              resultText = String(scriptResult);
+            }
+            
             return {
               content: [{
                 type: 'text',
-                text: `Script result:\n${JSON.stringify(result.result, null, 2)}`,
+                text: resultText,
               }],
             };
 

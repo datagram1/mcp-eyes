@@ -928,7 +928,7 @@
           response = scrollTo(payload.target);
           break;
         case 'executeScript':
-          response = executeScript(payload.code);
+          response = executeScript(payload.script);
           break;
         case 'getElementAtPoint':
           response = getElementAtPoint(payload.x, payload.y);
