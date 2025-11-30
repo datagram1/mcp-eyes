@@ -662,6 +662,9 @@ FALLBACK FOR BROWSER AUTOMATION:
             // you have FULL CONTROL via native macOS tools: screenshot, click, typeText, getClickableElements.
             // You can take screenshots to see the page, get button locations, and click/type directly - just like a human user.
             // This means reCAPTCHA, file uploads, and other "automation blockers" are NOT limitations - use native tools!
+            // WORKFLOW TIP: If browser_clickElement on a custom control (e.g., stylized radio/checkbox) fails,
+            // run browser_executeScript using the selector returned by browser_getInteractiveElements to click the real input inside.
+            // Only fall back to screenshot/getClickableElements/click when DOM + script attempts still fail.
             const browserTools = [
                 {
                     name: 'browser_listConnected',
