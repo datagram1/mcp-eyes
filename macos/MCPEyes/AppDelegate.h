@@ -14,6 +14,13 @@
 
 // Settings window
 @property (strong, nonatomic) NSWindow *settingsWindow;
+@property (strong, nonatomic) NSTabView *settingsTabView;
+
+// Tools configuration
+@property (strong, nonatomic) NSMutableDictionary *toolsConfig;
+@property (strong, nonatomic) NSScrollView *toolsScrollView;
+@property (strong, nonatomic) NSMutableDictionary *categoryToggles;
+@property (strong, nonatomic) NSMutableDictionary *toolToggles;
 
 // Settings controls
 @property (strong, nonatomic) NSTextField *agentNameField;
@@ -39,5 +46,9 @@
 // Status display
 @property (strong, nonatomic) NSTextField *statusLabel;
 @property (strong, nonatomic) NSTextField *uptimeLabel;
+
+// Browser bridge server process
+@property (strong, nonatomic) NSTask *browserBridgeTask;
+@property (strong, nonatomic) NSPipe *browserBridgePipe;
 
 @end

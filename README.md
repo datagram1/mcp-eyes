@@ -16,48 +16,120 @@
 - **AI Assistant Integration**: Compatible with Claude, Cursor, and other MCP-compatible AI assistants
 - **Cross-Platform Support**: macOS, Windows, and Linux
 
-### New in v1.1.15
+### New in v1.1.16
 
+- **Integrated Browser Bridge**: MCPEyes.app now automatically spawns and manages the browser bridge server - no separate process to run!
+- **Auto-Restart**: Browser bridge automatically restarts if it crashes
+- **Simplified Setup**: Just launch MCPEyes.app and everything starts automatically
+
+### v1.1.15
+
+- **Playwright-Style Browser Automation**: New browser tools matching Playwright patterns - `browser_navigate`, `browser_screenshot`, `browser_go_back`, `browser_go_forward`, `browser_get_visible_html`, `browser_hover`, `browser_drag`, `browser_press_key`
 - **Open WebUI Support**: SSE transport server for HTTP-based MCP clients (Open WebUI, custom integrations)
 - **Browser Bridge Server**: WebSocket-based bridge connecting MCP tools to browser extensions
-- **15+ Browser Tools**: Full DOM interaction including clicking, filling forms, executing scripts
+- **40+ Browser Tools**: Full DOM interaction including clicking, filling forms, executing scripts, debugging, navigation, screenshots, and advanced automation
 - **Native macOS App**: Menu bar app with settings UI and permission management
 - **Web Configuration UI**: Browser-based dashboard for agent configuration
 - **MCP Proxy Architecture**: Secure HTTP backend with API key authentication
 - **Control Server**: Centralized management of multiple agents across the internet with WebSocket connections, Bonjour discovery, and unified API
 - **LLM-Optimized Tool Descriptions**: Workflow-focused descriptions that teach LLMs proper automation patterns instead of just listing verbs
-- **Improved Result Formatting**: Clean, direct result formats for `browser_executeScript` with better error handling
+- **Enhanced Browser Tools**: Advanced form filling with fuzzy label matching, intelligent page inspection, and multi-element workflows
+- **JavaScript Execution**: Fixed `browser_executeScript` with IIFE wrapping to support return statements
+- **Graphics Optimization**: Fixed macOS menu bar app graphics context errors with icon caching and animation batching
 
 ## Architecture
 
+MCP-Eyes uses a **single entry point** architecture where Claude/Cursor only connects to one server (`mcp-proxy-server.js`), which coordinates all backend services.
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    MCP Client (Claude, Cursor)                  │
+│           MCP Client (Claude Code, Claude Desktop, Cursor)       │
 └────────────────────────────┬────────────────────────────────────┘
                              │ MCP Protocol (stdio)
-┌────────────────────────────▼────────────────────────────────────┐
-│                     MCP-Eyes Proxy Server                        │
-│              (mcp-proxy-server.ts / basic-server.ts)            │
-└─────────┬─────────────────────────────────────────┬─────────────┘
-          │                                         │
-          │ HTTP (localhost:3456)                   │ HTTP (localhost:3457)
-          ▼                                         ▼
-┌─────────────────────────┐            ┌─────────────────────────┐
-│   Native HTTP Server    │            │  Browser Bridge Server  │
-│  (macOS/Windows/Linux)  │            │    (WebSocket + HTTP)   │
-└─────────────────────────┘            └───────────┬─────────────┘
-                                                   │ WebSocket
-                                       ┌───────────▼─────────────┐
-                                       │   Browser Extensions    │
-                                       │ Chrome/Firefox/Edge     │
-                                       └─────────────────────────┘
+                             │
+                             │  ⭐ SINGLE ENTRY POINT
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     mcp-proxy-server.js                          │
+│                                                                  │
+│   The ONLY server Claude connects to. Routes all tool requests  │
+│   to the appropriate backend service.                            │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              │ HTTP (localhost:3456)
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      MCPEyes.app (menu bar)                      │
+│                                                                  │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  HTTP Server (:3456)                                     │   │
+│   │  • Screenshots, Accessibility API, Mouse/Keyboard        │   │
+│   │  • Window management, OCR analysis                       │   │
+│   │  • Proxies /browser/* requests to bridge                 │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│                              │ spawns & manages                  │
+│                              ▼                                   │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │  Browser Bridge Server (:3457)                           │   │
+│   │  • WebSocket server for browser extensions               │   │
+│   │  • Auto-restarts on crash                                │   │
+│   └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │ WebSocket
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     Browser Extensions                           │
+│                   Chrome / Firefox / Edge                        │
+│                                                                  │
+│   • DOM manipulation    • Form filling                          │
+│   • Tab management      • Script execution                       │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### Component Responsibilities
+
+| Component | Port | Purpose |
+|-----------|------|---------|
+| **mcp-proxy-server.js** | stdio | MCP server Claude connects to. Routes tools to backends. |
+| **MCPEyes.app** | 3456 | Native macOS tools + spawns browser bridge automatically |
+| **browser-bridge-server.js** | 3457 | WebSocket bridge to browser extensions (auto-managed by MCPEyes.app) |
+| **Browser Extension** | - | Executes DOM operations in browser context |
+
+### Prerequisites for Full Functionality
+
+1. **MCPEyes.app** must be running (handles both native tools AND browser bridge)
+2. **Browser extension** must be installed and enabled
 
 ## Quick Start
 
-### Option 1: NPX (Recommended)
+### Claude Desktop / Claude Code Configuration
 
-Add to your MCP client configuration:
+Add to your MCP client configuration (`~/.config/claude/claude_desktop_config.json` or similar):
+
+```json
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "node",
+      "args": ["/path/to/mcp-eyes/dist/mcp-proxy-server.js"]
+    }
+  }
+}
+```
+
+**Before using MCP-Eyes, ensure:**
+
+```bash
+# 1. Start the macOS native app (automatically starts browser bridge too!)
+open /path/to/mcp-eyes/macos/MCPEyes.app
+
+# 2. Install and enable the browser extension in Firefox/Chrome
+```
+
+> **Note**: As of v1.1.16, MCPEyes.app automatically spawns and manages the browser bridge server. No need to start it separately!
+
+### Option 1: NPX (Recommended for npm package)
 
 ```json
 {
@@ -75,6 +147,27 @@ Add to your MCP client configuration:
 ```bash
 npm install -g mcp-eyes
 mcp-eyes mcp
+```
+
+### Option 3: Local Development
+
+```bash
+# Clone and build
+git clone https://github.com/datagram1/mcp-eyes.git
+cd mcp-eyes
+npm install
+npm run build
+
+# Configure Claude to use local build
+# In claude_desktop_config.json:
+{
+  "mcpServers": {
+    "mcp-eyes": {
+      "command": "node",
+      "args": ["/Users/you/mcp-eyes/dist/mcp-proxy-server.js"]
+    }
+  }
+}
 ```
 
 ## Server Variants
@@ -95,16 +188,31 @@ mcp-eyes mcp
 |------|-------------|
 | `listApplications` | List all running applications with window bounds |
 | `focusApplication` | Focus on a specific application by bundle ID or name |
-| `screenshot` | Take a screenshot of the focused application |
+| `launchApplication` | Launch or activate an application by bundle ID or name |
+| `closeApp` | Close an application (optionally force quit) |
+| `currentApp` | Get info about the currently focused application |
+| `screenshot` | Take a full-screen screenshot |
+| `screenshot_app` | Take a screenshot of the focused or specified application |
 | `click` | Click at normalized coordinates (0-1) relative to window |
+| `click_absolute` | Click at absolute screen coordinates (in pixels) |
+| `doubleClick` | Double-click at normalized coordinates |
+| `clickElement` | Click an element by index from getClickableElements |
+| `moveMouse` | Move mouse to normalized coordinates without clicking |
+| `scroll` | Scroll with deltaX/deltaY values |
+| `scrollMouse` | Scroll up or down by amount |
+| `drag` | Drag from one position to another |
 | `getClickableElements` | Get all clickable UI elements via Accessibility API |
+| `getUIElements` | Get full accessibility tree (clickable + non-clickable elements) |
+| `getMousePosition` | Get current mouse position in screen coordinates |
 | `typeText` | Type text into the focused application |
 | `pressKey` | Press keyboard keys with modifiers (Command+L, etc.) |
-| `analyzeWithOCR` | Analyze screen content using OCR |
-| `checkPermissions` | Check accessibility permission status |
+| `analyzeWithOCR` | Analyze screen content using Vision framework OCR |
+| `checkPermissions` | Check accessibility and screen recording permission status |
+| `wait` | Wait for specified milliseconds |
 
 ### Browser Extension Tools
 
+#### Navigation & Discovery
 | Tool | Description |
 |------|-------------|
 | `browser_listConnected` | List connected browser extensions |
@@ -112,18 +220,66 @@ mcp-eyes mcp
 | `browser_getTabs` | List all open browser tabs |
 | `browser_getActiveTab` | Get active tab info |
 | `browser_focusTab` | Focus a specific tab by ID |
+| `browser_findTabByUrl` | Find tab by URL pattern match |
+
+#### Page Inspection
+| Tool | Description |
+|------|-------------|
 | `browser_getPageInfo` | Get page URL, title, and metadata |
 | `browser_getInteractiveElements` | **Primary discovery tool** - Get all buttons, links, inputs with selectors |
+| `browser_inspectCurrentPage` | **Enhanced inspection** - Page info + UI elements + screenshot in one call |
+| `browser_getUIElements` | Get enhanced UI elements with 14 specific types (email-input, password-input, etc.) |
 | `browser_getPageContext` | Combined page info and elements (convenience tool) |
-| `browser_clickElement` | Click element by CSS selector (from discovery) |
-| `browser_fillElement` | Fill form field by CSS selector (from discovery) |
-| `browser_scrollTo` | Scroll to position or element |
-| `browser_executeScript` | Execute JavaScript - **primary use: extract href URLs without clicking** |
-| `browser_getFormData` | Get all form data from page |
-| `browser_setWatchMode` | Enable DOM change watching |
 | `browser_getVisibleText` | Read all visible text content (for parsing, not clicking) |
+| `browser_isElementVisible` | Check if element is visible on page |
+
+#### Form Automation
+| Tool | Description |
+|------|-------------|
+| `browser_fillElement` | Fill form field by CSS selector (from discovery) |
+| `browser_fillFormField` | **Smart fill** - Fill field by label with fuzzy matching (easiest method) |
+| `browser_selectOption` | Select dropdown option by value or text |
+| `browser_getFormData` | Get all form data from page |
+| `browser_getFormStructure` | Get detailed form structure with field metadata |
+| `browser_answerQuestions` | Auto-fill form questions with provided answers |
+
+#### User Interaction
+| Tool | Description |
+|------|-------------|
+| `browser_clickElement` | Click element by CSS selector (from discovery) |
+| `browser_clickByText` | Click element by visible text content (fuzzy match) |
+| `browser_clickMultiple` | Click multiple elements in sequence with delay |
+| `browser_scrollTo` | Scroll to position or element |
+
+#### JavaScript & Advanced
+| Tool | Description |
+|------|-------------|
+| `browser_executeScript` | Execute JavaScript with return support - **primary use: extract data, URLs, computed values** |
+| `browser_getConsoleLogs` | Retrieve browser console logs (errors, warnings, info) |
+| `browser_getNetworkRequests` | Get network requests (for debugging API calls) |
+| `browser_getLocalStorage` | Read localStorage data from page |
+| `browser_getCookies` | Read cookies from current page |
+
+#### Timing & Synchronization
+| Tool | Description |
+|------|-------------|
 | `browser_waitForSelector` | Wait for element to appear (after dynamic content) |
 | `browser_waitForPageLoad` | Wait for page to load (after navigation) |
+| `browser_setWatchMode` | Enable DOM change watching |
+
+#### Browser Automation (Playwright-style)
+| Tool | Description |
+|------|-------------|
+| `browser_navigate` | Navigate to a URL in the browser (supports waitUntil conditions) |
+| `browser_screenshot` | Take a screenshot of the current page or a specific element |
+| `browser_go_back` | Navigate back in browser history |
+| `browser_go_forward` | Navigate forward in browser history |
+| `browser_get_visible_html` | Get the HTML content of the page (with cleaning options) |
+| `browser_hover` | Hover over an element (triggers hover states, tooltips, dropdowns) |
+| `browser_drag` | Drag an element to a target location |
+| `browser_press_key` | Press keyboard keys with modifier support (Enter, Tab, Ctrl+a, etc.) |
+| `browser_upload_file` | Upload a file to a file input (requires native interaction fallback) |
+| `browser_save_as_pdf` | Save the current page as a PDF (requires browser print API) |
 
 ### LLM-Friendly Web Automation Workflows
 
@@ -137,13 +293,31 @@ MCP-Eyes tool descriptions are designed to teach LLMs proper automation patterns
 5. **Wait** → Use `browser_waitForPageLoad` (navigation) or `browser_waitForSelector` (dynamic content)
 6. **Rediscover** → Call `browser_getInteractiveElements` again to see new elements
 
+**Enhanced Inspection Pattern (NEW):**
+1. **Single Call** → Use `browser_inspectCurrentPage` to get page info, UI elements, and screenshot
+2. **Parse Results** → Find elements by label, type, or coordinates
+3. **Interact** → Use `browser_fillFormField` for smart label-based filling
+
+**Smart Form Filling Pattern (NEW):**
+1. `browser_inspectCurrentPage` → Get all form fields with labels
+2. `browser_fillFormField` → Fill by label (fuzzy matching): `fillFormField("Email", "user@example.com")`
+3. `browser_fillFormField` → Fill next field: `fillFormField("Password", "secret123")`
+4. `browser_clickByText` → Click submit button: `clickByText("Submit")`
+5. `browser_waitForPageLoad` → Wait for result
+
 **Link Extraction Pattern:**
 1. Use `browser_getInteractiveElements` to find links
 2. Match link by text content
 3. Use `browser_executeScript` with `return document.querySelector('SELECTOR').href` to extract URL
 4. Use the URL without clicking
 
-**Form Automation Pattern:**
+**Debugging Pattern (NEW):**
+1. `browser_getConsoleLogs` → Check for JavaScript errors
+2. `browser_getNetworkRequests` → Inspect failed API calls
+3. `browser_getLocalStorage` → Check stored data
+4. `browser_executeScript` → Extract computed values or test DOM queries
+
+**Traditional Form Automation Pattern:**
 1. `browser_getInteractiveElements` → Find input fields
 2. `browser_fillElement` → Fill each field (using selectors from step 1)
 3. `browser_getInteractiveElements` → Find submit button
@@ -1069,6 +1243,50 @@ await mcpClient.callTool('browser_waitForPageLoad', {});
 const newElements = await mcpClient.callTool('browser_getInteractiveElements', {});
 ```
 
+### Enhanced Page Inspection (NEW)
+
+```javascript
+// Single call to get everything
+const page = await mcpClient.callTool('browser_inspectCurrentPage', {
+  includeScreenshot: true,
+  includeOCR: false
+});
+
+// Response includes:
+// - pageInfo: { url, title, metadata }
+// - elements: Array of enhanced elements with labels, types, coordinates
+// - screenshot: Base64 image
+// - summary: { totalElements, formCount, inputCount, buttonCount }
+
+// Find login form fields
+const emailField = page.elements.find(el =>
+  el.label?.toLowerCase().includes('email')
+);
+const passwordField = page.elements.find(el =>
+  el.type === 'password-input'
+);
+```
+
+### Smart Form Filling (NEW)
+
+```javascript
+// Fill form using fuzzy label matching - no selectors needed!
+await mcpClient.callTool('browser_fillFormField', {
+  label: 'Email',  // Matches "Email Address", "Email:", "Enter your email"
+  value: 'user@example.com'
+});
+
+await mcpClient.callTool('browser_fillFormField', {
+  label: 'Password',  // Matches "Password", "Your Password", etc.
+  value: 'secret123'
+});
+
+// Click submit button by text
+await mcpClient.callTool('browser_clickByText', {
+  text: 'Sign In'  // Fuzzy matches "Sign In", "Sign in", "SIGN IN"
+});
+```
+
 ### Link Extraction (Without Clicking)
 
 ```javascript
@@ -1076,11 +1294,48 @@ const newElements = await mcpClient.callTool('browser_getInteractiveElements', {
 const elements = await mcpClient.callTool('browser_getInteractiveElements', {});
 // Find link by text (e.g., "About Us")
 
-// 2. Extract href URL without clicking
-const url = await mcpClient.callTool('browser_executeScript', {
+// 2. Extract href URL without clicking (NEW: return statements work!)
+const result = await mcpClient.callTool('browser_executeScript', {
   script: "return document.querySelector('#about-link').href;"
 });
-// Returns: "https://example.com/about"
+// Returns: { success: true, result: "https://example.com/about" }
+```
+
+### Debugging & Diagnostics (NEW)
+
+```javascript
+// Check for JavaScript errors
+const logs = await mcpClient.callTool('browser_getConsoleLogs', {
+  filter: 'error',  // 'error', 'warning', 'log', 'info', 'debug', or 'all'
+  clear: false
+});
+// Returns: Array of console messages with type, timestamp, and content
+
+// Inspect network requests
+const requests = await mcpClient.callTool('browser_getNetworkRequests', {
+  filter: 'failed',  // Filter for failed requests
+  clear: false
+});
+
+// Check localStorage data
+const storage = await mcpClient.callTool('browser_getLocalStorage', {});
+// Returns: Object with all localStorage key-value pairs
+
+// Read cookies
+const cookies = await mcpClient.callTool('browser_getCookies', {});
+// Returns: Array of cookie objects
+
+// Execute diagnostic script
+const diagnostic = await mcpClient.callTool('browser_executeScript', {
+  script: `
+    return {
+      userAgent: navigator.userAgent,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      cookies: document.cookie,
+      localStorage: Object.keys(localStorage).length
+    };
+  `
+});
 ```
 
 ### Form Automation
@@ -1118,6 +1373,87 @@ const elements = await mcpClient.callTool('browser_getInteractiveElements', {});
 await mcpClient.callTool('click', { x: 0.5, y: 0.3 });
 ```
 
+### Advanced Automation (NEW)
+
+```javascript
+// Find tab by URL pattern
+const tab = await mcpClient.callTool('browser_findTabByUrl', {
+  urlPattern: 'github.com/.*'
+});
+
+// Click multiple elements in sequence
+await mcpClient.callTool('browser_clickMultiple', {
+  selectors: ['#step1', '#step2', '#step3'],
+  delayMs: 500  // Wait 500ms between clicks
+});
+
+// Get structured form metadata
+const form = await mcpClient.callTool('browser_getFormStructure', {});
+// Returns: Detailed form structure with field types, labels, validation rules
+
+// Auto-answer form questions
+await mcpClient.callTool('browser_answerQuestions', {
+  answers: {
+    'What is your name?': 'John Doe',
+    'Email address': 'john@example.com'
+  },
+  defaultAnswer: 'N/A'  // For unmatched questions
+});
+```
+
+### Playwright-Style Browser Automation (NEW)
+
+```javascript
+// Navigate to a URL
+await mcpClient.callTool('browser_navigate', {
+  url: 'https://example.com',
+  waitUntil: 'load'  // 'load', 'domcontentloaded', or 'networkidle'
+});
+
+// Take a screenshot
+const screenshot = await mcpClient.callTool('browser_screenshot', {
+  fullPage: false,  // Set true for full scrollable page
+  selector: '#main-content'  // Optional: screenshot specific element
+});
+// Returns: { screenshot: 'base64-encoded-png' }
+
+// Browser history navigation
+await mcpClient.callTool('browser_go_back', {});
+await mcpClient.callTool('browser_go_forward', {});
+
+// Get page HTML content
+const html = await mcpClient.callTool('browser_get_visible_html', {
+  selector: '#content',  // Optional: limit to specific container
+  removeScripts: true,   // Remove script tags (default: true)
+  removeStyles: false,   // Remove style tags (default: false)
+  cleanHtml: true,       // Comprehensive cleaning
+  maxLength: 50000       // Truncate if needed
+});
+
+// Hover over element (triggers tooltips, dropdowns)
+await mcpClient.callTool('browser_hover', {
+  selector: '.dropdown-trigger'
+});
+
+// Drag and drop
+await mcpClient.callTool('browser_drag', {
+  sourceSelector: '.draggable-item',
+  targetSelector: '.drop-zone'
+});
+
+// Press keyboard keys with modifiers
+await mcpClient.callTool('browser_press_key', {
+  key: 'Enter'
+});
+await mcpClient.callTool('browser_press_key', {
+  key: 'Ctrl+a',  // Select all
+  selector: '#text-input'  // Optional: focus element first
+});
+await mcpClient.callTool('browser_press_key', {
+  key: 'ArrowDown'
+});
+```
+
 ### Multi-Browser Targeting
 
 ```javascript
@@ -1142,9 +1478,29 @@ await mcpClient.callTool('browser_setDefaultBrowser', { browser: 'chrome' });
 - Check browser console for errors
 - See [extension/README.md](extension/README.md) for debugging
 
+### Browser extension changes not taking effect
+- **Firefox**: Remove extension completely from `about:debugging`, then reinstall
+- **Chrome/Edge**: Extension reload is usually sufficient, but if issues persist, remove and reinstall
+- **Important**: After reinstalling, refresh all browser tabs to load updated content scripts
+
+### browser_executeScript "return not in function" error
+- **Fixed in latest version**: The `browser_executeScript` tool now wraps code in an IIFE to support return statements
+- Update to the latest extension version if you see this error
+- Example that now works: `browser_executeScript({ script: "return document.title;" })`
+
+### "Unknown browser action" errors
+- Extension may not be fully loaded or content scripts not injected
+- Refresh the target browser tab
+- Check that extension is installed and enabled in browser settings
+- Verify WebSocket connection in browser console (should show "MCP Eyes WebSocket connected")
+
 ### Permission denied errors
 - Grant Accessibility permission to your MCP client
 - On Linux, ensure X11 access and wmctrl is installed
+
+### macOS menu bar app graphics warnings
+- **Fixed in latest version**: Graphics context errors resolved with icon caching and animation batching
+- Update to the latest macOS app if you see ViewBridge or CA commit warnings
 
 ## Contributing
 

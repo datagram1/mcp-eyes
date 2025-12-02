@@ -10,6 +10,8 @@
 	<string>MCPEyes</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mcpeyes.agent</string>
 	<key>CFBundleInfoDictionaryVersion</key>

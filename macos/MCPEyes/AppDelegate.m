@@ -7,6 +7,7 @@
 #import <ServiceManagement/ServiceManagement.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <Security/Security.h>
+#import <signal.h>
 
 // Settings keys for UserDefaults
 static NSString * const kAgentNameKey = @"AgentName";
@@ -16,6 +17,9 @@ static NSString * const kAPIKeyKey = @"APIKey";
 static NSString * const kControlServerModeKey = @"ControlServerMode";
 static NSString * const kControlServerAddressKey = @"ControlServerAddress";
 static NSString * const kControlServerKeyKey = @"ControlServerKey";
+
+// Tools configuration path
+static NSString * const kToolsConfigFilename = @"tools.json";
 
 // Forward declare C++ agent functions
 #ifdef __cplusplus
@@ -40,6 +44,24 @@ extern "C" {
 @property (strong) NSURLSession* urlSession;
 @property (assign) BOOL isUpdatingPermissionIndicators;
 @property (assign) BOOL isUpdatingSettingsStatus;
+@property (strong) NSImage* cachedNormalIcon;
+@property (strong) NSImage* cachedLockedIcon;
+@property (assign) BOOL currentIconIsLocked;
+@property (assign) BOOL isAppTerminating;
+
+// Helper method declarations
+- (NSString *)getToolsConfigPath;
+- (void)loadToolsConfig;
+- (void)saveToolsConfig;
+- (void)createDefaultToolsConfig;
+- (BOOL)ensureAllCategoriesExist;
+- (NSArray *)getToolsForCategory:(NSString *)categoryId;
+- (NSView *)createGeneralTabView;
+- (NSView *)createToolsTabView;
+- (NSView *)createPermissionsTabView;
+- (CGFloat)addCategoryBox:(NSString *)categoryName categoryId:(NSString *)categoryId tools:(NSArray *)tools toView:(NSView *)documentView atY:(CGFloat)y;
+- (void)categoryToggleChanged:(NSButton *)sender;
+- (void)toolToggleChanged:(NSButton *)sender;
 @end
 
 @implementation AppDelegate
@@ -53,6 +75,11 @@ extern "C" {
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
     config.timeoutIntervalForRequest = 10.0;
     self.urlSession = [NSURLSession sessionWithConfiguration:config];
+
+    // Initialize tools configuration dictionaries
+    self.categoryToggles = [NSMutableDictionary dictionary];
+    self.toolToggles = [NSMutableDictionary dictionary];
+    [self loadToolsConfig];
 
     // Create status bar item with googly eyes icon
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
@@ -72,6 +99,9 @@ extern "C" {
     // Start agent
     [self startAgent];
 
+    // Start browser bridge server (manages Firefox/Chrome extension communication)
+    [self startBrowserBridge];
+
     // Check control server connection status
     [self checkControlServerConnection];
 
@@ -84,6 +114,8 @@ extern "C" {
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
+    self.isAppTerminating = YES;
+    [self stopBrowserBridge];
     [self stopAgent];
     [self.statusTimer invalidate];
 }
@@ -91,64 +123,98 @@ extern "C" {
 #pragma mark - Googly Eyes Icon
 
 - (void)updateStatusBarIcon:(BOOL)locked {
-    // Load app icon from bundle (uses the icon from Assets.xcassets)
-    NSImage *appIcon = [[NSWorkspace sharedWorkspace] iconForFile:[NSBundle mainBundle].bundlePath];
-    
-    // If that doesn't work, try loading from asset catalog directly
-    if (!appIcon || appIcon.size.width == 0) {
-        appIcon = [NSImage imageNamed:@"AppIcon"];
+    // Ensure we're on the main thread
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateStatusBarIcon:locked];
+        });
+        return;
     }
-    
-    // Menu bar icon size (standard macOS menu bar height is 22 points)
-    // For Retina displays, this will automatically scale to 44x44 pixels
-    CGFloat menuBarSize = 22.0;
-    
-    if (appIcon && appIcon.size.width > 0) {
-        // Create a resized version for the menu bar
-        NSImage *menuBarIcon = [[NSImage alloc] initWithSize:NSMakeSize(menuBarSize, menuBarSize)];
-        [menuBarIcon lockFocus];
-        
-        // Draw the app icon scaled to menu bar size with high quality
-        NSGraphicsContext *context = [NSGraphicsContext currentContext];
-        [context setImageInterpolation:NSImageInterpolationHigh];
-        
-        [appIcon drawInRect:NSMakeRect(0, 0, menuBarSize, menuBarSize)
-                    fromRect:NSZeroRect
-                   operation:NSCompositingOperationSourceOver
-                    fraction:1.0];
-        
-        // If locked, draw X overlay
-        if (locked) {
-            NSBezierPath *xPath = [NSBezierPath bezierPath];
-            xPath.lineWidth = 2.0;
-            [[NSColor systemRedColor] setStroke];
-            
-            // Left X
-            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.25 - 3, menuBarSize * 0.5 - 3)];
-            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.25 + 3, menuBarSize * 0.5 + 3)];
-            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.25 + 3, menuBarSize * 0.5 - 3)];
-            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.25 - 3, menuBarSize * 0.5 + 3)];
-            
-            // Right X
-            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.75 - 3, menuBarSize * 0.5 - 3)];
-            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.75 + 3, menuBarSize * 0.5 + 3)];
-            [xPath moveToPoint:NSMakePoint(menuBarSize * 0.75 + 3, menuBarSize * 0.5 - 3)];
-            [xPath lineToPoint:NSMakePoint(menuBarSize * 0.75 - 3, menuBarSize * 0.5 + 3)];
-            
-            [xPath stroke];
+
+    // Only update if the state actually changed
+    if (self.currentIconIsLocked == locked && (locked ? self.cachedLockedIcon : self.cachedNormalIcon) != nil) {
+        return;
+    }
+
+    self.currentIconIsLocked = locked;
+
+    // Check if we have cached icons
+    NSImage *targetIcon = locked ? self.cachedLockedIcon : self.cachedNormalIcon;
+
+    if (!targetIcon) {
+        // Create icons if not cached
+        CGFloat menuBarSize = 22.0;
+
+        // Load app icon from bundle
+        NSImage *appIcon = [[NSWorkspace sharedWorkspace] iconForFile:[NSBundle mainBundle].bundlePath];
+        if (!appIcon || appIcon.size.width == 0) {
+            appIcon = [NSImage imageNamed:@"AppIcon"];
         }
-        
-        [menuBarIcon unlockFocus];
-        [menuBarIcon setTemplate:NO]; // Keep original colors from PNG
-        self.statusItem.button.image = menuBarIcon;
-    } else {
-        // Fallback: create a simple placeholder if icon can't be loaded
-        NSImage *fallbackImage = [[NSImage alloc] initWithSize:NSMakeSize(menuBarSize, menuBarSize)];
-        [fallbackImage lockFocus];
-        [[NSColor systemGrayColor] setFill];
-        NSRectFill(NSMakeRect(0, 0, menuBarSize, menuBarSize));
-        [fallbackImage unlockFocus];
-        self.statusItem.button.image = fallbackImage;
+
+        if (appIcon && appIcon.size.width > 0) {
+            // Create the icon using lockFocusFlipped for better rendering
+            targetIcon = [[NSImage alloc] initWithSize:NSMakeSize(menuBarSize, menuBarSize)];
+            [targetIcon lockFocus];
+
+            // Save graphics state
+            [NSGraphicsContext saveGraphicsState];
+
+            NSGraphicsContext *context = [NSGraphicsContext currentContext];
+            context.imageInterpolation = NSImageInterpolationHigh;
+            context.shouldAntialias = YES;
+
+            // Draw base icon
+            [appIcon drawInRect:NSMakeRect(0, 0, menuBarSize, menuBarSize)
+                        fromRect:NSZeroRect
+                       operation:NSCompositingOperationSourceOver
+                        fraction:1.0];
+
+            // Draw X overlay if locked
+            if (locked) {
+                NSBezierPath *xPath = [NSBezierPath bezierPath];
+                xPath.lineWidth = 2.0;
+                [[NSColor systemRedColor] setStroke];
+
+                // Left X
+                [xPath moveToPoint:NSMakePoint(menuBarSize * 0.25 - 3, menuBarSize * 0.5 - 3)];
+                [xPath lineToPoint:NSMakePoint(menuBarSize * 0.25 + 3, menuBarSize * 0.5 + 3)];
+                [xPath moveToPoint:NSMakePoint(menuBarSize * 0.25 + 3, menuBarSize * 0.5 - 3)];
+                [xPath lineToPoint:NSMakePoint(menuBarSize * 0.25 - 3, menuBarSize * 0.5 + 3)];
+
+                // Right X
+                [xPath moveToPoint:NSMakePoint(menuBarSize * 0.75 - 3, menuBarSize * 0.5 - 3)];
+                [xPath lineToPoint:NSMakePoint(menuBarSize * 0.75 + 3, menuBarSize * 0.5 + 3)];
+                [xPath moveToPoint:NSMakePoint(menuBarSize * 0.75 + 3, menuBarSize * 0.5 - 3)];
+                [xPath lineToPoint:NSMakePoint(menuBarSize * 0.75 - 3, menuBarSize * 0.5 + 3)];
+
+                [xPath stroke];
+            }
+
+            // Restore graphics state
+            [NSGraphicsContext restoreGraphicsState];
+            [targetIcon unlockFocus];
+
+            targetIcon.template = NO;
+
+            // Cache the created icon
+            if (locked) {
+                self.cachedLockedIcon = targetIcon;
+            } else {
+                self.cachedNormalIcon = targetIcon;
+            }
+        } else {
+            // Fallback icon
+            targetIcon = [[NSImage alloc] initWithSize:NSMakeSize(menuBarSize, menuBarSize)];
+            [targetIcon lockFocus];
+            [[NSColor systemGrayColor] setFill];
+            NSRectFill(NSMakeRect(0, 0, menuBarSize, menuBarSize));
+            [targetIcon unlockFocus];
+        }
+    }
+
+    // Apply the icon
+    if (targetIcon) {
+        self.statusItem.button.image = targetIcon;
     }
 }
 
@@ -222,8 +288,8 @@ extern "C" {
 #pragma mark - Settings Window
 
 - (void)createSettingsWindow {
-    CGFloat windowWidth = 480;
-    CGFloat windowHeight = 670;
+    CGFloat windowWidth = 600;
+    CGFloat windowHeight = 700;
 
     NSRect windowRect = NSMakeRect(0, 0, windowWidth, windowHeight);
 
@@ -240,24 +306,58 @@ extern "C" {
 
     NSView *contentView = self.settingsWindow.contentView;
 
+    // Create tab view
+    self.settingsTabView = [[NSTabView alloc] initWithFrame:NSMakeRect(0, 50, windowWidth, windowHeight - 50)];
+
+    // Create tabs
+    NSTabViewItem *generalTab = [[NSTabViewItem alloc] initWithIdentifier:@"general"];
+    generalTab.label = @"General";
+    generalTab.view = [self createGeneralTabView];
+    [self.settingsTabView addTabViewItem:generalTab];
+
+    NSTabViewItem *toolsTab = [[NSTabViewItem alloc] initWithIdentifier:@"tools"];
+    toolsTab.label = @"Tools";
+    toolsTab.view = [self createToolsTabView];
+    [self.settingsTabView addTabViewItem:toolsTab];
+
+    NSTabViewItem *permissionsTab = [[NSTabViewItem alloc] initWithIdentifier:@"permissions"];
+    permissionsTab.label = @"Permissions";
+    permissionsTab.view = [self createPermissionsTabView];
+    [self.settingsTabView addTabViewItem:permissionsTab];
+
+    [contentView addSubview:self.settingsTabView];
+
+    // Save Button
+    CGFloat padding = 20;
+    NSButton *saveButton = [[NSButton alloc] initWithFrame:NSMakeRect(windowWidth - padding - 100, 15, 90, 32)];
+    saveButton.title = @"Save";
+    saveButton.bezelStyle = NSBezelStyleRounded;
+    saveButton.keyEquivalent = @"\r";
+    saveButton.target = self;
+    saveButton.action = @selector(saveSettings:);
+    [contentView addSubview:saveButton];
+
+    [self updatePermissionIndicators];
+}
+
+#pragma mark - Tab View Creation
+
+- (NSView *)createGeneralTabView {
+    CGFloat tabWidth = 600;
+    CGFloat tabHeight = 650;
+    NSView *tabView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, tabWidth, tabHeight)];
+
     CGFloat padding = 20;
     CGFloat labelWidth = 120;
-    CGFloat controlWidth = windowWidth - padding * 2 - labelWidth - 10;
+    CGFloat controlWidth = tabWidth - padding * 2 - labelWidth - 10;
     CGFloat rowHeight = 30;
-    CGFloat y = windowHeight - 50;
-
-    // Title
-    NSTextField *titleLabel = [self createLabel:@"MCP-Eyes Agent Settings"
-                                          frame:NSMakeRect(padding, y, windowWidth - padding * 2, 24)];
-    titleLabel.font = [NSFont boldSystemFontOfSize:16];
-    [contentView addSubview:titleLabel];
-    y -= 40;
+    CGFloat y = tabHeight - 50;  // Increased gap to prevent tab overlap
 
     // Agent Configuration Section
-    NSBox *configBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 140, windowWidth - padding * 2, 150)];
+    NSBox *configBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 140, tabWidth - padding * 2, 150)];
     configBox.title = @"Agent Configuration";
     configBox.titlePosition = NSAtTop;
-    [contentView addSubview:configBox];
+    [tabView addSubview:configBox];
 
     CGFloat boxPadding = 15;
     CGFloat boxY = 100;
@@ -302,10 +402,10 @@ extern "C" {
     y -= 160;
 
     // Security Section
-    NSBox *securityBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 90, windowWidth - padding * 2, 100)];
+    NSBox *securityBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 90, tabWidth - padding * 2, 100)];
     securityBox.title = @"Security";
     securityBox.titlePosition = NSAtTop;
-    [contentView addSubview:securityBox];
+    [tabView addSubview:securityBox];
 
     boxY = 50;
 
@@ -343,10 +443,10 @@ extern "C" {
     y -= 110;
 
     // Control Server Section
-    NSBox *controlServerBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 140, windowWidth - padding * 2, 150)];
+    NSBox *controlServerBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 140, tabWidth - padding * 2, 150)];
     controlServerBox.title = @"Control Server (Remote Mode)";
     controlServerBox.titlePosition = NSAtTop;
-    [contentView addSubview:controlServerBox];
+    [tabView addSubview:controlServerBox];
 
     boxY = 100;
 
@@ -365,7 +465,7 @@ extern "C" {
     [self.controlServerModePopup setTarget:self];
     [self.controlServerModePopup setAction:@selector(controlServerModeChanged:)];
     [controlServerBox addSubview:self.controlServerModePopup];
-    
+
     // Initialize field states based on saved mode
     BOOL manualMode = ([savedControlMode isEqualToString:@"manual"]);
     self.controlServerAddressField.enabled = manualMode;
@@ -412,13 +512,106 @@ extern "C" {
 
     y -= 150;
 
+    // Status Section
+    NSBox *statusBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 70, tabWidth - padding * 2, 80)];
+    statusBox.title = @"Status";
+    statusBox.titlePosition = NSAtTop;
+    [tabView addSubview:statusBox];
+
+    boxY = 35;
+
+    self.statusLabel = [self createLabel:@"Server: Starting..."
+                                   frame:NSMakeRect(boxPadding, boxY, tabWidth - padding * 2 - boxPadding * 2, 20)];
+    [statusBox addSubview:self.statusLabel];
+    boxY -= 25;
+
+    self.uptimeLabel = [self createLabel:@"Uptime: 0s"
+                                   frame:NSMakeRect(boxPadding, boxY, tabWidth - padding * 2 - boxPadding * 2, 20)];
+    self.uptimeLabel.textColor = [NSColor secondaryLabelColor];
+    [statusBox addSubview:self.uptimeLabel];
+
+    return tabView;
+}
+
+- (NSView *)createToolsTabView {
+    CGFloat tabWidth = 600;
+    CGFloat tabHeight = 650;
+    NSView *tabView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, tabWidth, tabHeight)];
+
+    CGFloat padding = 20;
+
+    // Create scroll view for tools list
+    self.toolsScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(padding, 20, tabWidth - padding * 2, tabHeight - 40)];
+    self.toolsScrollView.hasVerticalScroller = YES;
+    self.toolsScrollView.autohidesScrollers = YES;
+    self.toolsScrollView.borderType = NSBezelBorder;
+
+    // Tools configuration should already be loaded in applicationDidFinishLaunching
+    // Only load if it hasn't been loaded yet
+    if (!self.toolsConfig) {
+        [self loadToolsConfig];
+    }
+
+    // Calculate total height needed first (two-pass approach to avoid layout recursion)
+    CGFloat calculatedHeight = 20;
+    NSArray *categories = @[
+        @{@"id": @"gui", @"name": @"GUI & Accessibility"},
+        @{@"id": @"browser", @"name": @"Browser Automation"},
+        @{@"id": @"filesystem", @"name": @"File System"},
+        @{@"id": @"shell", @"name": @"Shell Commands"}
+    ];
+
+    // First pass: calculate total height needed
+    for (NSDictionary *category in categories) {
+        NSString *categoryId = category[@"id"];
+        NSArray *categoryTools = [self getToolsForCategory:categoryId];
+        CGFloat boxHeight = 50 + (categoryTools.count * 25);
+        calculatedHeight += boxHeight + 15; // spacing between boxes
+    }
+
+    // Create document view with correct height from the start
+    NSView *documentView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, tabWidth - padding * 2 - 20, calculatedHeight)];
+
+    // Second pass: add category boxes
+    CGFloat y = 20;
+    for (NSDictionary *category in categories) {
+        NSString *categoryId = category[@"id"];
+        NSString *categoryName = category[@"name"];
+
+        // Get tools for this category
+        NSArray *categoryTools = [self getToolsForCategory:categoryId];
+
+        y = [self addCategoryBox:categoryName
+                      categoryId:categoryId
+                           tools:categoryTools
+                          toView:documentView
+                            atY:y];
+        y += 15; // spacing between boxes
+    }
+
+    // Set document view after all content is added (no frame changes after this)
+    self.toolsScrollView.documentView = documentView;
+    [tabView addSubview:self.toolsScrollView];
+
+    return tabView;
+}
+
+- (NSView *)createPermissionsTabView {
+    CGFloat tabWidth = 600;
+    CGFloat tabHeight = 650;
+    NSView *tabView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, tabWidth, tabHeight)];
+
+    CGFloat padding = 20;
+    CGFloat y = tabHeight - 40;
+
     // Permissions Section
-    NSBox *permBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 90, windowWidth - padding * 2, 100)];
+    NSBox *permBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 90, tabWidth - padding * 2, 100)];
     permBox.title = @"Permissions";
     permBox.titlePosition = NSAtTop;
-    [contentView addSubview:permBox];
+    [tabView addSubview:permBox];
 
-    boxY = 55;
+    CGFloat boxPadding = 15;
+    CGFloat boxY = 55;
 
     self.accessibilityIndicator = [[NSImageView alloc] initWithFrame:NSMakeRect(boxPadding, boxY, 20, 20)];
     [permBox addSubview:self.accessibilityIndicator];
@@ -427,7 +620,7 @@ extern "C" {
                                           frame:NSMakeRect(boxPadding + 25, boxY, 150, 20)];
     [permBox addSubview:self.accessibilityLabel];
 
-    NSButton *grantAccessBtn = [[NSButton alloc] initWithFrame:NSMakeRect(windowWidth - padding * 2 - 100, boxY, 80, 24)];
+    NSButton *grantAccessBtn = [[NSButton alloc] initWithFrame:NSMakeRect(tabWidth - padding * 2 - 100, boxY, 80, 24)];
     grantAccessBtn.title = @"Grant";
     grantAccessBtn.bezelStyle = NSBezelStyleRounded;
     grantAccessBtn.target = self;
@@ -442,43 +635,14 @@ extern "C" {
                                             frame:NSMakeRect(boxPadding + 25, boxY, 150, 20)];
     [permBox addSubview:self.screenRecordingLabel];
 
-    NSButton *grantScreenBtn = [[NSButton alloc] initWithFrame:NSMakeRect(windowWidth - padding * 2 - 100, boxY, 80, 24)];
+    NSButton *grantScreenBtn = [[NSButton alloc] initWithFrame:NSMakeRect(tabWidth - padding * 2 - 100, boxY, 80, 24)];
     grantScreenBtn.title = @"Grant";
     grantScreenBtn.bezelStyle = NSBezelStyleRounded;
     grantScreenBtn.target = self;
     grantScreenBtn.action = @selector(openScreenRecordingPrefs:);
     [permBox addSubview:grantScreenBtn];
 
-    y -= 110;
-
-    // Status Section
-    NSBox *statusBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 70, windowWidth - padding * 2, 80)];
-    statusBox.title = @"Status";
-    statusBox.titlePosition = NSAtTop;
-    [contentView addSubview:statusBox];
-
-    boxY = 35;
-
-    self.statusLabel = [self createLabel:@"Server: Starting..."
-                                   frame:NSMakeRect(boxPadding, boxY, windowWidth - padding * 2 - boxPadding * 2, 20)];
-    [statusBox addSubview:self.statusLabel];
-    boxY -= 25;
-
-    self.uptimeLabel = [self createLabel:@"Uptime: 0s"
-                                   frame:NSMakeRect(boxPadding, boxY, windowWidth - padding * 2 - boxPadding * 2, 20)];
-    self.uptimeLabel.textColor = [NSColor secondaryLabelColor];
-    [statusBox addSubview:self.uptimeLabel];
-
-    // Save Button
-    NSButton *saveButton = [[NSButton alloc] initWithFrame:NSMakeRect(windowWidth - padding - 100, 15, 90, 32)];
-    saveButton.title = @"Save";
-    saveButton.bezelStyle = NSBezelStyleRounded;
-    saveButton.keyEquivalent = @"\r";
-    saveButton.target = self;
-    saveButton.action = @selector(saveSettings:);
-    [contentView addSubview:saveButton];
-
-    [self updatePermissionIndicators];
+    return tabView;
 }
 
 - (NSTextField *)createLabel:(NSString *)text frame:(NSRect)frame {
@@ -527,6 +691,457 @@ extern "C" {
     return hexString;
 }
 
+#pragma mark - Tools Configuration Management
+
+- (NSString *)getToolsConfigPath {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+    NSString *appSupportDir = [paths firstObject];
+    NSString *mcpEyesDir = [appSupportDir stringByAppendingPathComponent:@"MCPEyes"];
+
+    // Create directory if it doesn't exist
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if (![fileManager fileExistsAtPath:mcpEyesDir]) {
+        [fileManager createDirectoryAtPath:mcpEyesDir withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+
+    return [mcpEyesDir stringByAppendingPathComponent:kToolsConfigFilename];
+}
+
+- (void)loadToolsConfig {
+    NSString *configPath = [self getToolsConfigPath];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+
+    if ([fileManager fileExistsAtPath:configPath]) {
+        NSData *data = [NSData dataWithContentsOfFile:configPath];
+        NSError *error = nil;
+        NSDictionary *config = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+
+        if (config && !error) {
+            self.toolsConfig = [NSMutableDictionary dictionaryWithDictionary:config];
+            
+            BOOL needsSave = NO;
+            
+            // Migrate old "accessibility" category to "gui" if it exists
+            if (self.toolsConfig[@"accessibility"] && !self.toolsConfig[@"gui"]) {
+                NSLog(@"Migrating 'accessibility' category to 'gui'");
+                self.toolsConfig[@"gui"] = self.toolsConfig[@"accessibility"];
+                [self.toolsConfig removeObjectForKey:@"accessibility"];
+                needsSave = YES;
+            }
+            
+            // Ensure all expected categories exist with default tools
+            BOOL categoriesChanged = [self ensureAllCategoriesExist];
+            needsSave = needsSave || categoriesChanged;
+            
+            // Only save if we made changes
+            if (needsSave) {
+                [self saveToolsConfig];
+            }
+            
+            NSLog(@"Loaded tools config from %@", configPath);
+        } else {
+            NSLog(@"Error loading tools config: %@", error);
+            [self createDefaultToolsConfig];
+        }
+    } else {
+        NSLog(@"No tools config found, creating default");
+        [self createDefaultToolsConfig];
+    }
+}
+
+- (BOOL)ensureAllCategoriesExist {
+    // Get the complete list of tools from default config
+    NSDictionary *defaultToolDefinitions = @{
+        @"gui": @[
+            @"listApplications",
+            @"focusApplication",
+            @"launchApplication",
+            @"screenshot",
+            @"screenshot_app",
+            @"click",
+            @"click_absolute",
+            @"doubleClick",
+            @"clickElement",
+            @"moveMouse",
+            @"scroll",
+            @"scrollMouse",
+            @"drag",
+            @"getClickableElements",
+            @"getUIElements",
+            @"getMousePosition",
+            @"typeText",
+            @"pressKey",
+            @"analyzeWithOCR",
+            @"checkPermissions",
+            @"closeApp",
+            @"wait"
+        ],
+        @"browser": @[
+            @"browser_listConnected",
+            @"browser_setDefaultBrowser",
+            @"browser_getTabs",
+            @"browser_getActiveTab",
+            @"browser_focusTab",
+            @"browser_createTab",
+            @"browser_closeTab",
+            @"browser_getPageInfo",
+            @"browser_inspectCurrentPage",
+            @"browser_getInteractiveElements",
+            @"browser_getPageContext",
+            @"browser_clickElement",
+            @"browser_fillElement",
+            @"browser_fillFormField",
+            @"browser_scrollTo",
+            @"browser_executeScript",
+            @"browser_getFormData",
+            @"browser_setWatchMode",
+            @"browser_getVisibleText",
+            @"browser_getUIElements",
+            @"browser_waitForSelector",
+            @"browser_waitForPageLoad",
+            @"browser_selectOption",
+            @"browser_isElementVisible",
+            @"browser_getConsoleLogs",
+            @"browser_getNetworkRequests",
+            @"browser_getLocalStorage",
+            @"browser_getCookies",
+            // Playwright-style browser automation tools
+            @"browser_navigate",
+            @"browser_screenshot",
+            @"browser_go_back",
+            @"browser_go_forward",
+            @"browser_get_visible_html",
+            @"browser_hover",
+            @"browser_drag",
+            @"browser_press_key",
+            @"browser_upload_file",
+            @"browser_save_as_pdf"
+        ],
+        @"filesystem": @[
+            @"fs_list",
+            @"fs_read",
+            @"fs_read_range",
+            @"fs_write",
+            @"fs_delete",
+            @"fs_move",
+            @"fs_search",
+            @"fs_grep",
+            @"fs_patch"
+        ],
+        @"shell": @[
+            @"shell_exec",
+            @"shell_start_session",
+            @"shell_send_input",
+            @"shell_stop_session"
+        ]
+    };
+    
+    BOOL madeChanges = NO;
+    
+    // Ensure each category exists and has all expected tools
+    for (NSString *categoryId in defaultToolDefinitions) {
+        NSDictionary *existingCategoryConfig = self.toolsConfig[categoryId];
+        NSMutableDictionary *categoryConfig;
+        
+        if (existingCategoryConfig) {
+            // Make a mutable copy of the existing config
+            categoryConfig = [existingCategoryConfig mutableCopy];
+        } else {
+            // Create a new category config
+            categoryConfig = [NSMutableDictionary dictionary];
+            categoryConfig[@"enabled"] = @YES;
+            madeChanges = YES;
+        }
+        
+        // Ensure tools dictionary is mutable
+        NSDictionary *existingTools = categoryConfig[@"tools"];
+        NSMutableDictionary *tools;
+        if (existingTools) {
+            tools = [existingTools mutableCopy];
+        } else {
+            tools = [NSMutableDictionary dictionary];
+        }
+        
+        // Add any missing tools from the default list
+        NSArray *expectedTools = defaultToolDefinitions[categoryId];
+        for (NSString *toolName in expectedTools) {
+            if (!tools[toolName]) {
+                tools[toolName] = @YES; // Default to enabled
+                madeChanges = YES;
+            }
+        }
+        
+        categoryConfig[@"tools"] = tools;
+        self.toolsConfig[categoryId] = categoryConfig;
+    }
+    
+    // Return YES if we made any changes (added missing categories or tools)
+    return madeChanges;
+}
+
+- (void)saveToolsConfig {
+    NSString *configPath = [self getToolsConfigPath];
+    NSError *error = nil;
+
+    NSData *data = [NSJSONSerialization dataWithJSONObject:self.toolsConfig
+                                                   options:NSJSONWritingPrettyPrinted
+                                                     error:&error];
+
+    if (data && !error) {
+        [data writeToFile:configPath atomically:YES];
+        NSLog(@"Saved tools config to %@", configPath);
+    } else {
+        NSLog(@"Error saving tools config: %@", error);
+    }
+}
+
+- (void)createDefaultToolsConfig {
+    self.toolsConfig = [NSMutableDictionary dictionary];
+
+    // Define all tools with their categories
+    NSDictionary *toolDefinitions = @{
+        @"gui": @[
+            @"listApplications",
+            @"focusApplication",
+            @"launchApplication",
+            @"screenshot",
+            @"screenshot_app",
+            @"click",
+            @"click_absolute",
+            @"doubleClick",
+            @"clickElement",
+            @"moveMouse",
+            @"scroll",
+            @"scrollMouse",
+            @"drag",
+            @"getClickableElements",
+            @"getUIElements",
+            @"getMousePosition",
+            @"typeText",
+            @"pressKey",
+            @"analyzeWithOCR",
+            @"checkPermissions",
+            @"closeApp",
+            @"wait"
+        ],
+        @"browser": @[
+            @"browser_listConnected",
+            @"browser_setDefaultBrowser",
+            @"browser_getTabs",
+            @"browser_getActiveTab",
+            @"browser_focusTab",
+            @"browser_createTab",
+            @"browser_closeTab",
+            @"browser_getPageInfo",
+            @"browser_inspectCurrentPage",
+            @"browser_getInteractiveElements",
+            @"browser_getPageContext",
+            @"browser_clickElement",
+            @"browser_fillElement",
+            @"browser_fillFormField",
+            @"browser_scrollTo",
+            @"browser_executeScript",
+            @"browser_getFormData",
+            @"browser_setWatchMode",
+            @"browser_getVisibleText",
+            @"browser_getUIElements",
+            @"browser_waitForSelector",
+            @"browser_waitForPageLoad",
+            @"browser_selectOption",
+            @"browser_isElementVisible",
+            @"browser_getConsoleLogs",
+            @"browser_getNetworkRequests",
+            @"browser_getLocalStorage",
+            @"browser_getCookies",
+            // Playwright-style browser automation tools
+            @"browser_navigate",
+            @"browser_screenshot",
+            @"browser_go_back",
+            @"browser_go_forward",
+            @"browser_get_visible_html",
+            @"browser_hover",
+            @"browser_drag",
+            @"browser_press_key",
+            @"browser_upload_file",
+            @"browser_save_as_pdf"
+        ],
+        @"filesystem": @[
+            @"fs_list",
+            @"fs_read",
+            @"fs_read_range",
+            @"fs_write",
+            @"fs_delete",
+            @"fs_move",
+            @"fs_search",
+            @"fs_grep",
+            @"fs_patch"
+        ],
+        @"shell": @[
+            @"shell_exec",
+            @"shell_start_session",
+            @"shell_send_input",
+            @"shell_stop_session"
+        ]
+    };
+
+    // Initialize categories with all tools enabled
+    for (NSString *category in toolDefinitions) {
+        NSMutableDictionary *categoryConfig = [NSMutableDictionary dictionary];
+        categoryConfig[@"enabled"] = @YES;
+
+        NSMutableDictionary *tools = [NSMutableDictionary dictionary];
+        NSArray *toolNames = toolDefinitions[category];
+        for (NSString *toolName in toolNames) {
+            tools[toolName] = @YES;
+        }
+        categoryConfig[@"tools"] = tools;
+
+        self.toolsConfig[category] = categoryConfig;
+    }
+
+    [self saveToolsConfig];
+}
+
+- (NSArray *)getToolsForCategory:(NSString *)categoryId {
+    NSDictionary *categoryConfig = self.toolsConfig[categoryId];
+    if (!categoryConfig) return @[];
+
+    NSDictionary *tools = categoryConfig[@"tools"];
+    if (!tools) return @[];
+
+    return [tools.allKeys sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (CGFloat)addCategoryBox:(NSString *)categoryName
+               categoryId:(NSString *)categoryId
+                    tools:(NSArray *)tools
+                   toView:(NSView *)documentView
+                     atY:(CGFloat)y {
+
+    CGFloat boxWidth = documentView.frame.size.width - 20;
+    CGFloat boxHeight = 50 + (tools.count * 25);
+
+    NSBox *categoryBox = [[NSBox alloc] initWithFrame:NSMakeRect(10, y, boxWidth, boxHeight)];
+    categoryBox.title = categoryName;
+    categoryBox.titlePosition = NSAtTop;
+    [documentView addSubview:categoryBox];
+
+    CGFloat boxPadding = 15;
+    CGFloat boxY = boxHeight - 40;
+
+    // Category master toggle
+    NSButton *categoryToggle = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding, boxY, boxWidth - boxPadding * 2, 20)];
+    [categoryToggle setButtonType:NSButtonTypeSwitch];
+    categoryToggle.title = @"Enable All";
+    categoryToggle.tag = [categoryId hash]; // Use hash as tag
+
+    // Set initial state
+    NSDictionary *categoryConfig = self.toolsConfig[categoryId];
+    BOOL categoryEnabled = [categoryConfig[@"enabled"] boolValue];
+    categoryToggle.state = categoryEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+
+    categoryToggle.target = self;
+    categoryToggle.action = @selector(categoryToggleChanged:);
+    [categoryBox addSubview:categoryToggle];
+
+    // Store toggle reference
+    if (!self.categoryToggles) {
+        self.categoryToggles = [NSMutableDictionary dictionary];
+    }
+    self.categoryToggles[categoryId] = categoryToggle;
+
+    boxY -= 30;
+
+    // Individual tool toggles
+    if (!self.toolToggles) {
+        self.toolToggles = [NSMutableDictionary dictionary];
+    }
+
+    NSDictionary *toolsConfig = categoryConfig[@"tools"];
+
+    for (NSString *toolName in tools) {
+        NSButton *toolToggle = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 20, boxY, boxWidth - boxPadding * 2 - 20, 20)];
+        [toolToggle setButtonType:NSButtonTypeSwitch];
+        toolToggle.title = toolName;
+
+        // Set initial state
+        BOOL toolEnabled = [toolsConfig[toolName] boolValue];
+        toolToggle.state = toolEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+        toolToggle.enabled = categoryEnabled;
+
+        toolToggle.target = self;
+        toolToggle.action = @selector(toolToggleChanged:);
+        [categoryBox addSubview:toolToggle];
+
+        // Store toggle reference with composite key
+        NSString *toolKey = [NSString stringWithFormat:@"%@.%@", categoryId, toolName];
+        self.toolToggles[toolKey] = toolToggle;
+
+        boxY -= 25;
+    }
+
+    return y + boxHeight;
+}
+
+- (void)categoryToggleChanged:(NSButton *)sender {
+    // Find which category this belongs to
+    NSString *categoryId = nil;
+    for (NSString *catId in self.categoryToggles) {
+        if (self.categoryToggles[catId] == sender) {
+            categoryId = catId;
+            break;
+        }
+    }
+
+    if (!categoryId) return;
+
+    BOOL enabled = (sender.state == NSControlStateValueOn);
+
+    // Update config
+    NSMutableDictionary *categoryConfig = [self.toolsConfig[categoryId] mutableCopy];
+    categoryConfig[@"enabled"] = @(enabled);
+    self.toolsConfig[categoryId] = categoryConfig;
+
+    // Enable/disable all tool toggles in this category
+    NSArray *tools = [self getToolsForCategory:categoryId];
+    for (NSString *toolName in tools) {
+        NSString *toolKey = [NSString stringWithFormat:@"%@.%@", categoryId, toolName];
+        NSButton *toolToggle = self.toolToggles[toolKey];
+        toolToggle.enabled = enabled;
+    }
+
+    NSLog(@"Category %@ %@", categoryId, enabled ? @"enabled" : @"disabled");
+}
+
+- (void)toolToggleChanged:(NSButton *)sender {
+    // Find which tool this belongs to
+    NSString *categoryId = nil;
+    NSString *toolName = sender.title;
+
+    for (NSString *toolKey in self.toolToggles) {
+        if (self.toolToggles[toolKey] == sender) {
+            NSArray *parts = [toolKey componentsSeparatedByString:@"."];
+            if (parts.count == 2) {
+                categoryId = parts[0];
+                break;
+            }
+        }
+    }
+
+    if (!categoryId || !toolName) return;
+
+    BOOL enabled = (sender.state == NSControlStateValueOn);
+
+    // Update config
+    NSMutableDictionary *categoryConfig = [self.toolsConfig[categoryId] mutableCopy];
+    NSMutableDictionary *toolsConfig = [categoryConfig[@"tools"] mutableCopy];
+    toolsConfig[toolName] = @(enabled);
+    categoryConfig[@"tools"] = toolsConfig;
+    self.toolsConfig[categoryId] = categoryConfig;
+
+    NSLog(@"Tool %@.%@ %@", categoryId, toolName, enabled ? @"enabled" : @"disabled");
+}
+
 - (void)saveSettings:(id)sender {
     [self saveSetting:kAgentNameKey value:self.agentNameField.stringValue];
 
@@ -546,6 +1161,9 @@ extern "C" {
     [self saveSetting:kControlServerModeKey value:controlMode];
     [self saveSetting:kControlServerAddressKey value:self.controlServerAddressField.stringValue];
     [self saveSetting:kControlServerKeyKey value:self.controlServerKeyField.stringValue];
+
+    // Save tools configuration
+    [self saveToolsConfig];
 
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"Settings Saved";
@@ -779,28 +1397,67 @@ extern "C" {
 }
 
 - (void)updateStatus {
+    // Batch UI updates to prevent animation conflicts
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateStatus];
+        });
+        return;
+    }
+
+    // Cache the last state to avoid unnecessary updates
+    static BOOL lastScreenLocked = NO;
+    static BOOL lastRunning = NO;
+    static NSString *lastPort = nil;
+    static BOOL lastRemoteMode = NO;
+
     NSMenuItem *statusItem = [self.statusMenu itemWithTag:100];
     BOOL screenLocked = [self isScreenLocked];
-    [self updateStatusBarIcon:screenLocked];
-
     BOOL running = self.mcpServer.isRunning;
     NSString *port = [self loadSetting:kPortKey defaultValue:@"3456"];
 
-    if (screenLocked) {
-        statusItem.title = @"Screen Locked - waiting...";
-    } else if (running) {
-        NSString *mode = self.isRemoteMode ? @" (Remote)" : @"";
-        statusItem.title = [NSString stringWithFormat:@"Running on port %@%@", port, mode];
-    } else {
-        statusItem.title = @"Stopped";
+    // Batch all UI updates in a single animation block
+    [NSAnimationContext beginGrouping];
+    [[NSAnimationContext currentContext] setDuration:0];
+
+    // Only update icon if state changed
+    if (screenLocked != lastScreenLocked || running != lastRunning || self.isRemoteMode != lastRemoteMode) {
+        [self updateStatusBarIcon:screenLocked];
+        lastScreenLocked = screenLocked;
+        lastRunning = running;
+        lastRemoteMode = self.isRemoteMode;
     }
 
-    if (self.settingsWindow.isVisible) {
+    // Update menu item
+    NSString *newTitle = nil;
+    if (screenLocked) {
+        newTitle = @"Screen Locked - waiting...";
+    } else if (running) {
+        NSString *mode = self.isRemoteMode ? @" (Remote)" : @"";
+        newTitle = [NSString stringWithFormat:@"Running on port %@%@", port, mode];
+    } else {
+        newTitle = @"Stopped";
+    }
+
+    if (![statusItem.title isEqualToString:newTitle]) {
+        statusItem.title = newTitle;
+    }
+
+    [NSAnimationContext endGrouping];
+
+    lastPort = port;
+
+    // Only update settings window if visible
+    if (self.settingsWindow.isVisible && !self.isUpdatingSettingsStatus) {
         [self updateSettingsWindowStatus];
     }
 
-    [self checkPermissions];
-    
+    // Check permissions less frequently (every 3 updates = 15 seconds)
+    static NSUInteger permissionCheckCounter = 0;
+    if (++permissionCheckCounter % 3 == 0) {
+        [self checkPermissions];
+    }
+
     // Periodically check control server connection
     static NSUInteger checkCounter = 0;
     if (++checkCounter % 12 == 0) { // Every 60 seconds (12 * 5s)
@@ -827,17 +1484,26 @@ extern "C" {
 }
 
 - (void)updateSettingsWindowStatus {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateSettingsWindowStatus];
+        });
+        return;
+    }
+
     if (self.isUpdatingSettingsStatus) {
         return;
     }
 
     self.isUpdatingSettingsStatus = YES;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self applySettingsWindowStatus];
-    });
+    [self applySettingsWindowStatus];
 }
 
 - (void)applySettingsWindowStatus {
+    // Batch UI updates
+    [NSAnimationContext beginGrouping];
+    [[NSAnimationContext currentContext] setDuration:0];
+
     NSString *port = [self loadSetting:kPortKey defaultValue:@"3456"];
     self.statusLabel.stringValue = [NSString stringWithFormat:@"Server: Running on port %@", port];
 
@@ -851,6 +1517,8 @@ extern "C" {
         self.uptimeLabel.stringValue = [NSString stringWithFormat:@"Uptime: %.0fh %.0fm",
                                         floor(uptime / 3600), fmod(floor(uptime / 60), 60)];
     }
+
+    [NSAnimationContext endGrouping];
 
     [self updatePermissionIndicators];
     self.isUpdatingSettingsStatus = NO;
@@ -903,9 +1571,7 @@ extern "C" {
     }
 
     self.isUpdatingPermissionIndicators = YES;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self applyPermissionIndicatorState];
-    });
+    [self applyPermissionIndicatorState];
 }
 
 - (void)applyPermissionIndicatorState {
@@ -916,6 +1582,10 @@ extern "C" {
     } else {
         hasScreenRecording = YES;
     }
+
+    // Batch UI updates
+    [NSAnimationContext beginGrouping];
+    [[NSAnimationContext currentContext] setDuration:0];
 
     self.accessibilityLabel.stringValue = @"Accessibility";
     if (hasAccessibility) {
@@ -934,6 +1604,8 @@ extern "C" {
         self.screenRecordingIndicator.image = [NSImage imageWithSystemSymbolName:@"xmark.circle.fill" accessibilityDescription:@"Not Granted"];
         self.screenRecordingIndicator.contentTintColor = [NSColor systemRedColor];
     }
+
+    [NSAnimationContext endGrouping];
 
     self.isUpdatingPermissionIndicators = NO;
 }
@@ -1026,6 +1698,161 @@ extern "C" {
 
 - (void)serverDidReceiveRequest:(NSString *)path {
     NSLog(@"MCP Request: %@", path);
+}
+
+#pragma mark - Browser Bridge Server Management
+
+- (NSString *)browserBridgeServerPath {
+    // First check if running from Xcode (development)
+    NSString *devPath = [NSHomeDirectory() stringByAppendingPathComponent:@"dev/mcp_eyes/dist/browser-bridge-server.js"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:devPath]) {
+        return devPath;
+    }
+
+    // Check bundle resources
+    NSString *bundlePath = [[NSBundle mainBundle] pathForResource:@"browser-bridge-server" ofType:@"js"];
+    if (bundlePath) {
+        return bundlePath;
+    }
+
+    // Fallback to npm global install
+    NSString *npmPath = @"/usr/local/lib/node_modules/mcp-eyes/dist/browser-bridge-server.js";
+    if ([[NSFileManager defaultManager] fileExistsAtPath:npmPath]) {
+        return npmPath;
+    }
+
+    return nil;
+}
+
+- (NSString *)nodeExecutablePath {
+    // Check common Node.js installation paths
+    NSArray *nodePaths = @[
+        @"/usr/local/bin/node",
+        @"/opt/homebrew/bin/node",
+        @"/usr/bin/node",
+        [NSHomeDirectory() stringByAppendingPathComponent:@".nvm/versions/node/*/bin/node"]
+    ];
+
+    for (NSString *path in nodePaths) {
+        if ([path containsString:@"*"]) {
+            // Handle glob pattern for nvm
+            NSString *baseDir = [path stringByDeletingLastPathComponent];
+            baseDir = [baseDir stringByDeletingLastPathComponent];
+            NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:baseDir error:nil];
+            for (NSString *version in contents) {
+                NSString *nodePath = [[baseDir stringByAppendingPathComponent:version] stringByAppendingPathComponent:@"bin/node"];
+                if ([[NSFileManager defaultManager] isExecutableFileAtPath:nodePath]) {
+                    return nodePath;
+                }
+            }
+        } else if ([[NSFileManager defaultManager] isExecutableFileAtPath:path]) {
+            return path;
+        }
+    }
+
+    return nil;
+}
+
+- (void)startBrowserBridge {
+    if (self.browserBridgeTask && self.browserBridgeTask.isRunning) {
+        NSLog(@"Browser bridge already running");
+        return;
+    }
+
+    NSString *nodePath = [self nodeExecutablePath];
+    if (!nodePath) {
+        NSLog(@"Error: Node.js not found. Browser bridge requires Node.js.");
+        return;
+    }
+
+    NSString *bridgePath = [self browserBridgeServerPath];
+    if (!bridgePath) {
+        NSLog(@"Error: browser-bridge-server.js not found");
+        return;
+    }
+
+    NSLog(@"Starting browser bridge: %@ %@", nodePath, bridgePath);
+
+    self.browserBridgeTask = [[NSTask alloc] init];
+    self.browserBridgeTask.executableURL = [NSURL fileURLWithPath:nodePath];
+    self.browserBridgeTask.arguments = @[bridgePath];
+
+    // Set environment to include common paths
+    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
+    env[@"PATH"] = [NSString stringWithFormat:@"/usr/local/bin:/opt/homebrew/bin:%@", env[@"PATH"] ?: @""];
+    self.browserBridgeTask.environment = env;
+
+    // Capture output for logging
+    self.browserBridgePipe = [NSPipe pipe];
+    self.browserBridgeTask.standardOutput = self.browserBridgePipe;
+    self.browserBridgeTask.standardError = self.browserBridgePipe;
+
+    // Read output asynchronously
+    [[self.browserBridgePipe fileHandleForReading] setReadabilityHandler:^(NSFileHandle *handle) {
+        NSData *data = [handle availableData];
+        if (data.length > 0) {
+            NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            NSLog(@"[Browser Bridge] %@", [output stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]);
+        }
+    }];
+
+    // Handle termination
+    __weak typeof(self) weakSelf = self;
+    self.browserBridgeTask.terminationHandler = ^(NSTask *task) {
+        NSLog(@"Browser bridge terminated with status: %d", task.terminationStatus);
+
+        // Clear the readability handler
+        [[weakSelf.browserBridgePipe fileHandleForReading] setReadabilityHandler:nil];
+
+        // Auto-restart if it crashed (non-zero exit) and app is still running
+        if (task.terminationStatus != 0 && !weakSelf.isAppTerminating) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                NSLog(@"Restarting browser bridge after crash...");
+                [weakSelf startBrowserBridge];
+            });
+        }
+    };
+
+    NSError *error = nil;
+    if (![self.browserBridgeTask launchAndReturnError:&error]) {
+        NSLog(@"Failed to start browser bridge: %@", error.localizedDescription);
+        self.browserBridgeTask = nil;
+        return;
+    }
+
+    NSLog(@"Browser bridge started (PID: %d)", self.browserBridgeTask.processIdentifier);
+}
+
+- (void)stopBrowserBridge {
+    if (!self.browserBridgeTask || !self.browserBridgeTask.isRunning) {
+        return;
+    }
+
+    NSLog(@"Stopping browser bridge (PID: %d)", self.browserBridgeTask.processIdentifier);
+
+    // Clear termination handler to prevent auto-restart
+    self.browserBridgeTask.terminationHandler = nil;
+
+    // Clear readability handler
+    [[self.browserBridgePipe fileHandleForReading] setReadabilityHandler:nil];
+
+    // Send SIGTERM for graceful shutdown
+    [self.browserBridgeTask terminate];
+
+    // Wait briefly for graceful shutdown
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+        if (self.browserBridgeTask.isRunning) {
+            // Force kill if still running
+            kill(self.browserBridgeTask.processIdentifier, SIGKILL);
+        }
+    });
+
+    self.browserBridgeTask = nil;
+    self.browserBridgePipe = nil;
+}
+
+- (BOOL)isBrowserBridgeRunning {
+    return self.browserBridgeTask && self.browserBridgeTask.isRunning;
 }
 
 @end
