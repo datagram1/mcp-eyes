@@ -81,6 +81,7 @@
     "@jxa/run": "^1.4.0",
     "@modelcontextprotocol/sdk": "^0.4.0",
     "@nut-tree-fork/nut-js": "^4.2.6",
+    "fast-glob": "^3.3.3",
     "fastest-levenshtein": "^1.0.16",
     "node-mac-permissions": "^1.0.0",
     "os": "^0.1.2",

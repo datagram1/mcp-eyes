@@ -364,6 +364,14 @@ class BrowserBridgeServer {
           selector: body.selector,
           value: body.value,
           tabId: body.tabId,
+          simulateTyping: body.simulateTyping !== false,
+          clearFirst: body.clearFirst !== false,
+        }, targetBrowser);
+
+      case 'getElementForNativeInput':
+        return await this.sendToExtension('getElementForNativeInput', {
+          selector: body.selector,
+          tabId: body.tabId,
         }, targetBrowser);
 
       case 'scrollTo':
@@ -444,6 +452,170 @@ class BrowserBridgeServer {
 
       case 'getCookies':
         return await this.sendToExtension('getCookies', {
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      // ========== ENHANCED TOOLS ==========
+
+      case 'inspectCurrentPage':
+        return await this.sendToExtension('inspectCurrentPage', {
+          tabId: body.tabId,
+          includeScreenshot: body.includeScreenshot !== false, // default true
+          includeOCR: body.includeOCR || false, // default false
+        }, targetBrowser);
+
+      case 'getUIElements':
+        return await this.sendToExtension('getUIElements', {
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'fillFormField':
+        return await this.sendToExtension('fillFormField', {
+          label: body.label,
+          value: body.value,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      // ========== NEW ENHANCED TOOLS ==========
+
+      case 'findTabByUrl':
+        return await this.sendToExtension('findTabByUrl', {
+          urlPattern: body.urlPattern,
+        }, targetBrowser);
+
+      case 'clickByText':
+        return await this.sendToExtension('clickByText', {
+          text: body.text,
+          index: body.index || 0,
+          elementType: body.elementType || 'any',
+          waitForNavigation: body.waitForNavigation || false,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'clickMultiple':
+        return await this.sendToExtension('clickMultiple', {
+          selectors: body.selectors,
+          delayMs: body.delayMs || 100,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'getFormStructure':
+        return await this.sendToExtension('getFormStructure', {
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'answerQuestions':
+        return await this.sendToExtension('answerQuestions', {
+          answers: body.answers,
+          defaultAnswer: body.defaultAnswer,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      // ========== LLM INTROSPECTION TOOLS ==========
+
+      case 'listInteractiveElements':
+        return await this.sendToExtension('listInteractiveElements', {
+          tabId: body.tabId,
+          includeHidden: body.includeHidden || false,
+          maxElements: body.maxElements || 200,
+          filterType: body.filterType || null,
+          searchText: body.searchText || null,
+          includeShadowDOM: body.includeShadowDOM !== false, // default true
+          includeIframes: body.includeIframes !== false, // default true
+        }, targetBrowser);
+
+      case 'clickElementWithDebug':
+        return await this.sendToExtension('clickElementWithDebug', {
+          selector: body.selector,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'findElementWithDebug':
+        return await this.sendToExtension('findElementWithDebug', {
+          selector: body.selector,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      // ========== COMBO-BOX TOOLS ==========
+
+      case 'getDropdownOptions':
+        return await this.sendToExtension('getDropdownOptions', {
+          selector: body.selector,
+          waitMs: body.waitMs,
+          closeAfter: body.closeAfter,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+
+      case 'navigate':
+        return await this.sendToExtension('navigate', {
+          url: body.url,
+          tabId: body.tabId,
+          waitUntil: body.waitUntil,
+          timeout: body.timeout,
+        }, targetBrowser);
+
+      case 'screenshot':
+        return await this.sendToExtension('screenshot', {
+          selector: body.selector,
+          fullPage: body.fullPage,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'goBack':
+        return await this.sendToExtension('goBack', {
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'goForward':
+        return await this.sendToExtension('goForward', {
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'getVisibleHtml':
+        return await this.sendToExtension('getVisibleHtml', {
+          selector: body.selector,
+          removeScripts: body.removeScripts,
+          removeStyles: body.removeStyles,
+          cleanHtml: body.cleanHtml,
+          maxLength: body.maxLength,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'hover':
+        return await this.sendToExtension('hover', {
+          selector: body.selector,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'drag':
+        return await this.sendToExtension('drag', {
+          sourceSelector: body.sourceSelector,
+          targetSelector: body.targetSelector,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'pressKey':
+        return await this.sendToExtension('pressKey', {
+          key: body.key,
+          selector: body.selector,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'uploadFile':
+        return await this.sendToExtension('uploadFile', {
+          selector: body.selector,
+          filePath: body.filePath,
+          tabId: body.tabId,
+        }, targetBrowser);
+
+      case 'saveAsPdf':
+        return await this.sendToExtension('saveAsPdf', {
+          outputPath: body.outputPath,
+          filename: body.filename,
+          format: body.format,
+          printBackground: body.printBackground,
           tabId: body.tabId,
         }, targetBrowser);
 

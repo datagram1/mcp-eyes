@@ -61,6 +61,9 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
 const util_1 = require("util");
+const tool_registry_1 = require("./tool-registry");
+const filesystem_tools_1 = require("./filesystem-tools");
+const shell_tools_1 = require("./shell-tools");
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 const TOKEN_FILE = path_1.default.join(process.env.HOME || '/tmp', '.mcp-eyes-token');
 const BROWSER_BRIDGE_PORT = parseInt(process.env.BROWSER_BRIDGE_PORT || '3457', 10);
@@ -122,11 +125,20 @@ async function httpRequest(config, method, endpoint, body) {
 class MCPProxyServer {
     server;
     config = null;
+    toolRegistry;
+    filesystemTools;
+    shellTools;
     constructor() {
         this.server = new index_js_1.Server({
             name: 'mcp-eyes-proxy',
             version: '1.1.15',
         });
+        // Initialize tool registry and tools
+        this.toolRegistry = new tool_registry_1.ToolRegistry();
+        this.filesystemTools = new filesystem_tools_1.FilesystemTools();
+        this.shellTools = new shell_tools_1.ShellTools();
+        // Register all tools
+        this.registerAllTools();
         this.setupToolHandlers();
         this.setupErrorHandling();
     }
@@ -326,6 +338,1460 @@ end tell`;
             // AppleScript failed, return empty array
             return [];
         }
+    }
+    /**
+     * Register all tools with the Tool Registry
+     * This includes filesystem, shell, browser, and GUI tools
+     */
+    registerAllTools() {
+        // Register filesystem tools (same as in mcp-sse-server.ts)
+        this.toolRegistry.registerTool({
+            id: 'fs_list',
+            name: 'fs_list',
+            description: 'List files and directories at or under a given path.',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to list' },
+                    recursive: { type: 'boolean', description: 'Recursive listing', default: false },
+                    max_depth: { type: 'number', description: 'Maximum depth for recursive listing', default: 3 }
+                },
+                required: ['path']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_read',
+            name: 'fs_read',
+            description: 'Read the contents of a file (with size limit).',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to file' },
+                    max_bytes: { type: 'number', description: 'Maximum bytes to read', default: 131072 }
+                },
+                required: ['path']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_read_range',
+            name: 'fs_read_range',
+            description: 'Read a file segment by line range (1-based, inclusive).',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to file' },
+                    start_line: { type: 'number', description: 'Start line (1-based)' },
+                    end_line: { type: 'number', description: 'End line (1-based, inclusive)' }
+                },
+                required: ['path', 'start_line', 'end_line']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_write',
+            name: 'fs_write',
+            description: 'Create or overwrite a file.',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to file' },
+                    content: { type: 'string', description: 'File content' },
+                    create_dirs: { type: 'boolean', description: 'Create parent directories', default: true },
+                    mode: { type: 'string', enum: ['overwrite', 'append', 'create_if_missing'], description: 'Write mode', default: 'overwrite' }
+                },
+                required: ['path', 'content']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_delete',
+            name: 'fs_delete',
+            description: 'Delete a file or directory.',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to delete' },
+                    recursive: { type: 'boolean', description: 'Recursive deletion', default: false }
+                },
+                required: ['path']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_move',
+            name: 'fs_move',
+            description: 'Move or rename a file or directory.',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    from: { type: 'string', description: 'Source path' },
+                    to: { type: 'string', description: 'Destination path' }
+                },
+                required: ['from', 'to']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_search',
+            name: 'fs_search',
+            description: 'Find files by pattern (glob).',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    base: { type: 'string', description: 'Base directory' },
+                    glob: { type: 'string', description: 'Glob pattern (e.g., "**/*.ts")' },
+                    max_results: { type: 'number', description: 'Maximum results', default: 200 }
+                },
+                required: ['base']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_grep',
+            name: 'fs_grep',
+            description: 'Search within files (ripgrep wrapper).',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    base: { type: 'string', description: 'Directory to search' },
+                    pattern: { type: 'string', description: 'Search pattern' },
+                    glob: { type: 'string', description: 'Glob pattern for file filtering' },
+                    max_matches: { type: 'number', description: 'Maximum matches', default: 200 }
+                },
+                required: ['base', 'pattern']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'fs_patch',
+            name: 'fs_patch',
+            description: 'Apply focused transformations to a file.',
+            category: 'filesystem',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path to file' },
+                    operations: {
+                        type: 'array',
+                        description: 'Patch operations',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                type: { type: 'string', enum: ['replace_first', 'replace_all', 'insert_after', 'insert_before'] },
+                                pattern: { type: 'string', description: 'Pattern for replace operations' },
+                                match: { type: 'string', description: 'Match for insert operations' },
+                                replacement: { type: 'string', description: 'Replacement text' },
+                                insert: { type: 'string', description: 'Text to insert' }
+                            }
+                        }
+                    },
+                    dry_run: { type: 'boolean', description: 'Preview changes without applying', default: false }
+                },
+                required: ['path', 'operations']
+            }
+        });
+        // Register shell tools
+        this.toolRegistry.registerTool({
+            id: 'shell_exec',
+            name: 'shell_exec',
+            description: 'Run a command and return output when it finishes.',
+            category: 'shell',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: 'Command to execute' },
+                    cwd: { type: 'string', description: 'Working directory' },
+                    timeout_seconds: { type: 'number', description: 'Timeout in seconds', default: 600 },
+                    capture_stderr: { type: 'boolean', description: 'Capture stderr', default: true }
+                },
+                required: ['command']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'shell_start_session',
+            name: 'shell_start_session',
+            description: 'Start an interactive or long-running command session.',
+            category: 'shell',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: 'Command to execute' },
+                    cwd: { type: 'string', description: 'Working directory' },
+                    env: { type: 'object', description: 'Additional environment variables' },
+                    capture_stderr: { type: 'boolean', description: 'Capture stderr', default: true }
+                },
+                required: ['command']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'shell_send_input',
+            name: 'shell_send_input',
+            description: 'Send input to a running shell session.',
+            category: 'shell',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    session_id: { type: 'string', description: 'Session ID' },
+                    input: { type: 'string', description: 'Input to send' }
+                },
+                required: ['session_id', 'input']
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'shell_stop_session',
+            name: 'shell_stop_session',
+            description: 'Stop/terminate a running shell session.',
+            category: 'shell',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    session_id: { type: 'string', description: 'Session ID' },
+                    signal: { type: 'string', description: 'Signal to send (default: TERM)', default: 'TERM' }
+                },
+                required: ['session_id']
+            }
+        });
+        // Register GUI tools
+        this.toolRegistry.registerTool({
+            id: 'listApplications',
+            name: 'listApplications',
+            description: 'List all running applications with their window bounds and identifiers.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        this.toolRegistry.registerTool({
+            id: 'focusApplication',
+            name: 'focusApplication',
+            description: 'Focus on a specific application by bundle ID or name.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    identifier: { type: 'string', description: 'Bundle ID or app name' },
+                },
+                required: ['identifier'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'screenshot',
+            name: 'screenshot',
+            description: 'Take a screenshot of the focused application.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    padding: { type: 'number', description: 'Padding around window in pixels' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'click',
+            name: 'click',
+            description: 'Click at normalized coordinates (0-1) relative to focused window.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    x: { type: 'number', description: 'X coordinate (0-1)' },
+                    y: { type: 'number', description: 'Y coordinate (0-1)' },
+                    button: { type: 'string', enum: ['left', 'right'], description: 'Mouse button' },
+                },
+                required: ['x', 'y'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'getClickableElements',
+            name: 'getClickableElements',
+            description: 'Get all clickable UI elements via Accessibility API.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        this.toolRegistry.registerTool({
+            id: 'typeText',
+            name: 'typeText',
+            description: 'Type text into the focused application.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    text: { type: 'string', description: 'Text to type' },
+                },
+                required: ['text'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'pressKey',
+            name: 'pressKey',
+            description: 'Press keyboard key with optional modifiers.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    key: { type: 'string', description: 'Key to press (e.g., Enter, Command+L)' },
+                },
+                required: ['key'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'analyzeWithOCR',
+            name: 'analyzeWithOCR',
+            description: 'Analyze current screen using OCR.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        this.toolRegistry.registerTool({
+            id: 'checkPermissions',
+            name: 'checkPermissions',
+            description: 'Check accessibility permission status.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        this.toolRegistry.registerTool({
+            id: 'doubleClick',
+            name: 'doubleClick',
+            description: 'Perform a double-click at specified coordinates relative to the focused app window.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    x: { type: 'number', description: 'X coordinate relative to the app window (0-1 normalized)', minimum: 0, maximum: 1 },
+                    y: { type: 'number', description: 'Y coordinate relative to the app window (0-1 normalized)', minimum: 0, maximum: 1 },
+                },
+                required: ['x', 'y'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'clickElement',
+            name: 'clickElement',
+            description: 'Click a specific element by index from getClickableElements.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    elementIndex: { type: 'number', description: 'Index of the element to click (from getClickableElements)' },
+                },
+                required: ['elementIndex'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'scrollMouse',
+            name: 'scrollMouse',
+            description: 'Scroll the mouse wheel up or down.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    direction: { type: 'string', enum: ['up', 'down'], description: 'Scroll direction' },
+                    amount: { type: 'number', description: 'Scroll amount (default: 3)', default: 3 },
+                },
+                required: ['direction'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'getMousePosition',
+            name: 'getMousePosition',
+            description: 'Get the current mouse position.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        this.toolRegistry.registerTool({
+            id: 'wait',
+            name: 'wait',
+            description: 'Wait for a specified amount of time.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    milliseconds: { type: 'number', description: 'Time to wait in milliseconds', default: 1000 },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'closeApp',
+            name: 'closeApp',
+            description: 'Close a specific application by bundle ID, name, or PID.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    identifier: { type: 'string', description: 'Bundle ID (e.g., com.apple.Music), application name, or PID' },
+                    force: { type: 'boolean', description: 'Force close the application (kill process)', default: false },
+                },
+                required: ['identifier'],
+            }
+        });
+        // Additional GUI tools
+        this.toolRegistry.registerTool({
+            id: 'launchApplication',
+            name: 'launchApplication',
+            description: 'Launch an application by bundle ID or name. If already running, focuses it.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    identifier: { type: 'string', description: 'Bundle ID (e.g., com.apple.Safari) or app name (e.g., Safari, Calculator)' },
+                },
+                required: ['identifier'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'screenshot_app',
+            name: 'screenshot_app',
+            description: 'Take a screenshot of the focused application or a specific app by identifier.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    identifier: { type: 'string', description: 'Optional: Bundle ID or app name. If not provided, uses the currently focused app.' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'click_absolute',
+            name: 'click_absolute',
+            description: 'Click anywhere on the desktop using absolute screen coordinates (in pixels).',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    x: { type: 'number', description: 'Absolute screen X coordinate in pixels' },
+                    y: { type: 'number', description: 'Absolute screen Y coordinate in pixels' },
+                    button: { type: 'string', enum: ['left', 'right'], description: 'Mouse button (default: left)' },
+                },
+                required: ['x', 'y'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'moveMouse',
+            name: 'moveMouse',
+            description: 'Move mouse to a position relative to the focused app window (without clicking).',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    x: { type: 'number', description: 'X coordinate (0-1 normalized)' },
+                    y: { type: 'number', description: 'Y coordinate (0-1 normalized)' },
+                },
+                required: ['x', 'y'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'scroll',
+            name: 'scroll',
+            description: 'Scroll the mouse wheel. Positive deltaY scrolls up, negative scrolls down.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    deltaY: { type: 'number', description: 'Vertical scroll amount (positive=up, negative=down)' },
+                    deltaX: { type: 'number', description: 'Horizontal scroll amount (positive=right, negative=left)' },
+                    x: { type: 'number', description: 'Optional X coordinate to scroll at (0-1 normalized)' },
+                    y: { type: 'number', description: 'Optional Y coordinate to scroll at (0-1 normalized)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'drag',
+            name: 'drag',
+            description: 'Drag from one position to another (click and hold, move, release).',
+            category: 'gui',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    startX: { type: 'number', description: 'Start X coordinate (0-1 normalized)' },
+                    startY: { type: 'number', description: 'Start Y coordinate (0-1 normalized)' },
+                    endX: { type: 'number', description: 'End X coordinate (0-1 normalized)' },
+                    endY: { type: 'number', description: 'End Y coordinate (0-1 normalized)' },
+                },
+                required: ['startX', 'startY', 'endX', 'endY'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'getUIElements',
+            name: 'getUIElements',
+            description: 'Accessibility tree dump for the focused application. Returns clickable controls and non-clickable UI elements with coordinates.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        this.toolRegistry.registerTool({
+            id: 'currentApp',
+            name: 'currentApp',
+            description: 'Get information about the currently focused application including bundle ID and window bounds.',
+            category: 'gui',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        // Register browser tools
+        this.toolRegistry.registerTool({
+            id: 'browser_listConnected',
+            name: 'browser_listConnected',
+            description: 'List connected browser extensions.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: { type: 'object', properties: {} }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getTabs',
+            name: 'browser_getTabs',
+            description: 'List all open browser tabs.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getActiveTab',
+            name: 'browser_getActiveTab',
+            description: 'Get info about the currently active browser tab.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getPageInfo',
+            name: 'browser_getPageInfo',
+            description: 'Get current page URL, title, and metadata.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getInteractiveElements',
+            name: 'browser_getInteractiveElements',
+            description: 'Get all interactive DOM elements (buttons, links, inputs).',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_clickElement',
+            name: 'browser_clickElement',
+            description: 'Click a DOM element by CSS selector.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_fillElement',
+            name: 'browser_fillElement',
+            description: 'Fill a form field by CSS selector. Uses enhanced event simulation that dispatches keydown/keypress/input/keyup events character-by-character for better React/Vue/Angular compatibility. If form still rejects the input, use browser_getElementForNativeInput to get coordinates, then use native click() + typeText() as fallback.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector' },
+                    value: { type: 'string', description: 'Value to fill' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                    simulateTyping: { type: 'boolean', description: 'Simulate character-by-character typing with keyboard events (default: true). Set to false for simple value assignment.', default: true },
+                    clearFirst: { type: 'boolean', description: 'Clear existing value before filling (default: true)', default: true },
+                },
+                required: ['selector', 'value'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getElementForNativeInput',
+            name: 'browser_getElementForNativeInput',
+            description: 'FALLBACK for stubborn forms that reject browser_fillElement. Returns element coordinates (both absolute and normalized 0-1) for use with native macOS input. Use when forms check for "trusted" keyboard events that cannot be simulated via JavaScript. Workflow: (1) Call this tool to get coordinates, (2) focusApplication("Firefox"), (3) click(normalized.centerX, normalized.centerY), (4) typeText(value). This bypasses ALL form validation by using real keyboard input.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for the input element' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_executeScript',
+            name: 'browser_executeScript',
+            description: 'Execute JavaScript in page context.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    script: { type: 'string', description: 'JavaScript code' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['script'],
+            }
+        });
+        // Enhanced browser tools
+        this.toolRegistry.registerTool({
+            id: 'browser_inspectCurrentPage',
+            name: 'browser_inspectCurrentPage',
+            description: 'START HERE for any new page. Single call that gives you EVERYTHING: page info + all form fields with labels + coordinates. Returns: (1) Page URL/title, (2) All interactive elements with specific types (email-input, password-input, dropdown, checkbox, radio, submit-button), extracted labels from <label> tags or aria-label, current values, and BOTH absolute pixels AND normalized 0-1 coordinates, (3) Radio button groups, (4) Summary stats. Use browser_fillFormField with the returned labels to fill forms easily. Replaces multiple calls to browser_getPageInfo + browser_getInteractiveElements.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                    includeScreenshot: { type: 'boolean', description: 'Include screenshot in response (default: true)', default: true },
+                    includeOCR: { type: 'boolean', description: 'Include OCR text extraction (default: false)', default: false },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getUIElements',
+            name: 'browser_getUIElements',
+            description: 'Enhanced form field detection - same elements data as browser_inspectCurrentPage but WITHOUT page info. Only use if you need to refresh element data. Returns: 14 specific element types (email-input, password-input, text-input, number-input, tel-input, url-input, date-input, file-input, dropdown, textarea, checkbox, radio, button, submit-button), labels extracted from multiple sources, current values, BOTH absolute pixels AND normalized 0-1 coordinates, grouped radio buttons by name. Prefer browser_inspectCurrentPage which gives you this PLUS page info.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_fillFormField',
+            name: 'browser_fillFormField',
+            description: 'The EASIEST way to fill forms. Finds field by label → clicks → fills in ONE atomic operation. Smart fuzzy matching: (1) Exact match (100%), (2) Contains match (50%), (3) Placeholder match (30%), (4) Name/ID match (20%). Handles all field types: text inputs set value, dropdowns select option, checkboxes/radios set checked state. Returns success with actual element used, or error with availableFields list to help debug. Use this for ALL form filling - much simpler than find → click → fill. Example: browser_fillFormField("Email", "user@example.com") matches "Email Address", "Email:", "Enter your email", etc.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    label: { type: 'string', description: 'Label text of the form field (e.g., "Email", "Password", "First Name"). Fuzzy matching supported - partial labels work!' },
+                    value: { type: 'string', description: 'Value to fill in the field. For dropdowns: option value or text. For checkboxes/radios: "true"/"yes"/"1" to check.' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['label', 'value'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_fillWithFallback',
+            name: 'browser_fillWithFallback',
+            description: '🎯 RECOMMENDED: Smart form filling with automatic bot-detection bypass. First tries enhanced JS simulation (keydown/keypress/input events). If value doesn\'t persist (bot detection), automatically falls back to NATIVE mouse/keyboard control which bypasses ALL detection. Use this instead of browser_fillElement for guaranteed form filling. One tool handles everything - no manual fallback needed.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for the input element' },
+                    value: { type: 'string', description: 'Value to fill' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selector', 'value'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_fillFormNative',
+            name: 'browser_fillFormNative',
+            description: '🚀 ATOMIC FORM FILLING: Fill multiple form fields and click buttons in one operation using native keyboard/mouse. Uses Tab navigation between fields (no coordinate drift issues). Fills ALL text fields first, THEN clicks buttons (Yes/No), then optionally submits. Perfect for forms with bot detection like Ashby. Fields are filled in order using Tab key, avoiding layout shift problems.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    fields: {
+                        type: 'array',
+                        description: 'Array of fields to fill in order. Use Tab navigation between them.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                label: { type: 'string', description: 'Field label to find (fuzzy match)' },
+                                selector: { type: 'string', description: 'Optional CSS selector (if label not provided)' },
+                                value: { type: 'string', description: 'Value to fill' },
+                            },
+                            required: ['value'],
+                        },
+                    },
+                    buttons: {
+                        type: 'array',
+                        description: 'Array of buttons to click after filling fields (e.g., Yes/No buttons)',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                label: { type: 'string', description: 'Button text to click (partial match)' },
+                                selector: { type: 'string', description: 'Optional CSS selector' },
+                            },
+                        },
+                    },
+                    submit: { type: 'boolean', description: 'Click submit button after filling. Default: false' },
+                    submitSelector: { type: 'string', description: 'Custom submit button selector. Default: finds submit button automatically' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['fields'],
+            }
+        });
+        // ========== NEW ENHANCED BROWSER TOOLS ==========
+        this.toolRegistry.registerTool({
+            id: 'browser_findTabByUrl',
+            name: 'browser_findTabByUrl',
+            description: 'Find a browser tab by URL pattern. Returns the first matching tab. Supports partial matching - just provide part of the URL.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    urlPattern: { type: 'string', description: 'URL pattern to search for (partial match supported)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['urlPattern'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_clickByText',
+            name: 'browser_clickByText',
+            description: 'Click an element by its visible text. Faster than getInteractiveElements + clickElement. Supports partial text matching and index for multiple matches.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    text: { type: 'string', description: 'Text to search for (partial match supported)' },
+                    index: { type: 'number', description: 'If multiple matches, click the nth one (0-based). Default: 0' },
+                    elementType: { type: 'string', enum: ['button', 'link', 'any'], description: 'Filter by element type. Default: any' },
+                    waitForNavigation: { type: 'boolean', description: 'Wait for page navigation after click. Default: false' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['text'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_clickMultiple',
+            name: 'browser_clickMultiple',
+            description: 'Click multiple elements in sequence. Useful for selecting multiple Yes/No answers or checkboxes at once.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selectors: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Array of CSS selectors to click in order'
+                    },
+                    delayMs: { type: 'number', description: 'Delay between clicks in milliseconds. Default: 100' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selectors'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getFormStructure',
+            name: 'browser_getFormStructure',
+            description: 'Get structured form data with questions grouped. Ideal for screening questionnaires - returns Yes/No pairs grouped with their question text.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_answerQuestions',
+            name: 'browser_answerQuestions',
+            description: 'Answer Yes/No screening questions by providing a mapping of question text to answers. Automatically finds and clicks the correct buttons.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    answers: {
+                        type: 'object',
+                        description: 'Object mapping question text (partial match) to answer ("yes" or "no"). Example: {"5+ years": "yes", "right to work": "yes"}'
+                    },
+                    defaultAnswer: { type: 'string', enum: ['yes', 'no'], description: 'Default answer for unmatched questions' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['answers'],
+            }
+        });
+        // ========== LLM INTROSPECTION TOOLS ==========
+        this.toolRegistry.registerTool({
+            id: 'browser_listInteractiveElements',
+            name: 'browser_listInteractiveElements',
+            description: `🔍 LLM INTROSPECTION: Comprehensive list of ALL interactive elements on the page with detailed metadata.
+
+USE THIS WHEN:
+• You need to understand what's on the page before taking action
+• Previous clicks/fills failed and you need to debug
+• Forms have dynamic or complex structure (React, Vue, Angular)
+
+RETURNS FOR EACH ELEMENT:
+• Multiple selector alternatives (data-testid, ID, name, aria-label, hierarchical)
+• Element type (email-input, password-input, button, dropdown, etc.)
+• Extracted labels from <label> tags, aria-label, placeholder
+• Current value, disabled/readonly state
+• Normalized coordinates (0-1) for native input fallback
+• Context: nearest heading, form parent, shadow DOM host
+
+OPTIONS:
+• filterType: "input" | "button" | "link" | "dropdown" - narrow results
+• searchText: fuzzy search for labels/text containing this string
+• includeShadowDOM: search inside shadow roots (default: true)
+• includeIframes: search same-origin iframes (default: true)`,
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                    filterType: { type: 'string', enum: ['input', 'button', 'link', 'dropdown'], description: 'Filter by element type' },
+                    searchText: { type: 'string', description: 'Fuzzy search for elements with matching label/text' },
+                    includeHidden: { type: 'boolean', description: 'Include hidden elements (default: false)' },
+                    maxElements: { type: 'number', description: 'Maximum elements to return (default: 200)' },
+                    includeShadowDOM: { type: 'boolean', description: 'Search inside shadow DOM (default: true)' },
+                    includeIframes: { type: 'boolean', description: 'Search same-origin iframes (default: true)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_clickElementWithDebug',
+            name: 'browser_clickElementWithDebug',
+            description: `🔧 DEBUG CLICK: Click with detailed error feedback when selector fails.
+
+RETURNS ON SUCCESS:
+• clicked: true
+• element details (tagName, text, rect)
+
+RETURNS ON FAILURE:
+• clicked: false
+• error: "no_match" | "multiple_matches" | "not_visible" | "not_interactive"
+• matchCount: how many elements matched
+• candidates: array of partial matches with their selectors
+• suggestions: alternative selectors to try
+• nearbyElements: what's around the failed selector
+
+USE THIS INSTEAD OF browser_clickElement when you need to diagnose why clicks fail.`,
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for the element to click' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_findElementWithDebug',
+            name: 'browser_findElementWithDebug',
+            description: `🔍 DEBUG FIND: Check if a selector matches without clicking. Use to validate selectors before action.
+
+RETURNS:
+• found: boolean
+• matchCount: number of matches
+• error: null | "no_match" | "multiple_matches"
+• candidates: if multiple matches, shows all with details
+• suggestions: alternative selectors to try
+• nearbyElements: context around failed selectors
+
+USE CASE: Before calling clickElement or fillElement, verify your selector is correct.`,
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector to test' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selector'],
+            }
+        });
+        // ========== COMBO-BOX TOOLS ==========
+        this.toolRegistry.registerTool({
+            id: 'browser_getDropdownOptions',
+            name: 'browser_getDropdownOptions',
+            description: `📋 COMBO-BOX PRIMITIVE: Open a combo-box/dropdown and return available options with selectors and coordinates.
+
+USE THIS FOR:
+• React-Select, Material-UI Select, Ant Design Select, Vue-Select, Choices.js
+• Any custom dropdown that's not a native <select>
+• When you need to see what options are available before selecting
+
+HOW IT WORKS:
+1. Provide selector for the combo-box input element
+2. Tool clicks to open the dropdown (if not already open)
+3. Returns all visible options with:
+   • text: Option display text
+   • selector: CSS selector to click this option
+   • value: data-value attribute if present
+   • screenCoordinates: normalized (0-1) coordinates for native click fallback
+
+WORKFLOW:
+1. Call browser_getDropdownOptions with input selector
+2. Find the option you want in the returned list
+3. Either: clickElement(option.selector) OR use screenCoordinates for native click
+
+FALLBACK (if JS click fails):
+Use the screenCoordinates.normalized.centerX/centerY with native click() tool.`,
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for the combo-box input element' },
+                    waitMs: { type: 'number', description: 'Time to wait for dropdown to open (default: 300ms)' },
+                    closeAfter: { type: 'boolean', description: 'Close dropdown after getting options (default: false)' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_openDropdownNative',
+            name: 'browser_openDropdownNative',
+            description: `🎯 NATIVE DROPDOWN OPENER: Opens stubborn dropdowns (React-Select, etc.) using native macOS input.
+
+USE THIS WHEN:
+• browser_getDropdownOptions fails to open the dropdown
+• JavaScript clicks don't trigger React's event handlers
+• The dropdown requires "trusted" user events
+
+HOW IT WORKS (atomic operation):
+1. Gets element coordinates via browser extension
+2. Focuses browser window via native macOS
+3. Clicks at coordinates using native mouse
+4. Types search text using native keyboard (triggers autocomplete)
+5. Waits for dropdown to appear
+6. Returns available options with selectors and coordinates
+
+RETURNS:
+• List of dropdown options with text, selector, and normalized coordinates
+• Each option can be selected via browser_clickElement(selector) or native click()
+
+EXAMPLE:
+browser_openDropdownNative({
+  selector: "#country-select",
+  searchText: "United",  // Type to filter options
+  browser: "firefox"
+})`,
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for the combo-box input element' },
+                    searchText: { type: 'string', description: 'Text to type to trigger autocomplete/filter options (optional)' },
+                    waitMs: { type: 'number', description: 'Time to wait for dropdown to open (default: 500ms)' },
+                    tabId: { type: 'number' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'] },
+                },
+                required: ['selector'],
+            }
+        });
+        // Additional browser tools
+        this.toolRegistry.registerTool({
+            id: 'browser_setDefaultBrowser',
+            name: 'browser_setDefaultBrowser',
+            description: 'Set the default browser for commands when no browser is specified.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Browser to set as default' },
+                },
+                required: ['browser'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_focusTab',
+            name: 'browser_focusTab',
+            description: 'Focus a specific browser tab by ID.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'The tab ID to focus (from browser_getTabs)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['tabId'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_createTab',
+            name: 'browser_createTab',
+            description: 'Create a new browser tab and navigate to a URL.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    url: { type: 'string', description: 'URL to navigate to in the new tab' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['url'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_closeTab',
+            name: 'browser_closeTab',
+            description: 'Close a browser tab by ID.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'The tab ID to close (from browser_getTabs)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['tabId'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getPageContext',
+            name: 'browser_getPageContext',
+            description: 'Get combined snapshot of current page including visible text and interactive elements.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_scrollTo',
+            name: 'browser_scrollTo',
+            description: 'Scroll to a position or element.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector to scroll to (optional)' },
+                    x: { type: 'number', description: 'X position to scroll to (optional)' },
+                    y: { type: 'number', description: 'Y position to scroll to (optional)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getFormData',
+            name: 'browser_getFormData',
+            description: 'Get all form data from the current page.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_setWatchMode',
+            name: 'browser_setWatchMode',
+            description: 'Enable/disable DOM change watching.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    enabled: { type: 'boolean', description: 'Whether to enable watch mode' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['enabled'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getVisibleText',
+            name: 'browser_getVisibleText',
+            description: 'Read the visible text content of the current page as plain text.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    maxLength: { type: 'number', description: 'Maximum text length to return (default: 100000)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_waitForSelector',
+            name: 'browser_waitForSelector',
+            description: 'Wait until a specific element appears using its selector.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector to wait for' },
+                    timeout: { type: 'number', description: 'Timeout in milliseconds (default: 10000)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['selector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_waitForPageLoad',
+            name: 'browser_waitForPageLoad',
+            description: 'Wait until the current page finishes loading after navigation.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    timeout: { type: 'number', description: 'Timeout in milliseconds (default: 30000)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_selectOption',
+            name: 'browser_selectOption',
+            description: 'Select an option in a dropdown/select element.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for the select element' },
+                    value: { type: 'string', description: 'Option value or text to select' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['selector', 'value'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_isElementVisible',
+            name: 'browser_isElementVisible',
+            description: 'Check if an element exists and is visible.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector to check' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['selector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getConsoleLogs',
+            name: 'browser_getConsoleLogs',
+            description: 'Get captured console logs. Useful for debugging.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    filter: { type: 'string', enum: ['all', 'log', 'error', 'warn', 'info', 'debug'], description: 'Filter by log type (default: all)' },
+                    clear: { type: 'boolean', description: 'Clear logs after retrieval (default: false)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getNetworkRequests',
+            name: 'browser_getNetworkRequests',
+            description: 'Get captured network requests (fetch/XHR). Useful for discovering APIs.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    filter: { type: 'string', enum: ['all', 'fetch', 'xhr'], description: 'Filter by request type (default: all)' },
+                    clear: { type: 'boolean', description: 'Clear requests after retrieval (default: false)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getLocalStorage',
+            name: 'browser_getLocalStorage',
+            description: 'Get localStorage contents for the current domain.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_getCookies',
+            name: 'browser_getCookies',
+            description: 'Get cookies for the current domain.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+        this.toolRegistry.registerTool({
+            id: 'browser_navigate',
+            name: 'browser_navigate',
+            description: 'Navigate to a URL in the browser. Opens the URL in the active tab or a specified tab.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    url: { type: 'string', description: 'URL to navigate to' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                    waitUntil: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle'], description: 'Wait condition (optional)' },
+                    timeout: { type: 'number', description: 'Navigation timeout in milliseconds (optional)' },
+                },
+                required: ['url'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_screenshot',
+            name: 'browser_screenshot',
+            description: 'Take a screenshot of the current page or a specific element in the browser.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for element to screenshot (optional, screenshots full page if not provided)' },
+                    fullPage: { type: 'boolean', description: 'Whether to capture the full scrollable page (default: false)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_go_back',
+            name: 'browser_go_back',
+            description: 'Navigate back in browser history.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_go_forward',
+            name: 'browser_go_forward',
+            description: 'Navigate forward in browser history.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_get_visible_html',
+            name: 'browser_get_visible_html',
+            description: 'Get the HTML content of the current page.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector to limit HTML to a specific container (optional)' },
+                    removeScripts: { type: 'boolean', description: 'Remove all script tags (default: true)' },
+                    removeStyles: { type: 'boolean', description: 'Remove all style tags (default: false)' },
+                    cleanHtml: { type: 'boolean', description: 'Perform comprehensive HTML cleaning (default: false)' },
+                    maxLength: { type: 'number', description: 'Maximum characters to return (default: 50000)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_hover',
+            name: 'browser_hover',
+            description: 'Hover over an element on the page.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for element to hover' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['selector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_drag',
+            name: 'browser_drag',
+            description: 'Drag an element to a target location.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    sourceSelector: { type: 'string', description: 'CSS selector for the element to drag' },
+                    targetSelector: { type: 'string', description: 'CSS selector for the target location' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['sourceSelector', 'targetSelector'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_press_key',
+            name: 'browser_press_key',
+            description: 'Press a keyboard key in the browser.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    key: { type: 'string', description: 'Key to press (e.g., "Enter", "Tab", "ArrowDown", "a", "Ctrl+c")' },
+                    selector: { type: 'string', description: 'Optional CSS selector to focus before pressing key' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['key'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_upload_file',
+            name: 'browser_upload_file',
+            description: 'Upload a file to a file input element.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    selector: { type: 'string', description: 'CSS selector for the file input element' },
+                    filePath: { type: 'string', description: 'Absolute path to the file to upload' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['selector', 'filePath'],
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_save_as_pdf',
+            name: 'browser_save_as_pdf',
+            description: 'Save the current page as a PDF file.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    outputPath: { type: 'string', description: 'Directory path where PDF will be saved' },
+                    filename: { type: 'string', description: 'Name of the PDF file (default: page.pdf)' },
+                    format: { type: 'string', enum: ['A4', 'Letter', 'Legal', 'Tabloid'], description: 'Page format (default: A4)' },
+                    printBackground: { type: 'boolean', description: 'Whether to print background graphics (default: true)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['outputPath'],
+            }
+        });
     }
     setupToolHandlers() {
         this.server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => {
@@ -601,6 +2067,14 @@ Workflow:
 4. Combine with screenshot_app to visually confirm what you're selecting.
 
 This is the go-to fallback when the DOM/browser layer is unavailable. It uses Apple Accessibility directly, so every window on any monitor becomes discoverable.`,
+                    inputSchema: { type: 'object', properties: {} },
+                },
+                {
+                    name: 'currentApp',
+                    description: `🎯 MCP-EYES: Get information about the currently focused application.
+
+Returns the bundle ID and window bounds of the app that was last focused via focusApplication.
+Useful for checking what app is currently in focus before performing automation actions.`,
                     inputSchema: { type: 'object', properties: {} },
                 },
                 {
@@ -1363,14 +2837,626 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                         },
                     },
                 },
+                // ========== ENHANCED BROWSER TOOLS ==========
+                {
+                    name: 'browser_inspectCurrentPage',
+                    description: `🌐 MCP-EYES BROWSER: **START HERE for any new page.** Single call that gives you EVERYTHING: page info + all form fields with labels + coordinates.
+
+**What you get in ONE call:**
+{
+  pageInfo: {
+    url: "https://example.com/apply",
+    title: "Job Application",
+    domain: "example.com",
+    viewport: { width: 1280, height: 720 }
+  },
+  elements: {
+    elements: [
+      {
+        type: "email-input",           // Specific types: email-input, password-input, text-input, tel-input, number-input, etc.
+        label: "Email Address",        // Extracted from <label>, aria-label, or placeholder
+        currentValue: "",              // See what's already filled
+        selector: "#email",            // Use with browser_clickElement or browser_fillElement
+        placeholder: "your@email.com",
+        required: true,
+        disabled: false,
+        coordinates: {
+          absolute: { x: 120, y: 250, centerX: 220, centerY: 270 },     // Pixels from top-left
+          normalized: { x: 0.15, y: 0.25, centerX: 0.275, centerY: 0.27 } // 0-1 range (use with native click)
+        }
+      },
+      {
+        type: "dropdown",
+        label: "Country",
+        currentValue: { value: "US", text: "United States" },
+        selector: "select#country",
+        coordinates: { ... }
+      },
+      {
+        type: "submit-button",
+        label: "Continue",
+        selector: "button[type='submit']",
+        coordinates: { ... }
+      }
+    ],
+    radioGroups: {
+      "employment_status": [/* radio buttons for this group */]
+    },
+    summary: { total: 15, inputs: 8, dropdowns: 2, checkboxes: 1, buttons: 3 }
+  }
+}
+
+**When to use:**
+✅ **FIRST call on any new page** - replaces browser_getPageInfo + browser_getInteractiveElements
+✅ Before filling a form - see all fields with their labels in one shot
+✅ When you need coordinates for fallback to native clicking
+✅ To understand page structure quickly
+
+**COMPLETE workflow for job application:**
+1. browser_inspectCurrentPage()
+   → You now have ALL fields with labels, types, and coordinates
+
+2. Fill fields using labels (EASIEST):
+   browser_fillFormField("Email", "user@example.com")
+   browser_fillFormField("First Name", "John")
+   browser_fillFormField("Last Name", "Doe")
+   browser_fillFormField("Phone", "555-1234")
+
+3. Find submit button in the elements array:
+   Look for type: "submit-button" with label "Continue" or "Submit"
+
+4. Click submit:
+   browser_clickElement(submitButtonSelector)
+
+**Alternative workflow if browser_fillFormField fails:**
+1. browser_inspectCurrentPage()
+2. For each field, use the returned selector:
+   browser_clickElement(selector)
+   browser_fillElement(selector, value)
+3. Click submit button
+
+**FALLBACK if browser automation blocked:**
+The normalized coordinates (0-1) work perfectly with native tools:
+1. browser_inspectCurrentPage() → get coordinates
+2. For each field:
+   - click(normalizedX, normalizedY) → focus field
+   - typeText(value) → type value
+3. Find submit button coordinates, click it
+
+**Pro tips:**
+• elements.summary gives quick stats: how many inputs, dropdowns, buttons
+• radioGroups shows radio buttons grouped by name (e.g., "gender", "subscription_type")
+• Check currentValue to see pre-filled fields
+• type field is specific: "email-input", "password-input", "tel-input", not just "input"
+• Submit buttons have type: "submit-button" for easy finding`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            tabId: {
+                                type: 'number',
+                                description: 'Optional tab ID (defaults to active tab)',
+                            },
+                            browser: {
+                                type: 'string',
+                                enum: ['firefox', 'chrome', 'safari', 'edge'],
+                                description: 'Target browser (optional, uses default if not specified)',
+                            },
+                            includeScreenshot: {
+                                type: 'boolean',
+                                description: 'Include screenshot in response (default: true)',
+                                default: true,
+                            },
+                            includeOCR: {
+                                type: 'boolean',
+                                description: 'Include OCR text extraction (default: false)',
+                                default: false,
+                            },
+                        },
+                    },
+                },
+                {
+                    name: 'browser_getUIElements',
+                    description: `🌐 MCP-EYES BROWSER: Enhanced form field detection. **Use browser_inspectCurrentPage instead** - it returns the same data plus page info.
+
+This tool returns the same elements data as browser_inspectCurrentPage but WITHOUT page info. Only use if you specifically need to refresh element data without getting page info again.
+
+**What you get:**
+{
+  elements: [
+    {
+      type: "email-input",              // 14 specific types: email-input, password-input, text-input, number-input, tel-input, url-input, date-input, file-input, dropdown, textarea, checkbox, radio, button, submit-button
+      label: "Email Address",           // From <label for="...">, parent <label>, aria-label, or placeholder
+      currentValue: "",                 // Current field value (or checked state for checkbox/radio)
+      selector: "#email",               // CSS selector for browser_clickElement/fillElement
+      placeholder: "your@email.com",
+      name: "email",
+      id: "email",
+      required: true,
+      disabled: false,
+      checked: null,                    // For checkboxes/radios only
+      coordinates: {
+        absolute: {                     // Pixels from viewport top-left
+          x: 120, y: 250,
+          width: 200, height: 40,
+          centerX: 220, centerY: 270
+        },
+        normalized: {                   // 0-1 range (perfect for native click tool)
+          x: 0.15, y: 0.25,
+          width: 0.25, height: 0.04,
+          centerX: 0.275, centerY: 0.27
+        }
+      }
+    }
+  ],
+  radioGroups: {
+    "gender": [
+      { label: "Male", value: "M", selector: "#male", checked: false },
+      { label: "Female", value: "F", selector: "#female", checked: true }
+    ],
+    "subscription_type": [...]
+  },
+  summary: {
+    total: 15,                          // Total interactive elements
+    inputs: 8,                          // Text-like inputs
+    dropdowns: 2,
+    checkboxes: 1,
+    radioButtons: 4,
+    radioGroups: 2,                     // Number of radio groups
+    buttons: 3,
+    links: 5
+  }
+}
+
+**14 specific element types detected:**
+1. email-input, password-input, text-input, number-input, tel-input, url-input, date-input
+2. file-input (for file uploads)
+3. dropdown (select elements)
+4. textarea
+5. checkbox, radio
+6. button, submit-button
+
+**When to use:**
+⚠️ **Prefer browser_inspectCurrentPage** - it gives you this PLUS page info
+✅ When you need to refresh element data after page change (without getting page info again)
+✅ When you specifically want element coordinates for fallback to native clicking
+✅ When you need to see radio button groups
+
+**Typical workflow:**
+1. browser_inspectCurrentPage() first (gets this data + page info)
+2. Fill form using browser_fillFormField
+3. If page updates dynamically, call browser_getUIElements to refresh element data
+
+**How to use the data:**
+• **For label-based filling:** browser_fillFormField("Email", "user@example.com")
+• **For selector-based filling:** browser_fillElement(element.selector, value)
+• **For native clicking:** click(element.coordinates.normalized.centerX, element.coordinates.normalized.centerY)
+• **For radio groups:** Pick from radioGroups["group_name"], then click the selector
+
+**Pro tips:**
+• radioGroups makes it easy to see all options in a radio group
+• currentValue shows pre-filled values - check before filling
+• normalized coordinates (0-1) work with native click tool if browser automation fails
+• summary.total tells you if form is large (many fields) or simple`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            tabId: {
+                                type: 'number',
+                                description: 'Optional tab ID (defaults to active tab)',
+                            },
+                            browser: {
+                                type: 'string',
+                                enum: ['firefox', 'chrome', 'safari', 'edge'],
+                                description: 'Target browser (optional, uses default if not specified)',
+                            },
+                        },
+                    },
+                },
+                {
+                    name: 'browser_fillFormField',
+                    description: `🌐 MCP-EYES BROWSER: **The easiest way to fill forms.** Finds field by label → clicks → fills in ONE atomic operation.
+
+**What it does automatically:**
+1. Searches ALL form fields (input, select, textarea) for a matching label
+2. Focuses the field (scrolls into view if needed)
+3. Clicks the field (handles custom controls)
+4. Fills the value based on field type:
+   - Text inputs: Sets value + dispatches input/change events
+   - Dropdowns: Selects matching option
+   - Checkboxes/radios: Sets checked state
+5. Returns success confirmation with actual element used
+
+**Label matching (smart fuzzy matching):**
+Priority order:
+1. **Exact match (100%)**: Label exactly matches (case-insensitive)
+2. **Contains match (50%)**: Label contains your search term or vice versa
+3. **Placeholder match (30%)**: Placeholder text contains search term
+4. **Name/ID match (20%)**: name or id attribute contains search term
+
+**Examples:**
+✅ browser_fillFormField("Email", "user@example.com")
+   → Matches: "Email Address", "Email:", "Enter your email", placeholder "Email"
+
+✅ browser_fillFormField("First Name", "John")
+   → Matches: "First Name", "First name:", "Your first name", placeholder "First Name"
+
+✅ browser_fillFormField("Phone", "555-1234")
+   → Matches: "Phone Number", "Phone:", "Telephone", placeholder "Phone"
+
+✅ browser_fillFormField("Country", "United States")
+   → Finds dropdown, selects "United States" option
+
+✅ browser_fillFormField("Accept Terms", "true")
+   → Finds checkbox, checks it
+
+**Complete job application workflow:**
+// 1. See what fields exist
+const page = await browser_inspectCurrentPage();
+
+// 2. Fill all fields by label (NO selectors needed!)
+await browser_fillFormField("Email", "john@example.com");
+await browser_fillFormField("First Name", "John");
+await browser_fillFormField("Last Name", "Doe");
+await browser_fillFormField("Phone", "555-1234");
+await browser_fillFormField("Country", "United States");
+await browser_fillFormField("Years of Experience", "5");
+await browser_fillFormField("Resume", "/path/to/resume.pdf");  // For file inputs
+await browser_fillFormField("Accept Terms", "true");
+
+// 3. Find submit button (type: "submit-button" in page.elements)
+await browser_clickElement(submitButtonSelector);
+
+**What you get back on success:**
+{
+  success: true,
+  label: "Email",                        // Your search term
+  elementLabel: "Email Address",         // Actual label found
+  selector: "#email",                    // Element's selector
+  value: "user@example.com"              // Value filled (or checked: true for checkbox)
+}
+
+**What you get if field not found:**
+{
+  success: false,
+  error: "No form field found matching label: 'Emial'",
+  availableFields: [                     // First 20 fields to help you fix typo
+    { label: "Email Address", type: "email", name: "email", id: "email" },
+    { label: "First Name", type: "text", name: "firstName", id: "firstName" },
+    { label: "Last Name", type: "text", name: "lastName", id: "lastName" }
+  ]
+}
+
+**When to use:**
+✅ **ALWAYS use this for form filling** - it's simpler than find → click → fill
+✅ When you know field labels from browser_inspectCurrentPage
+✅ For quick job applications, registration forms, login forms
+✅ When labels are in English and descriptive
+
+**When NOT to use:**
+❌ When field has no label (use browser_fillElement with selector instead)
+❌ When you need very precise selector control
+❌ For complex custom controls that don't behave like standard inputs
+
+**Handles all field types:**
+• Text inputs → Sets value
+• Email/password/tel/number/url/date inputs → Sets value
+• Textareas → Sets value
+• Dropdowns → Selects option by value or text
+• Checkboxes → Checks if value is true/yes/1, unchecks otherwise
+• Radios → Checks if value is true/yes/1
+• File inputs → Sets file path (may not work in all browsers due to security)
+
+**Pro tips:**
+• Use partial labels: "Email" matches "Email Address", "Your Email", etc.
+• Check availableFields in error response to see what labels are actually on the page
+• For dropdowns, you can use either the option value or the visible text
+• For checkboxes/radios, use "true", "yes", "1" to check, anything else to uncheck
+
+**FALLBACK if this fails:**
+1. Look at availableFields in error response
+2. Try the exact label text from there
+3. If still failing, use browser_clickElement(selector) + browser_fillElement(selector, value)
+4. If browser automation blocked, use native click + typeText`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            label: {
+                                type: 'string',
+                                description: 'Label text of the form field (e.g., "Email", "Password", "First Name")',
+                            },
+                            value: {
+                                type: 'string',
+                                description: 'Value to fill in the field',
+                            },
+                            tabId: {
+                                type: 'number',
+                                description: 'Optional tab ID (defaults to active tab)',
+                            },
+                            browser: {
+                                type: 'string',
+                                enum: ['firefox', 'chrome', 'safari', 'edge'],
+                                description: 'Target browser (optional, uses default if not specified)',
+                            },
+                        },
+                        required: ['label', 'value'],
+                    },
+                },
+                // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+                {
+                    name: 'browser_navigate',
+                    description: `🌐 MCP-EYES BROWSER: Navigate to a URL in the browser.
+
+Opens the specified URL in the active tab or a specified tab. Optionally waits for page load conditions.
+
+**Examples:**
+browser_navigate({ url: "https://example.com" })
+browser_navigate({ url: "https://google.com", waitUntil: "networkidle" })
+
+**Parameters:**
+• url (required): URL to navigate to
+• tabId: Optional tab ID (defaults to active tab)
+• browser: Target browser (firefox, chrome, safari, edge)
+• waitUntil: Wait condition - "load", "domcontentloaded", or "networkidle"
+• timeout: Navigation timeout in milliseconds`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            url: { type: 'string', description: 'URL to navigate to' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                            waitUntil: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle'], description: 'Wait condition (optional)' },
+                            timeout: { type: 'number', description: 'Navigation timeout in milliseconds (optional)' },
+                        },
+                        required: ['url'],
+                    },
+                },
+                {
+                    name: 'browser_screenshot',
+                    description: `🌐 MCP-EYES BROWSER: Take a screenshot of the current page or a specific element.
+
+Returns a screenshot as a base64-encoded PNG image.
+
+**Examples:**
+browser_screenshot() - Full viewport screenshot
+browser_screenshot({ fullPage: true }) - Full scrollable page
+browser_screenshot({ selector: "#main-content" }) - Specific element
+
+**Parameters:**
+• selector: CSS selector to screenshot specific element (optional)
+• fullPage: Capture full scrollable page (default: false)
+• tabId: Optional tab ID
+• browser: Target browser`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            selector: { type: 'string', description: 'CSS selector for element to screenshot (optional)' },
+                            fullPage: { type: 'boolean', description: 'Capture full scrollable page (default: false)' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                    },
+                },
+                {
+                    name: 'browser_go_back',
+                    description: `🌐 MCP-EYES BROWSER: Navigate back in browser history.
+
+Equivalent to clicking the browser's back button.
+
+**Example:**
+browser_go_back()`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                    },
+                },
+                {
+                    name: 'browser_go_forward',
+                    description: `🌐 MCP-EYES BROWSER: Navigate forward in browser history.
+
+Equivalent to clicking the browser's forward button.
+
+**Example:**
+browser_go_forward()`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                    },
+                },
+                {
+                    name: 'browser_get_visible_html',
+                    description: `🌐 MCP-EYES BROWSER: Get the HTML content of the current page.
+
+Returns the page HTML, optionally cleaned and truncated.
+
+**Examples:**
+browser_get_visible_html() - Full page HTML (scripts removed)
+browser_get_visible_html({ selector: "#content" }) - Specific container
+browser_get_visible_html({ cleanHtml: true, maxLength: 10000 }) - Cleaned and limited
+
+**Parameters:**
+• selector: CSS selector to limit HTML to specific container
+• removeScripts: Remove script tags (default: true)
+• removeStyles: Remove style tags (default: false)
+• cleanHtml: Comprehensive HTML cleaning (default: false)
+• maxLength: Max characters to return (default: 50000)`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            selector: { type: 'string', description: 'CSS selector to limit HTML to a specific container (optional)' },
+                            removeScripts: { type: 'boolean', description: 'Remove all script tags (default: true)' },
+                            removeStyles: { type: 'boolean', description: 'Remove all style tags (default: false)' },
+                            cleanHtml: { type: 'boolean', description: 'Perform comprehensive HTML cleaning (default: false)' },
+                            maxLength: { type: 'number', description: 'Maximum characters to return (default: 50000)' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                    },
+                },
+                {
+                    name: 'browser_hover',
+                    description: `🌐 MCP-EYES BROWSER: Hover over an element on the page.
+
+Useful for triggering hover states, tooltips, dropdown menus.
+
+**Example:**
+browser_hover({ selector: ".dropdown-trigger" })`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            selector: { type: 'string', description: 'CSS selector for element to hover' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                        required: ['selector'],
+                    },
+                },
+                {
+                    name: 'browser_drag',
+                    description: `🌐 MCP-EYES BROWSER: Drag an element to a target location.
+
+Performs drag-and-drop operation from source to target element.
+
+**Example:**
+browser_drag({ sourceSelector: ".draggable", targetSelector: ".drop-zone" })`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            sourceSelector: { type: 'string', description: 'CSS selector for element to drag' },
+                            targetSelector: { type: 'string', description: 'CSS selector for target location' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                        required: ['sourceSelector', 'targetSelector'],
+                    },
+                },
+                {
+                    name: 'browser_press_key',
+                    description: `🌐 MCP-EYES BROWSER: Press a keyboard key in the browser.
+
+Supports single keys, modifiers, and combinations.
+
+**Examples:**
+browser_press_key({ key: "Enter" })
+browser_press_key({ key: "Tab" })
+browser_press_key({ key: "Ctrl+a" }) - Select all
+browser_press_key({ key: "ArrowDown", selector: "#dropdown" }) - Key on specific element`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            key: { type: 'string', description: 'Key to press (e.g., "Enter", "Tab", "ArrowDown", "Ctrl+c")' },
+                            selector: { type: 'string', description: 'Optional CSS selector to focus before pressing key' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                        required: ['key'],
+                    },
+                },
+                {
+                    name: 'browser_upload_file',
+                    description: `🌐 MCP-EYES BROWSER: Upload a file to a file input element.
+
+Sets the file path on an input[type="file"] element.
+
+**Example:**
+browser_upload_file({ selector: "input[type='file']", filePath: "/path/to/document.pdf" })
+
+**Note:** Due to browser security, this may require the browser extension to support file uploads.
+If browser automation fails, use native macOS file picker interaction instead.`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            selector: { type: 'string', description: 'CSS selector for the file input element' },
+                            filePath: { type: 'string', description: 'Absolute path to the file to upload' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                        required: ['selector', 'filePath'],
+                    },
+                },
+                {
+                    name: 'browser_save_as_pdf',
+                    description: `🌐 MCP-EYES BROWSER: Save the current page as a PDF file.
+
+Exports the current page to a PDF file.
+
+**Example:**
+browser_save_as_pdf({ outputPath: "/Users/me/Downloads" })
+browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" })
+
+**Parameters:**
+• outputPath (required): Directory where PDF will be saved
+• filename: PDF filename (default: page.pdf)
+• format: Page format - A4, Letter, Legal, Tabloid (default: A4)
+• printBackground: Include background graphics (default: true)`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            outputPath: { type: 'string', description: 'Directory path where PDF will be saved' },
+                            filename: { type: 'string', description: 'Name of the PDF file (default: page.pdf)' },
+                            format: { type: 'string', enum: ['A4', 'Letter', 'Legal', 'Tabloid'], description: 'Page format (default: A4)' },
+                            printBackground: { type: 'boolean', description: 'Whether to print background graphics (default: true)' },
+                            tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                            browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                        },
+                        required: ['outputPath'],
+                    },
+                },
             ];
-            // Return native tools, plus browser tools only if extensions are connected
+            // Get all tool categories from registry
+            const filesystemTools = this.toolRegistry.getEnabledTools()
+                .filter(tool => tool.category === 'filesystem')
+                .map(tool => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+            }));
+            const shellTools = this.toolRegistry.getEnabledTools()
+                .filter(tool => tool.category === 'shell')
+                .map(tool => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+            }));
+            const guiTools = this.toolRegistry.getEnabledTools()
+                .filter(tool => tool.category === 'gui')
+                .map(tool => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+            }));
+            const browserToolsFromRegistry = this.toolRegistry.getEnabledTools()
+                .filter(tool => tool.category === 'browser')
+                .map(tool => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+            }));
+            // Return enabled tools from registry (browser tools only shown if extensions connected)
+            const allTools = [
+                ...guiTools,
+                ...filesystemTools,
+                ...shellTools,
+                ...(hasBrowserExtensions ? browserToolsFromRegistry : []),
+            ];
             return {
-                tools: hasBrowserExtensions ? [...nativeTools, ...browserTools] : nativeTools,
+                tools: allTools,
             };
         });
         this.server.setRequestHandler(types_js_1.CallToolRequestSchema, async (request) => {
             const { name, arguments: args } = request.params;
+            // Check if tool is enabled in registry
+            if (!this.toolRegistry.isToolEnabled(name)) {
+                return {
+                    content: [{ type: 'text', text: `Tool ${name} is disabled` }],
+                    isError: true,
+                };
+            }
             try {
                 let result;
                 switch (name) {
@@ -1600,30 +3686,34 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                         };
                     case 'getUIElements':
                         result = await this.proxyCall('/getUIElements');
-                        if (!Array.isArray(result)) {
+                        if (result.error) {
                             return {
                                 content: [{
                                         type: 'text',
-                                        text: `Error getting UI elements: ${result?.error || 'Unexpected response format'}\nRaw result: ${JSON.stringify(result).substring(0, 500)}`,
+                                        text: `Error getting UI elements: ${result.error}`,
                                     }],
                                 isError: true,
                             };
                         }
-                        const richElements = result.map((el, i) => ({
+                        const clickableElements = result.clickable || [];
+                        const nonClickableElements = result.nonClickable || [];
+                        const allUIElements = [...clickableElements, ...nonClickableElements];
+                        const richElements = allUIElements.map((el, i) => ({
                             index: el.index ?? i,
                             type: el.type,
                             role: el.role,
-                            text: el.text || '',
+                            text: el.title || el.description || el.text || '',
+                            value: el.value || '',
                             bounds: el.bounds,
                             normalizedPosition: el.normalized_position || el.normalizedPosition || null,
-                            isClickable: el.is_clickable ?? el.isClickable ?? false,
+                            isClickable: clickableElements.includes(el),
                             isEnabled: el.is_enabled ?? el.isEnabled ?? true,
                         }));
                         return {
                             content: [
                                 {
                                     type: 'text',
-                                    text: `Found ${richElements.length} accessibility elements (clickable + context):\n\n` +
+                                    text: `Found ${richElements.length} accessibility elements (${clickableElements.length} clickable, ${nonClickableElements.length} non-clickable):\n\n` +
                                         richElements.map((el) => {
                                             const coordText = el.normalizedPosition
                                                 ? `(${Number(el.normalizedPosition.x).toFixed(3)}, ${Number(el.normalizedPosition.y).toFixed(3)})`
@@ -1632,6 +3722,22 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                                         }).join('\n'),
                                 },
                             ],
+                        };
+                    case 'currentApp':
+                        result = await this.proxyCall('/currentApp');
+                        if (result.bundleId === null) {
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: 'No application is currently focused. Call focusApplication first.',
+                                    }],
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Current app:\n  Bundle ID: ${result.bundleId}\n  Bounds: ${JSON.stringify(result.bounds)}`,
+                                }],
                         };
                     case 'typeText':
                         result = await this.proxyCall('/typeText', 'POST', { text: args?.text });
@@ -1647,6 +3753,66 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                             content: [{
                                     type: 'text',
                                     text: `Pressed key: ${args?.key}`,
+                                }],
+                        };
+                    case 'doubleClick':
+                        result = await this.proxyCall('/doubleClick', 'POST', {
+                            x: args?.x,
+                            y: args?.y,
+                        });
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Double-clicked at (${args?.x}, ${args?.y})`,
+                                }],
+                        };
+                    case 'clickElement':
+                        result = await this.proxyCall('/clickElement', 'POST', {
+                            elementIndex: args?.elementIndex,
+                        });
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: result.message || `Clicked element at index ${args?.elementIndex}`,
+                                }],
+                        };
+                    case 'scrollMouse':
+                        result = await this.proxyCall('/scrollMouse', 'POST', {
+                            direction: args?.direction,
+                            amount: args?.amount || 3,
+                        });
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Scrolled ${args?.direction} by ${args?.amount || 3} units`,
+                                }],
+                        };
+                    case 'getMousePosition':
+                        result = await this.proxyCall('/getMousePosition');
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Mouse position: (${result.x}, ${result.y})`,
+                                }],
+                        };
+                    case 'wait':
+                        const waitMs = args?.milliseconds || 1000;
+                        await new Promise(resolve => setTimeout(resolve, waitMs));
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Waited for ${waitMs} milliseconds`,
+                                }],
+                        };
+                    case 'closeApp':
+                        result = await this.proxyCall('/closeApp', 'POST', {
+                            identifier: args?.identifier,
+                            force: args?.force || false,
+                        });
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: result.message || `Closed application: ${args?.identifier}`,
                                 }],
                         };
                     case 'analyzeWithOCR':
@@ -2096,6 +4262,910 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                                         Object.entries(result.cookies).map(([name, value]) => `${name}: ${String(value).substring(0, 100)}`).join('\n'),
                                 }],
                         };
+                    // ========== ENHANCED BROWSER TOOLS ==========
+                    case 'browser_inspectCurrentPage':
+                        result = await this.browserProxyCall('/browser/inspectCurrentPage', 'POST', {
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                            includeScreenshot: args?.includeScreenshot !== false,
+                            includeOCR: args?.includeOCR || false,
+                        });
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: JSON.stringify(result, null, 2),
+                                }],
+                        };
+                    case 'browser_getUIElements':
+                        result = await this.browserProxyCall('/browser/getUIElements', 'POST', {
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: JSON.stringify(result, null, 2),
+                                }],
+                        };
+                    case 'browser_fillFormField':
+                        result = await this.browserProxyCall('/browser/fillFormField', 'POST', {
+                            label: args?.label,
+                            value: args?.value,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (!result.success) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Successfully filled field "${args?.label}" with value "${args?.value}"`,
+                                }],
+                        };
+                    case 'browser_fillWithFallback': {
+                        // Unified tool that tries JS fill first, then falls back to native input
+                        // Key improvement: Always get FRESH coordinates immediately before clicking
+                        const selector = args?.selector;
+                        const value = args?.value;
+                        const browser = (args?.browser || 'firefox');
+                        const tabId = args?.tabId;
+                        const maxRetries = 3;
+                        // Helper function to get fresh coordinates (scrolls element into view)
+                        const getFreshCoords = async () => {
+                            return await this.browserProxyCall('/browser/getElementForNativeInput', 'POST', {
+                                selector,
+                                tabId,
+                                browser,
+                            });
+                        };
+                        // Helper function to verify value was set
+                        const verifyValue = async () => {
+                            const check = await getFreshCoords();
+                            return check.success && check.currentValue === value;
+                        };
+                        // Step 1: Try browser extension fill with enhanced event simulation
+                        const fillResult = await this.browserProxyCall('/browser/fillElement', 'POST', {
+                            selector,
+                            value,
+                            tabId,
+                            browser,
+                            simulateTyping: true,
+                            clearFirst: true,
+                        });
+                        // Step 2: Verify the value was actually set
+                        if (fillResult.success && await verifyValue()) {
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `✅ Filled "${selector}" with JS simulation\nValue: "${value}"`,
+                                    }],
+                            };
+                        }
+                        // Step 3: Fall back to native input with retry logic
+                        console.log(`[fillWithFallback] JS fill failed or value didn't persist, falling back to native input`);
+                        let lastError = '';
+                        let lastCoords = { centerX: 0, centerY: 0 };
+                        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                            try {
+                                // Get FRESH coordinates immediately before clicking (critical!)
+                                const coordResult = await getFreshCoords();
+                                if (!coordResult.success) {
+                                    lastError = coordResult.error || 'Failed to get element coordinates';
+                                    continue;
+                                }
+                                const { centerX, centerY } = coordResult.coordinates.normalized;
+                                lastCoords = { centerX, centerY };
+                                // Focus browser application
+                                const browserName = browser.charAt(0).toUpperCase() + browser.slice(1); // Capitalize
+                                await this.proxyCall('/focusApplication', 'POST', { identifier: browserName });
+                                await new Promise(resolve => setTimeout(resolve, 50));
+                                // Click on the input field with FRESH coordinates
+                                await this.proxyCall('/click', 'POST', {
+                                    x: centerX,
+                                    y: centerY,
+                                    button: 'left',
+                                });
+                                await new Promise(resolve => setTimeout(resolve, 50));
+                                // Clear existing value with select all + delete
+                                await this.proxyCall('/pressKey', 'POST', { key: 'Command+a' });
+                                await new Promise(resolve => setTimeout(resolve, 30));
+                                await this.proxyCall('/pressKey', 'POST', { key: 'Delete' });
+                                await new Promise(resolve => setTimeout(resolve, 30));
+                                // Type the value using native keyboard
+                                await this.proxyCall('/typeText', 'POST', { text: value });
+                                await new Promise(resolve => setTimeout(resolve, 50));
+                                // Verify the value was set
+                                if (await verifyValue()) {
+                                    return {
+                                        content: [{
+                                                type: 'text',
+                                                text: `✅ Filled "${selector}" with NATIVE input\nValue: "${value}"\nMethod: native click(${centerX.toFixed(3)}, ${centerY.toFixed(3)}) → typeText\nAttempt: ${attempt}/${maxRetries}`,
+                                            }],
+                                    };
+                                }
+                                lastError = `Value verification failed - expected "${value}" but field has different value`;
+                                console.log(`[fillWithFallback] Attempt ${attempt} failed verification, retrying with fresh coordinates...`);
+                            }
+                            catch (err) {
+                                lastError = err.message || 'Unknown error';
+                                console.log(`[fillWithFallback] Attempt ${attempt} error: ${lastError}`);
+                            }
+                        }
+                        // All retries failed
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `❌ Failed to fill "${selector}" after ${maxRetries} attempts\nLast error: ${lastError}\nLast coords: (${lastCoords.centerX.toFixed(3)}, ${lastCoords.centerY.toFixed(3)})\n\nTip: The element may be moving or obscured. Try scrolling the page first.`,
+                                }],
+                            isError: true,
+                        };
+                    }
+                    case 'browser_fillFormNative': {
+                        // Atomic form filling using native keyboard/mouse with Tab navigation
+                        // Key strategy: Fill ALL text fields first using Tab, THEN click buttons
+                        const fields = args?.fields || [];
+                        const buttons = args?.buttons || [];
+                        const shouldSubmit = args?.submit === true;
+                        const submitSelector = args?.submitSelector;
+                        const browser = (args?.browser || 'firefox');
+                        const tabId = args?.tabId;
+                        if (fields.length === 0) {
+                            return {
+                                content: [{ type: 'text', text: '❌ No fields provided to fill' }],
+                                isError: true,
+                            };
+                        }
+                        const browserName = browser.charAt(0).toUpperCase() + browser.slice(1);
+                        const filledFields = [];
+                        const clickedButtons = [];
+                        const errors = [];
+                        try {
+                            // Step 1: Get page info to understand form structure
+                            const pageInfo = await this.browserProxyCall('/browser/inspectCurrentPage', 'POST', {
+                                tabId,
+                                browser,
+                                includeScreenshot: false,
+                            });
+                            if (!pageInfo.elements?.elements) {
+                                return {
+                                    content: [{ type: 'text', text: '❌ Could not inspect page elements' }],
+                                    isError: true,
+                                };
+                            }
+                            const elements = pageInfo.elements.elements;
+                            // Step 2: Find all input fields and their order
+                            const inputElements = elements.filter((el) => el.type?.includes('input') || el.type === 'textarea');
+                            // Step 3: Match requested fields to page elements
+                            const fieldMappings = [];
+                            for (const field of fields) {
+                                let matchedElement = null;
+                                let matchIndex = -1;
+                                if (field.selector) {
+                                    // Find by selector
+                                    matchedElement = elements.find((el) => el.selector === field.selector);
+                                    matchIndex = inputElements.findIndex((el) => el.selector === field.selector);
+                                }
+                                else if (field.label) {
+                                    // Find by label (fuzzy match)
+                                    const labelLower = field.label.toLowerCase();
+                                    matchedElement = inputElements.find((el) => {
+                                        const elLabel = (el.label || el.name || el.id || el.placeholder || '').toLowerCase();
+                                        return elLabel.includes(labelLower) || labelLower.includes(elLabel);
+                                    });
+                                    if (matchedElement) {
+                                        matchIndex = inputElements.indexOf(matchedElement);
+                                    }
+                                }
+                                if (matchedElement) {
+                                    fieldMappings.push({ field, element: matchedElement, index: matchIndex });
+                                }
+                                else {
+                                    errors.push(`Field not found: ${field.label || field.selector}`);
+                                }
+                            }
+                            if (fieldMappings.length === 0) {
+                                return {
+                                    content: [{ type: 'text', text: `❌ No matching fields found\nErrors: ${errors.join(', ')}` }],
+                                    isError: true,
+                                };
+                            }
+                            // Step 4: Sort fields by their position in the DOM (tab order)
+                            fieldMappings.sort((a, b) => a.index - b.index);
+                            // Step 5: Focus browser application
+                            await this.proxyCall('/focusApplication', 'POST', { identifier: browserName });
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            // Step 6: Click on the FIRST field to start
+                            const firstField = fieldMappings[0];
+                            const firstCoords = firstField.element.coordinates.normalized;
+                            await this.proxyCall('/click', 'POST', {
+                                x: firstCoords.centerX,
+                                y: firstCoords.centerY,
+                                button: 'left',
+                            });
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            // Step 7: Fill fields using Tab navigation
+                            for (let i = 0; i < fieldMappings.length; i++) {
+                                const { field, element } = fieldMappings[i];
+                                // Clear existing value
+                                await this.proxyCall('/pressKey', 'POST', { key: 'Command+a' });
+                                await new Promise(resolve => setTimeout(resolve, 30));
+                                await this.proxyCall('/pressKey', 'POST', { key: 'Delete' });
+                                await new Promise(resolve => setTimeout(resolve, 30));
+                                // Type the value
+                                await this.proxyCall('/typeText', 'POST', { text: field.value });
+                                await new Promise(resolve => setTimeout(resolve, 50));
+                                filledFields.push(`${element.label || element.name || element.selector}: "${field.value}"`);
+                                // Tab to next field (if not the last one)
+                                if (i < fieldMappings.length - 1) {
+                                    // Calculate how many tabs needed to get to next field
+                                    const currentIndex = fieldMappings[i].index;
+                                    const nextIndex = fieldMappings[i + 1].index;
+                                    const tabsNeeded = nextIndex - currentIndex;
+                                    for (let t = 0; t < tabsNeeded; t++) {
+                                        await this.proxyCall('/pressKey', 'POST', { key: 'Tab' });
+                                        await new Promise(resolve => setTimeout(resolve, 30));
+                                    }
+                                }
+                            }
+                            // Step 8: Press Tab to blur the last field (commits the value)
+                            await this.proxyCall('/pressKey', 'POST', { key: 'Tab' });
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            // Step 9: Click buttons (Yes/No etc) using browser extension (no native click needed)
+                            for (const button of buttons) {
+                                try {
+                                    if (button.selector) {
+                                        await this.browserProxyCall('/browser/clickElement', 'POST', {
+                                            selector: button.selector,
+                                            tabId,
+                                            browser,
+                                        });
+                                        clickedButtons.push(button.selector);
+                                    }
+                                    else if (button.label) {
+                                        await this.browserProxyCall('/browser/clickByText', 'POST', {
+                                            text: button.label,
+                                            elementType: 'button',
+                                            tabId,
+                                            browser,
+                                        });
+                                        clickedButtons.push(button.label);
+                                    }
+                                    await new Promise(resolve => setTimeout(resolve, 100));
+                                }
+                                catch (err) {
+                                    errors.push(`Button "${button.label || button.selector}": ${err.message}`);
+                                }
+                            }
+                            // Step 10: Verify all field values
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            const verifyResult = await this.browserProxyCall('/browser/inspectCurrentPage', 'POST', {
+                                tabId,
+                                browser,
+                                includeScreenshot: false,
+                            });
+                            const verifyElements = verifyResult.elements?.elements || [];
+                            const verificationResults = [];
+                            for (const { field, element } of fieldMappings) {
+                                const currentEl = verifyElements.find((el) => el.selector === element.selector || el.id === element.id);
+                                const currentValue = currentEl?.currentValue || '';
+                                const expected = field.value;
+                                const match = currentValue === expected;
+                                verificationResults.push(`${element.label || element.selector}: ${match ? '✓' : `✗ (got "${currentValue}")`}`);
+                            }
+                            // Step 11: Submit if requested
+                            let submitResult = '';
+                            if (shouldSubmit) {
+                                try {
+                                    const selector = submitSelector || '.ashby-application-form-submit-button, button[type="submit"], input[type="submit"]';
+                                    await this.browserProxyCall('/browser/clickElement', 'POST', {
+                                        selector,
+                                        tabId,
+                                        browser,
+                                    });
+                                    submitResult = '\n✅ Form submitted';
+                                }
+                                catch (err) {
+                                    submitResult = `\n❌ Submit failed: ${err.message}`;
+                                }
+                            }
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `🚀 Form filled using native input with Tab navigation\n\nFields filled:\n  ${filledFields.join('\n  ')}\n\nButtons clicked:\n  ${clickedButtons.length > 0 ? clickedButtons.join(', ') : 'none'}\n\nVerification:\n  ${verificationResults.join('\n  ')}${submitResult}${errors.length > 0 ? `\n\nWarnings:\n  ${errors.join('\n  ')}` : ''}`,
+                                    }],
+                            };
+                        }
+                        catch (err) {
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `❌ Form fill failed: ${err.message}\n\nFields filled before error:\n  ${filledFields.join('\n  ') || 'none'}`,
+                                    }],
+                                isError: true,
+                            };
+                        }
+                    }
+                    case 'browser_getElementForNativeInput':
+                        result = await this.browserProxyCall('/browser/getElementForNativeInput', 'POST', {
+                            selector: args?.selector,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (!result.success) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Element ready for native input:\n  Selector: ${result.selector}\n  Type: ${result.elementType}${result.inputType ? ` (${result.inputType})` : ''}\n  Current value: "${result.currentValue || ''}"\n  Normalized coords: (${result.coordinates.normalized.centerX.toFixed(3)}, ${result.coordinates.normalized.centerY.toFixed(3)})\n\nWorkflow:\n  1. focusApplication("Firefox")\n  2. click(${result.coordinates.normalized.centerX.toFixed(3)}, ${result.coordinates.normalized.centerY.toFixed(3)})\n  3. typeText("your value")`,
+                                }],
+                        };
+                    // ========== NEW ENHANCED BROWSER TOOL HANDLERS ==========
+                    case 'browser_findTabByUrl':
+                        result = await this.browserProxyCall('/browser/findTabByUrl', 'POST', {
+                            urlPattern: args?.urlPattern,
+                            browser: args?.browser,
+                        });
+                        if (result.error || !result.tab) {
+                            return {
+                                content: [{ type: 'text', text: `No tab found matching "${args?.urlPattern}"${result.error ? `: ${result.error}` : ''}` }],
+                                isError: !result.tab,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Found tab:\n  ID: ${result.tab.id}\n  Title: ${result.tab.title}\n  URL: ${result.tab.url}\n  Active: ${result.tab.active}`,
+                                }],
+                        };
+                    case 'browser_clickByText':
+                        result = await this.browserProxyCall('/browser/clickByText', 'POST', {
+                            text: args?.text,
+                            index: args?.index || 0,
+                            elementType: args?.elementType || 'any',
+                            waitForNavigation: args?.waitForNavigation || false,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (!result.success) {
+                            return {
+                                content: [{ type: 'text', text: `Failed to click "${args?.text}": ${result.error}${result.availableTexts ? `\n\nAvailable elements:\n${result.availableTexts.slice(0, 10).map((t, i) => `  ${i}. ${t}`).join('\n')}` : ''}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Clicked "${result.clickedText}" (${result.elementType})${result.navigated ? '\nPage navigated.' : ''}`,
+                                }],
+                        };
+                    case 'browser_clickMultiple':
+                        result = await this.browserProxyCall('/browser/clickMultiple', 'POST', {
+                            selectors: args?.selectors,
+                            delayMs: args?.delayMs || 100,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Clicked ${result.clickedCount}/${result.totalCount} elements:\n${result.results.map((r, i) => `  ${i + 1}. ${r.selector}: ${r.success ? 'OK' : r.error}`).join('\n')}`,
+                                }],
+                        };
+                    case 'browser_getFormStructure':
+                        result = await this.browserProxyCall('/browser/getFormStructure', 'POST', {
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        // Format questions nicely
+                        const questionsText = (result.questions || []).map((q, i) => {
+                            let questionOutput = `${i + 1}. ${q.text}`;
+                            if (q.type === 'yes_no') {
+                                questionOutput += `\n   Yes: ${q.yesSelector}\n   No: ${q.noSelector}`;
+                            }
+                            else if (q.type === 'multiple_choice') {
+                                questionOutput += `\n   Options:\n${q.options.map((o) => `     - "${o.text}": ${o.selector}`).join('\n')}`;
+                            }
+                            else if (q.type === 'input') {
+                                questionOutput += `\n   Input: ${q.selector}`;
+                            }
+                            return questionOutput;
+                        }).join('\n\n');
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Form Structure (${result.questions?.length || 0} questions):\n\n${questionsText}`,
+                                }],
+                        };
+                    case 'browser_answerQuestions':
+                        result = await this.browserProxyCall('/browser/answerQuestions', 'POST', {
+                            answers: args?.answers,
+                            defaultAnswer: args?.defaultAnswer,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Answered ${result.answeredCount}/${result.totalQuestions} questions:\n${result.results.map((r) => `  • "${r.question}": ${r.answer} ${r.success ? '✓' : '✗ ' + r.error}`).join('\n')}`,
+                                }],
+                        };
+                    // ========== LLM INTROSPECTION TOOLS ==========
+                    case 'browser_listInteractiveElements':
+                        result = await this.browserProxyCall('/browser/listInteractiveElements', 'POST', {
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                            filterType: args?.filterType,
+                            searchText: args?.searchText,
+                            includeHidden: args?.includeHidden,
+                            maxElements: args?.maxElements,
+                            includeShadowDOM: args?.includeShadowDOM,
+                            includeIframes: args?.includeIframes,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        // Format the element list in a structured way for LLM consumption
+                        const interactiveEls = result.elements || result;
+                        if (Array.isArray(interactiveEls)) {
+                            const formatted = interactiveEls.map((el, i) => {
+                                const selectors = el.alternativeSelectors || [];
+                                const selectorList = selectors.slice(0, 3).map((s) => `    ${s.type}: ${s.selector}`).join('\n');
+                                return `[${i}] ${el.type || el.tagName} "${el.label || el.text || ''}"\n  Primary: ${el.selector}\n${selectorList}\n  Value: ${el.value || ''}\n  Coords: (${el.normalizedX?.toFixed(3)}, ${el.normalizedY?.toFixed(3)})`;
+                            }).join('\n\n');
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `Found ${interactiveEls.length} interactive elements:\n\n${formatted}`,
+                                    }],
+                            };
+                        }
+                        return {
+                            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+                        };
+                    case 'browser_clickElementWithDebug':
+                        result = await this.browserProxyCall('/browser/clickElementWithDebug', 'POST', {
+                            selector: args?.selector,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.clicked) {
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `✓ Clicked ${result.tagName || 'element'}: "${result.text || ''}"`,
+                                    }],
+                            };
+                        }
+                        // Format debug info for failed clicks
+                        let debugText = `✗ Click failed: ${result.error}\n`;
+                        debugText += `  Selector: ${args?.selector}\n`;
+                        debugText += `  Match count: ${result.matchCount || 0}\n`;
+                        if (result.candidates?.length) {
+                            debugText += `  Candidates:\n${result.candidates.map((c) => `    - ${c.selector}: "${c.text}"`).join('\n')}\n`;
+                        }
+                        if (result.suggestions?.length) {
+                            debugText += `  Suggestions:\n${result.suggestions.map((s) => `    - ${s}`).join('\n')}\n`;
+                        }
+                        return {
+                            content: [{ type: 'text', text: debugText }],
+                            isError: true,
+                        };
+                    case 'browser_findElementWithDebug':
+                        result = await this.browserProxyCall('/browser/findElementWithDebug', 'POST', {
+                            selector: args?.selector,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.found) {
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `✓ Found element: ${result.tagName} "${result.text || ''}"\n  Selector: ${args?.selector}\n  Visible: ${result.visible}\n  Interactive: ${result.interactive}`,
+                                    }],
+                            };
+                        }
+                        // Format debug info for not found
+                        let findDebugText = `✗ Element not found: ${result.error}\n`;
+                        findDebugText += `  Selector: ${args?.selector}\n`;
+                        findDebugText += `  Match count: ${result.matchCount || 0}\n`;
+                        if (result.candidates?.length) {
+                            findDebugText += `  Similar elements:\n${result.candidates.map((c) => `    - ${c.selector}: "${c.text}"`).join('\n')}\n`;
+                        }
+                        if (result.suggestions?.length) {
+                            findDebugText += `  Try these selectors:\n${result.suggestions.map((s) => `    - ${s}`).join('\n')}\n`;
+                        }
+                        return {
+                            content: [{ type: 'text', text: findDebugText }],
+                        };
+                    // ========== COMBO-BOX TOOLS ==========
+                    case 'browser_getDropdownOptions':
+                        result = await this.browserProxyCall('/browser/getDropdownOptions', 'POST', {
+                            selector: args?.selector,
+                            waitMs: args?.waitMs,
+                            closeAfter: args?.closeAfter,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        // Format options for LLM consumption
+                        const opts = result.options || [];
+                        if (opts.length === 0) {
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `Combo-box opened (${result.framework || 'unknown'}) but no options visible.\n` +
+                                            `Input selector: ${result.inputSelector || args?.selector}\n` +
+                                            `Toggle selector: ${result.toggleSelector || 'none'}\n` +
+                                            `Hint: ${result.hint || 'Try typing to load options.'}`,
+                                    }],
+                            };
+                        }
+                        const optionsList = opts.map((opt, i) => {
+                            const coords = opt.screenCoordinates?.normalized;
+                            return `[${i}] "${opt.text}"\n` +
+                                `    selector: ${opt.selector}\n` +
+                                `    coords: (${coords?.centerX?.toFixed(3) || '?'}, ${coords?.centerY?.toFixed(3) || '?'})`;
+                        }).join('\n');
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `📋 Combo-box options (${result.framework || 'custom'}):\n\n` +
+                                        `${optionsList}\n\n` +
+                                        `Total: ${opts.length} options\n` +
+                                        `Input: ${result.inputSelector}\n` +
+                                        `Toggle: ${result.toggleSelector || 'none'}\n\n` +
+                                        `To select: clickElement(option.selector) or use coords with native click()`,
+                                }],
+                        };
+                    case 'browser_openDropdownNative': {
+                        // Native dropdown opener - uses macOS native input to open stubborn dropdowns
+                        const selector = args?.selector;
+                        const searchText = args?.searchText || '';
+                        const waitMs = args?.waitMs || 500;
+                        const browser = (args?.browser || 'firefox');
+                        const tabId = args?.tabId;
+                        try {
+                            // Step 1: Get element coordinates via browser extension
+                            const coordResult = await this.browserProxyCall('/browser/getElementForNativeInput', 'POST', {
+                                selector,
+                                tabId,
+                                browser,
+                            });
+                            if (coordResult.error || !coordResult.coordinates) {
+                                return {
+                                    content: [{ type: 'text', text: `❌ Failed to get element coordinates: ${coordResult.error || 'No coordinates returned'}` }],
+                                    isError: true,
+                                };
+                            }
+                            const { centerX, centerY } = coordResult.coordinates.normalized;
+                            // Step 2: Focus browser window
+                            const browserName = browser.charAt(0).toUpperCase() + browser.slice(1);
+                            await this.proxyCall('/focusApplication', 'POST', { identifier: browserName });
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            // Step 3: Click at the dropdown coordinates
+                            await this.proxyCall('/click', 'POST', { x: centerX, y: centerY, button: 'left' });
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            // Step 4: If searchText provided, type it to trigger autocomplete
+                            if (searchText) {
+                                await this.proxyCall('/typeText', 'POST', { text: searchText });
+                                await new Promise(resolve => setTimeout(resolve, waitMs));
+                            }
+                            else {
+                                // Try ArrowDown to open dropdown without typing
+                                await this.proxyCall('/pressKey', 'POST', { key: 'Down' });
+                                await new Promise(resolve => setTimeout(resolve, waitMs));
+                            }
+                            // Step 5: Get dropdown options now that it should be open
+                            const optionsResult = await this.browserProxyCall('/browser/getDropdownOptions', 'POST', {
+                                selector,
+                                tabId,
+                                browser,
+                                waitMs: 100, // Short wait since we already waited
+                            });
+                            if (optionsResult.error) {
+                                return {
+                                    content: [{
+                                            type: 'text',
+                                            text: `⚠️ Dropdown clicked but options not found: ${optionsResult.error}\n` +
+                                                `Clicked at: (${centerX.toFixed(3)}, ${centerY.toFixed(3)})\n` +
+                                                `Search text: "${searchText || '(none)'}"\n` +
+                                                `Hint: The dropdown may require different interaction. Try increasing waitMs.`,
+                                        }],
+                                };
+                            }
+                            const nativeOpts = optionsResult.options || [];
+                            if (nativeOpts.length === 0) {
+                                return {
+                                    content: [{
+                                            type: 'text',
+                                            text: `⚠️ Dropdown opened but no options visible.\n` +
+                                                `Clicked at: (${centerX.toFixed(3)}, ${centerY.toFixed(3)})\n` +
+                                                `Search text: "${searchText || '(none)'}"\n` +
+                                                `Framework: ${optionsResult.framework || 'unknown'}\n` +
+                                                `Hint: Try providing searchText to filter/load options.`,
+                                        }],
+                                };
+                            }
+                            // Format options for output
+                            const nativeOptsList = nativeOpts.map((opt, i) => {
+                                const coords = opt.screenCoordinates?.normalized;
+                                return `[${i}] "${opt.text}"\n` +
+                                    `    selector: ${opt.selector}\n` +
+                                    `    coords: (${coords?.centerX?.toFixed(3) || '?'}, ${coords?.centerY?.toFixed(3) || '?'})`;
+                            }).join('\n');
+                            return {
+                                content: [{
+                                        type: 'text',
+                                        text: `✅ Dropdown opened with native input!\n\n` +
+                                            `📋 Options (${optionsResult.framework || 'custom'}):\n\n` +
+                                            `${nativeOptsList}\n\n` +
+                                            `Total: ${nativeOpts.length} options\n` +
+                                            `Search: "${searchText || '(none)'}"\n` +
+                                            `Clicked: (${centerX.toFixed(3)}, ${centerY.toFixed(3)})\n\n` +
+                                            `To select: browser_clickElement(selector) or native click(coords)`,
+                                    }],
+                            };
+                        }
+                        catch (err) {
+                            return {
+                                content: [{ type: 'text', text: `❌ Native dropdown open failed: ${err.message}` }],
+                                isError: true,
+                            };
+                        }
+                    }
+                    // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+                    case 'browser_navigate':
+                        result = await this.browserProxyCall('/browser/navigate', 'POST', {
+                            url: args?.url,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                            waitUntil: args?.waitUntil,
+                            timeout: args?.timeout,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Navigated to ${args?.url}${result.title ? `\nPage title: "${result.title}"` : ''}`,
+                                }],
+                        };
+                    case 'browser_screenshot':
+                        result = await this.browserProxyCall('/browser/screenshot', 'POST', {
+                            selector: args?.selector,
+                            fullPage: args?.fullPage,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        // Return the screenshot as base64 image
+                        if (result.screenshot) {
+                            return {
+                                content: [{
+                                        type: 'image',
+                                        data: result.screenshot,
+                                        mimeType: 'image/png',
+                                    }],
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `Screenshot captured${args?.selector ? ` of element: ${args.selector}` : ''}`,
+                                }],
+                        };
+                    case 'browser_go_back':
+                        result = await this.browserProxyCall('/browser/goBack', 'POST', {
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Navigated back${result.url ? ` to ${result.url}` : ''}`,
+                                }],
+                        };
+                    case 'browser_go_forward':
+                        result = await this.browserProxyCall('/browser/goForward', 'POST', {
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Navigated forward${result.url ? ` to ${result.url}` : ''}`,
+                                }],
+                        };
+                    case 'browser_get_visible_html':
+                        result = await this.browserProxyCall('/browser/getVisibleHtml', 'POST', {
+                            selector: args?.selector,
+                            removeScripts: args?.removeScripts !== false,
+                            removeStyles: args?.removeStyles || false,
+                            cleanHtml: args?.cleanHtml || false,
+                            maxLength: args?.maxLength || 50000,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: result.html || result.content || JSON.stringify(result),
+                                }],
+                        };
+                    case 'browser_hover':
+                        result = await this.browserProxyCall('/browser/hover', 'POST', {
+                            selector: args?.selector,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Hovering over element: ${args?.selector}`,
+                                }],
+                        };
+                    case 'browser_drag':
+                        result = await this.browserProxyCall('/browser/drag', 'POST', {
+                            sourceSelector: args?.sourceSelector,
+                            targetSelector: args?.targetSelector,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Dragged element from ${args?.sourceSelector} to ${args?.targetSelector}`,
+                                }],
+                        };
+                    case 'browser_press_key':
+                        result = await this.browserProxyCall('/browser/pressKey', 'POST', {
+                            key: args?.key,
+                            selector: args?.selector,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Pressed key: ${args?.key}${args?.selector ? ` on element ${args.selector}` : ''}`,
+                                }],
+                        };
+                    case 'browser_upload_file':
+                        result = await this.browserProxyCall('/browser/uploadFile', 'POST', {
+                            selector: args?.selector,
+                            filePath: args?.filePath,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Uploaded file ${args?.filePath} to ${args?.selector}`,
+                                }],
+                        };
+                    case 'browser_save_as_pdf':
+                        result = await this.browserProxyCall('/browser/saveAsPdf', 'POST', {
+                            outputPath: args?.outputPath,
+                            filename: args?.filename || 'page.pdf',
+                            format: args?.format || 'A4',
+                            printBackground: args?.printBackground !== false,
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `✓ Saved page as PDF: ${result.path || `${args?.outputPath}/${args?.filename || 'page.pdf'}`}`,
+                                }],
+                        };
+                    // Filesystem tools
+                    case 'fs_list':
+                    case 'fs_read':
+                    case 'fs_read_range':
+                    case 'fs_write':
+                    case 'fs_delete':
+                    case 'fs_move':
+                    case 'fs_search':
+                    case 'fs_grep':
+                    case 'fs_patch':
+                        return await this.handleFilesystemTool(name, args);
+                    // Shell tools
+                    case 'shell_exec':
+                    case 'shell_start_session':
+                    case 'shell_send_input':
+                    case 'shell_stop_session':
+                        return await this.handleShellTool(name, args);
                     default:
                         throw new Error(`Unknown tool: ${name}`);
                 }
@@ -2110,6 +5180,169 @@ If visibility checks fail due to heavy anti-bot measures, remember you can alway
                 };
             }
         });
+    }
+    /**
+     * Handle filesystem tool calls
+     */
+    async handleFilesystemTool(name, args) {
+        // Check if tool is enabled
+        if (!this.toolRegistry.isToolEnabled(name)) {
+            return {
+                content: [{ type: 'text', text: `Tool ${name} is disabled` }],
+                isError: true,
+            };
+        }
+        try {
+            let result;
+            switch (name) {
+                case 'fs_list':
+                    result = await this.filesystemTools.listDirectory(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Found ${result.entries.length} entries:\n\n` +
+                                    result.entries.map((entry) => `${entry.type === 'directory' ? '📁' : '📄'} ${path_1.default.basename(entry.path)}${entry.size ? ` (${entry.size} bytes)` : ''}`).join('\n'),
+                            }],
+                    };
+                case 'fs_read':
+                    result = await this.filesystemTools.readFile(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `File: ${path_1.default.basename(result.path)}\nSize: ${result.size} bytes${result.truncated ? ' (truncated)' : ''}\n\nContent:\n${result.content}`,
+                            }],
+                    };
+                case 'fs_read_range':
+                    result = await this.filesystemTools.readFileRange(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `File: ${path_1.default.basename(result.path)}\nLines ${result.start_line}-${result.end_line} of ${result.total_lines}:\n\n${result.content}`,
+                            }],
+                    };
+                case 'fs_write':
+                    result = await this.filesystemTools.writeFile(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Wrote ${result.bytes_written} bytes to ${path_1.default.basename(result.path)}`,
+                            }],
+                    };
+                case 'fs_delete':
+                    result = await this.filesystemTools.deletePath(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: result.deleted ? `Deleted ${path_1.default.basename(result.path)}` : `Failed to delete ${path_1.default.basename(result.path)}`,
+                            }],
+                    };
+                case 'fs_move':
+                    result = await this.filesystemTools.movePath(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: result.moved ? `Moved ${path_1.default.basename(result.from)} to ${path_1.default.basename(result.to)}` : `Failed to move`,
+                            }],
+                    };
+                case 'fs_search':
+                    result = await this.filesystemTools.searchFiles(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Found ${result.matches.length} matches:\n\n` +
+                                    result.matches.map((match) => `${match.type === 'directory' ? '📁' : '📄'} ${match.path}`).join('\n'),
+                            }],
+                    };
+                case 'fs_grep':
+                    result = await this.filesystemTools.grepFiles(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Found ${result.matches.length} matches:\n\n` +
+                                    result.matches.map((match) => `${path_1.default.basename(match.path)}:${match.line}: ${match.text.trim()}`).join('\n'),
+                            }],
+                    };
+                case 'fs_patch':
+                    result = await this.filesystemTools.patchFile(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Applied ${result.operations_applied} operations to ${path_1.default.basename(result.path)}${result.preview ? '\n\nPreview:\n' + result.preview.map((p) => `${p.operation}: ${p.changed ? 'changed' : 'no change'}`).join('\n') : ''}`,
+                            }],
+                    };
+                default:
+                    throw new Error(`Unknown filesystem tool: ${name}`);
+            }
+        }
+        catch (error) {
+            return {
+                content: [{
+                        type: 'text',
+                        text: `Error: ${error.message}`,
+                    }],
+                isError: true,
+            };
+        }
+    }
+    /**
+     * Handle shell tool calls
+     */
+    async handleShellTool(name, args) {
+        // Check if tool is enabled
+        if (!this.toolRegistry.isToolEnabled(name)) {
+            return {
+                content: [{ type: 'text', text: `Tool ${name} is disabled` }],
+                isError: true,
+            };
+        }
+        try {
+            let result;
+            switch (name) {
+                case 'shell_exec':
+                    result = await this.shellTools.executeCommand(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Exit code: ${result.exit_code}${result.truncated ? ' (output truncated)' : ''}\n\nSTDOUT:\n${result.stdout || '(empty)'}\n\nSTDERR:\n${result.stderr || '(empty)'}`,
+                            }],
+                    };
+                case 'shell_start_session':
+                    result = this.shellTools.startSession(args);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Started session ${result.session_id} (PID: ${result.pid})\nNote: Output will be streamed via MCP notifications.`,
+                            }],
+                    };
+                case 'shell_send_input':
+                    result = this.shellTools.sendInput(args.session_id, args.input);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: `Sent ${result.bytes_written} bytes to session ${result.session_id}`,
+                            }],
+                    };
+                case 'shell_stop_session':
+                    result = this.shellTools.stopSession(args.session_id, args.signal);
+                    return {
+                        content: [{
+                                type: 'text',
+                                text: result.stopped ? `Stopped session ${result.session_id}` : `Failed to stop session`,
+                            }],
+                    };
+                default:
+                    throw new Error(`Unknown shell tool: ${name}`);
+            }
+        }
+        catch (error) {
+            return {
+                content: [{
+                        type: 'text',
+                        text: `Error: ${error.message}`,
+                    }],
+                isError: true,
+            };
+        }
     }
     async run() {
         const transport = new stdio_js_1.StdioServerTransport();

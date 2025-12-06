@@ -191,6 +191,43 @@
         case 'getCookies':
           return await sendToInjectedScript('getCookies', payload);
 
+        // ========== ENHANCED TOOLS ==========
+        case 'inspectCurrentPage':
+          return await sendToInjectedScript('inspectCurrentPage', payload);
+
+        case 'getUIElements':
+          return await sendToInjectedScript('getUIElements', payload);
+
+        case 'fillFormField':
+          return await sendToInjectedScript('fillFormField', payload);
+
+        // ========== NEW ENHANCED TOOLS ==========
+        case 'clickByText':
+          return await sendToInjectedScript('clickByText', payload);
+
+        case 'clickMultiple':
+          return await sendToInjectedScript('clickMultiple', payload);
+
+        case 'getFormStructure':
+          return await sendToInjectedScript('getFormStructure', payload);
+
+        case 'answerQuestions':
+          return await sendToInjectedScript('answerQuestions', payload);
+
+        // ========== COMBO-BOX TOOLS ==========
+        case 'getDropdownOptions':
+          return await sendToInjectedScript('getDropdownOptions', payload);
+
+        // ========== LLM INTROSPECTION TOOLS ==========
+        case 'listInteractiveElements':
+          return await sendToInjectedScript('listInteractiveElements', payload);
+
+        case 'clickElementWithDebug':
+          return await sendToInjectedScript('clickElementWithDebug', payload);
+
+        case 'findElementWithDebug':
+          return await sendToInjectedScript('findElementWithDebug', payload);
+
         default:
           return { error: `Unknown action: ${action}` };
       }

@@ -205,7 +205,26 @@ const browserAPI = (() => {
           case 'getNetworkRequests':
           case 'getLocalStorage':
           case 'getCookies':
+          // Enhanced tools
+          case 'inspectCurrentPage':
+          case 'getUIElements':
+          case 'fillFormField':
+          // New enhanced tools
+          case 'clickByText':
+          case 'clickMultiple':
+          case 'getFormStructure':
+          case 'answerQuestions':
+          // Combo-box tools
+          case 'getDropdownOptions':
+          // LLM introspection tools
+          case 'listInteractiveElements':
+          case 'clickElementWithDebug':
+          case 'findElementWithDebug':
             result = await sendToContentScript(payload?.tabId, { action, payload });
+            break;
+
+          case 'findTabByUrl':
+            result = await findTabByUrl(payload?.urlPattern);
             break;
 
           case 'createTab':
@@ -393,6 +412,20 @@ const browserAPI = (() => {
         case 'getNetworkRequests':
         case 'getLocalStorage':
         case 'getCookies':
+        // Enhanced tools
+        case 'inspectCurrentPage':
+        case 'getUIElements':
+        case 'fillFormField':
+        case 'clickByText':
+        case 'clickMultiple':
+        case 'getFormStructure':
+        case 'answerQuestions':
+        // Combo-box tools
+        case 'getDropdownOptions':
+        // LLM introspection tools
+        case 'listInteractiveElements':
+        case 'clickElementWithDebug':
+        case 'findElementWithDebug':
           response = await sendToContentScript(tabId, { action, payload });
           break;
 
@@ -452,12 +485,139 @@ const browserAPI = (() => {
   }
 
   /**
+   * Get all frames for a tab using webNavigation API
+   */
+  async function getAllFrames(tabId) {
+    try {
+      const frames = await browserAPI.webNavigation.getAllFrames({ tabId });
+      return frames || [];
+    } catch (error) {
+      console.error('[MCP Eyes] Failed to get frames:', error);
+      return [{ frameId: 0 }]; // Fall back to main frame only
+    }
+  }
+
+  /**
+   * Send message to a specific frame in a tab
+   */
+  function sendToFrame(tabId, frameId, message) {
+    return new Promise((resolve) => {
+      const options = { frameId };
+
+      try {
+        const result = browserAPI.tabs.sendMessage(tabId, message, options);
+        if (result && typeof result.then === 'function') {
+          // Promise-based (Firefox)
+          result
+            .then(response => resolve({ success: true, frameId, response }))
+            .catch(error => resolve({ success: false, frameId, error: error.message }));
+        } else {
+          // Callback fallback
+          resolve({ success: true, frameId, response: result });
+        }
+      } catch (error) {
+        resolve({ success: false, frameId, error: error.message });
+      }
+    });
+  }
+
+  /**
+   * Send message to all frames and aggregate results
+   * Used for commands that need to search across iframes (like getInteractiveElements)
+   */
+  async function sendToAllFrames(tabId, message) {
+    const frames = await getAllFrames(tabId);
+    console.log(`[MCP Eyes] Sending to ${frames.length} frames in tab ${tabId}`);
+
+    const results = await Promise.all(
+      frames.map(frame => sendToFrame(tabId, frame.frameId, message))
+    );
+
+    // Aggregate successful results
+    const successfulResults = results.filter(r => r.success && r.response);
+    console.log(`[MCP Eyes] Got responses from ${successfulResults.length}/${frames.length} frames`);
+
+    return { results: successfulResults, totalFrames: frames.length };
+  }
+
+  /**
+   * Aggregate interactive elements from all frames
+   */
+  function aggregateInteractiveElements(frameResults) {
+    const allElements = [];
+    let globalIndex = 0;
+
+    for (const result of frameResults.results) {
+      const elements = result.response;
+      if (Array.isArray(elements)) {
+        // Add frame context to each element
+        for (const el of elements) {
+          allElements.push({
+            ...el,
+            index: globalIndex++,
+            frameId: result.frameId,
+            originalIndex: el.index
+          });
+        }
+      }
+    }
+
+    return allElements;
+  }
+
+  /**
    * Send message to content script in a specific tab
+   * For commands that need iframe support, use sendToAllFramesAndAggregate
    */
   function sendToContentScript(tabId, message) {
     return new Promise((resolve, reject) => {
       const sendMessage = (targetTabId) => {
-        const result = browserAPI.tabs.sendMessage(targetTabId, message);
+        // Commands that need to aggregate results from all frames
+        const aggregateCommands = [
+          'getInteractiveElements',
+          'getPageContext',
+          'getUIElements',
+          'getFormData'
+        ];
+
+        const action = message.action;
+
+        if (aggregateCommands.includes(action)) {
+          // Send to all frames and aggregate
+          sendToAllFrames(targetTabId, message)
+            .then(frameResults => {
+              if (action === 'getInteractiveElements' || action === 'getUIElements') {
+                const aggregated = aggregateInteractiveElements(frameResults);
+                console.log(`[MCP Eyes] Aggregated ${aggregated.length} elements from ${frameResults.totalFrames} frames`);
+                resolve(aggregated);
+              } else if (action === 'getPageContext') {
+                // Aggregate page context from all frames
+                const allElements = aggregateInteractiveElements(frameResults);
+                const mainFrame = frameResults.results.find(r => r.frameId === 0);
+                const pageInfo = mainFrame?.response?.pageInfo || {};
+                resolve({ elements: allElements, pageInfo });
+              } else if (action === 'getFormData') {
+                // Aggregate forms from all frames
+                const allForms = [];
+                for (const result of frameResults.results) {
+                  const forms = result.response;
+                  if (Array.isArray(forms)) {
+                    for (const form of forms) {
+                      allForms.push({ ...form, frameId: result.frameId });
+                    }
+                  }
+                }
+                resolve(allForms);
+              } else {
+                resolve(frameResults);
+              }
+            })
+            .catch(reject);
+          return;
+        }
+
+        // For other commands, send to main frame only (frameId: 0)
+        const result = browserAPI.tabs.sendMessage(targetTabId, message, { frameId: 0 });
         if (result && typeof result.then === 'function') {
           // Promise-based (Firefox)
           result.then(resolve).catch(reject);
@@ -682,6 +842,125 @@ const browserAPI = (() => {
     } catch (error) {
       return { error: error.message };
     }
+  }
+
+  /**
+   * Find a tab by URL pattern (substring match, regex, or glob-style)
+   */
+  async function findTabByUrl(urlPattern) {
+    if (!urlPattern) {
+      return { error: 'URL pattern is required' };
+    }
+
+    return new Promise((resolve) => {
+      try {
+        const result = browserAPI.tabs.query({});
+
+        if (result && typeof result.then === 'function') {
+          // Promise-based (Firefox)
+          result.then(tabs => {
+            const matches = findMatchingTabs(tabs, urlPattern);
+            resolve(formatTabResults(matches, urlPattern));
+          }).catch(err => {
+            resolve({ error: err.message });
+          });
+        } else {
+          // Callback-based (Chrome)
+          browserAPI.tabs.query({}, (tabs) => {
+            if (browserAPI.runtime.lastError) {
+              resolve({ error: browserAPI.runtime.lastError.message });
+              return;
+            }
+            const matches = findMatchingTabs(tabs, urlPattern);
+            resolve(formatTabResults(matches, urlPattern));
+          });
+        }
+      } catch (err) {
+        resolve({ error: err.message });
+      }
+    });
+  }
+
+  /**
+   * Find tabs matching a URL pattern
+   */
+  function findMatchingTabs(tabs, urlPattern) {
+    if (!tabs || !Array.isArray(tabs)) return [];
+
+    const matches = [];
+    const lowerPattern = urlPattern.toLowerCase();
+
+    for (const tab of tabs) {
+      if (!tab.url) continue;
+
+      const lowerUrl = tab.url.toLowerCase();
+
+      // Try different matching strategies
+      let matched = false;
+
+      // 1. Exact match
+      if (lowerUrl === lowerPattern) {
+        matched = true;
+      }
+      // 2. Substring match (most common use case)
+      else if (lowerUrl.includes(lowerPattern)) {
+        matched = true;
+      }
+      // 3. Try as regex if it looks like one (starts with ^ or contains .*, etc)
+      else if (urlPattern.includes('*') || urlPattern.startsWith('^') || urlPattern.endsWith('$')) {
+        try {
+          // Convert glob-style wildcards to regex
+          let regexPattern = urlPattern
+            .replace(/[.+?^${}()|[\]\\]/g, '\\$&')  // Escape special chars except *
+            .replace(/\*/g, '.*');  // Convert * to .*
+
+          const regex = new RegExp(regexPattern, 'i');
+          if (regex.test(tab.url)) {
+            matched = true;
+          }
+        } catch (e) {
+          // Invalid regex, ignore
+        }
+      }
+
+      if (matched) {
+        matches.push({
+          id: tab.id,
+          url: tab.url,
+          title: tab.title,
+          active: tab.active,
+          windowId: tab.windowId,
+          index: tab.index
+        });
+      }
+    }
+
+    return matches;
+  }
+
+  /**
+   * Format tab search results
+   */
+  function formatTabResults(matches, urlPattern) {
+    if (matches.length === 0) {
+      return {
+        found: false,
+        pattern: urlPattern,
+        matches: [],
+        count: 0,
+        message: `No tabs found matching pattern: ${urlPattern}`
+      };
+    }
+
+    return {
+      found: true,
+      pattern: urlPattern,
+      matches,
+      count: matches.length,
+      // Return the first match for convenience (usually what's wanted)
+      tab: matches[0],
+      tabId: matches[0].id
+    };
   }
 
   /**

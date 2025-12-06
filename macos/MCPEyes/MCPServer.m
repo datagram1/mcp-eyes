@@ -8,6 +8,7 @@
 #import <arpa/inet.h>
 #import <Carbon/Carbon.h>
 #import <dlfcn.h>
+#import <Vision/Vision.h>
 
 // Dynamic loading for CGWindowListCreateImage (deprecated in macOS 15)
 typedef CGImageRef (*CGWindowListCreateImageFn)(CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption);
@@ -380,6 +381,68 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         else if ([path isEqualToString:@"/getClickableElements"]) {
             return [self getClickableElements];
         }
+        else if ([path isEqualToString:@"/doubleClick"]) {
+            NSNumber *x = params[@"x"];
+            NSNumber *y = params[@"y"];
+            if (!x || !y) {
+                return @{@"error": @"x and y are required"};
+            }
+            BOOL success = [self doubleClickAtX:x.floatValue y:y.floatValue];
+            return @{@"success": @(success)};
+        }
+        else if ([path isEqualToString:@"/clickElement"]) {
+            NSNumber *elementIndex = params[@"elementIndex"];
+            if (!elementIndex) {
+                return @{@"error": @"elementIndex is required"};
+            }
+            return [self clickElementAtIndex:elementIndex.integerValue];
+        }
+        else if ([path isEqualToString:@"/scrollMouse"]) {
+            NSString *direction = params[@"direction"];
+            NSNumber *amount = params[@"amount"] ?: @3;
+            if (!direction) {
+                return @{@"error": @"direction is required (up or down)"};
+            }
+            int deltaY = [direction isEqualToString:@"up"] ? amount.intValue : -amount.intValue;
+            BOOL success = [self scrollDeltaX:0 deltaY:deltaY atX:nil y:nil];
+            return @{@"success": @(success), @"direction": direction, @"amount": amount};
+        }
+        else if ([path isEqualToString:@"/getMousePosition"]) {
+            CGPoint mouseLocation = [NSEvent mouseLocation];
+            // Convert from bottom-left origin to top-left origin
+            NSScreen *mainScreen = [NSScreen mainScreen];
+            CGFloat screenHeight = mainScreen.frame.size.height;
+            return @{@"x": @(mouseLocation.x), @"y": @(screenHeight - mouseLocation.y)};
+        }
+        else if ([path isEqualToString:@"/closeApp"]) {
+            NSString *identifier = params[@"identifier"];
+            NSNumber *force = params[@"force"] ?: @NO;
+            if (!identifier) {
+                return @{@"error": @"identifier is required"};
+            }
+            return [self closeApplication:identifier force:force.boolValue];
+        }
+        else if ([path isEqualToString:@"/click_absolute"]) {
+            NSNumber *x = params[@"x"];
+            NSNumber *y = params[@"y"];
+            if (!x || !y) {
+                return @{@"error": @"x and y are required (absolute screen coordinates in pixels)"};
+            }
+            NSString *button = params[@"button"] ?: @"left";
+            BOOL success = [self clickAbsoluteX:x.floatValue y:y.floatValue rightButton:[button isEqualToString:@"right"]];
+            return @{@"success": @(success)};
+        }
+        else if ([path isEqualToString:@"/getUIElements"]) {
+            return [self getUIElements];
+        }
+        else if ([path isEqualToString:@"/analyzeWithOCR"]) {
+            return [self analyzeWithOCR];
+        }
+        else if ([path isEqualToString:@"/wait"]) {
+            NSNumber *milliseconds = params[@"milliseconds"] ?: @1000;
+            [NSThread sleepForTimeInterval:milliseconds.doubleValue / 1000.0];
+            return @{@"success": @YES, @"waited_ms": milliseconds};
+        }
         // Browser command proxy - forward to browser bridge server on port 3457
         else if ([path hasPrefix:@"/browser/"]) {
             return [self proxyBrowserCommand:path body:body params:params];
@@ -487,9 +550,20 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 
         if (!ownerName || !ownerPID) continue;
 
-        // Get bundle ID from PID
-        NSRunningApplication *runningApp = [NSRunningApplication runningApplicationWithProcessIdentifier:ownerPID.intValue];
-        NSString *bundleId = runningApp.bundleIdentifier ?: @"missing value";
+        // Get bundle ID from PID with error handling
+        NSRunningApplication *runningApp = nil;
+        @try {
+            runningApp = [NSRunningApplication runningApplicationWithProcessIdentifier:ownerPID.intValue];
+        }
+        @catch (NSException *exception) {
+            // Some processes may not be accessible, skip them
+            continue;
+        }
+
+        NSString *bundleId = runningApp.bundleIdentifier;
+        if (!bundleId || bundleId.length == 0) {
+            bundleId = [NSString stringWithFormat:@"pid.%@", ownerPID];
+        }
 
         // Skip duplicates
         if ([seenBundleIds containsObject:bundleId]) continue;
@@ -958,6 +1032,146 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     return YES;
 }
 
+- (BOOL)doubleClickAtX:(CGFloat)x y:(CGFloat)y {
+    CGFloat absX = x;
+    CGFloat absY = y;
+
+    // If we have a current app, treat x/y as relative coordinates (0-1)
+    if (self.currentAppBounds) {
+        CGFloat boundsX = [self.currentAppBounds[@"x"] floatValue];
+        CGFloat boundsY = [self.currentAppBounds[@"y"] floatValue];
+        CGFloat boundsW = [self.currentAppBounds[@"width"] floatValue];
+        CGFloat boundsH = [self.currentAppBounds[@"height"] floatValue];
+
+        if (boundsW > 0 && boundsH > 0) {
+            absX = boundsX + (x * boundsW);
+            absY = boundsY + (y * boundsH);
+        }
+    }
+
+    CGPoint point = CGPointMake(absX, absY);
+
+    // Create double-click events
+    CGEventRef mouseDown1 = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, point, kCGMouseButtonLeft);
+    CGEventRef mouseUp1 = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, point, kCGMouseButtonLeft);
+    CGEventRef mouseDown2 = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, point, kCGMouseButtonLeft);
+    CGEventRef mouseUp2 = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, point, kCGMouseButtonLeft);
+
+    if (!mouseDown1 || !mouseUp1 || !mouseDown2 || !mouseUp2) {
+        if (mouseDown1) CFRelease(mouseDown1);
+        if (mouseUp1) CFRelease(mouseUp1);
+        if (mouseDown2) CFRelease(mouseDown2);
+        if (mouseUp2) CFRelease(mouseUp2);
+        return NO;
+    }
+
+    // Set click count for double-click
+    CGEventSetIntegerValueField(mouseDown1, kCGMouseEventClickState, 1);
+    CGEventSetIntegerValueField(mouseUp1, kCGMouseEventClickState, 1);
+    CGEventSetIntegerValueField(mouseDown2, kCGMouseEventClickState, 2);
+    CGEventSetIntegerValueField(mouseUp2, kCGMouseEventClickState, 2);
+
+    // First click
+    CGEventPost(kCGHIDEventTap, mouseDown1);
+    usleep(30000);
+    CGEventPost(kCGHIDEventTap, mouseUp1);
+    usleep(30000);
+
+    // Second click
+    CGEventPost(kCGHIDEventTap, mouseDown2);
+    usleep(30000);
+    CGEventPost(kCGHIDEventTap, mouseUp2);
+
+    CFRelease(mouseDown1);
+    CFRelease(mouseUp1);
+    CFRelease(mouseDown2);
+    CFRelease(mouseUp2);
+
+    return YES;
+}
+
+- (NSDictionary *)clickElementAtIndex:(NSInteger)elementIndex {
+    // Get clickable elements first
+    NSDictionary *elementsResult = [self getClickableElements];
+    NSArray *elements = elementsResult[@"elements"];
+
+    if (!elements || ![elements isKindOfClass:[NSArray class]]) {
+        return @{@"error": @"Failed to get clickable elements"};
+    }
+
+    if (elementIndex < 0 || elementIndex >= (NSInteger)elements.count) {
+        return @{@"error": [NSString stringWithFormat:@"Element index %ld out of range (0-%lu)", (long)elementIndex, (unsigned long)elements.count - 1]};
+    }
+
+    NSDictionary *element = elements[elementIndex];
+    NSDictionary *normalizedPosition = element[@"normalizedPosition"];
+
+    if (!normalizedPosition) {
+        return @{@"error": @"Element has no normalized position"};
+    }
+
+    CGFloat x = [normalizedPosition[@"x"] floatValue];
+    CGFloat y = [normalizedPosition[@"y"] floatValue];
+
+    BOOL success = [self clickAtX:x y:y rightButton:NO];
+
+    return @{
+        @"success": @(success),
+        @"message": [NSString stringWithFormat:@"Clicked element %ld at (%.3f, %.3f)", (long)elementIndex, x, y],
+        @"element": element
+    };
+}
+
+- (NSDictionary *)closeApplication:(NSString *)identifier force:(BOOL)force {
+    NSRunningApplication *targetApp = nil;
+
+    // Try to find by bundle ID
+    if ([identifier containsString:@"."]) {
+        NSArray *apps = [NSRunningApplication runningApplicationsWithBundleIdentifier:identifier];
+        targetApp = apps.firstObject;
+    }
+
+    // Try to find by PID if identifier is numeric
+    if (!targetApp) {
+        NSScanner *scanner = [NSScanner scannerWithString:identifier];
+        int pid;
+        if ([scanner scanInt:&pid] && [scanner isAtEnd]) {
+            targetApp = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+        }
+    }
+
+    // Try to find by name
+    if (!targetApp) {
+        NSArray *allApps = [[NSWorkspace sharedWorkspace] runningApplications];
+        for (NSRunningApplication *app in allApps) {
+            if ([app.localizedName isEqualToString:identifier] ||
+                [app.localizedName.lowercaseString isEqualToString:identifier.lowercaseString]) {
+                targetApp = app;
+                break;
+            }
+        }
+    }
+
+    if (!targetApp) {
+        return @{@"error": [NSString stringWithFormat:@"Application not found: %@", identifier]};
+    }
+
+    BOOL success;
+    if (force) {
+        success = [targetApp forceTerminate];
+    } else {
+        success = [targetApp terminate];
+    }
+
+    return @{
+        @"success": @(success),
+        @"message": [NSString stringWithFormat:@"%@ application: %@ (%@)",
+                     force ? @"Force terminated" : @"Terminated",
+                     targetApp.localizedName,
+                     targetApp.bundleIdentifier ?: @"unknown"]
+    };
+}
+
 - (BOOL)typeText:(NSString *)text {
     for (NSUInteger i = 0; i < text.length; i++) {
         unichar character = [text characterAtIndex:i];
@@ -1314,6 +1528,355 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         }
         CFRelease(children);
     }
+}
+
+#pragma mark - Click Absolute
+
+- (BOOL)clickAbsoluteX:(CGFloat)x y:(CGFloat)y rightButton:(BOOL)rightButton {
+    // Click at absolute screen coordinates (in pixels)
+    CGPoint clickPoint = CGPointMake(x, y);
+
+    CGEventRef mouseDown;
+    CGEventRef mouseUp;
+
+    if (rightButton) {
+        mouseDown = CGEventCreateMouseEvent(NULL, kCGEventRightMouseDown, clickPoint, kCGMouseButtonRight);
+        mouseUp = CGEventCreateMouseEvent(NULL, kCGEventRightMouseUp, clickPoint, kCGMouseButtonRight);
+    } else {
+        mouseDown = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, clickPoint, kCGMouseButtonLeft);
+        mouseUp = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, clickPoint, kCGMouseButtonLeft);
+    }
+
+    CGEventPost(kCGHIDEventTap, mouseDown);
+    usleep(50000); // 50ms delay
+    CGEventPost(kCGHIDEventTap, mouseUp);
+
+    CFRelease(mouseDown);
+    CFRelease(mouseUp);
+
+    return YES;
+}
+
+#pragma mark - Get UI Elements (Enhanced Accessibility Tree)
+
+- (NSDictionary *)getUIElements {
+    if (!self.currentAppBundleId) {
+        return @{@"error": @"No application focused. Call focusApplication first."};
+    }
+
+    NSRunningApplication *app = nil;
+    for (NSRunningApplication *runningApp in [[NSWorkspace sharedWorkspace] runningApplications]) {
+        if ([runningApp.bundleIdentifier isEqualToString:self.currentAppBundleId]) {
+            app = runningApp;
+            break;
+        }
+    }
+
+    if (!app) {
+        return @{@"error": @"Application not found"};
+    }
+
+    AXUIElementRef appElement = AXUIElementCreateApplication(app.processIdentifier);
+    if (!appElement) {
+        return @{@"error": @"Could not access application UI"};
+    }
+
+    AXUIElementRef focusedWindow = NULL;
+    AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute, (CFTypeRef *)&focusedWindow);
+
+    if (!focusedWindow) {
+        CFArrayRef windows = NULL;
+        AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute, (CFTypeRef *)&windows);
+        if (windows && CFArrayGetCount(windows) > 0) {
+            focusedWindow = (AXUIElementRef)CFRetain(CFArrayGetValueAtIndex(windows, 0));
+        }
+        if (windows) CFRelease(windows);
+    }
+
+    NSMutableArray *clickableElements = [NSMutableArray array];
+    NSMutableArray *nonClickableElements = [NSMutableArray array];
+
+    CGRect windowBounds = CGRectZero;
+    if (focusedWindow) {
+        AXValueRef positionValue = NULL;
+        AXValueRef sizeValue = NULL;
+        CGPoint position = CGPointZero;
+        CGSize size = CGSizeZero;
+
+        AXUIElementCopyAttributeValue(focusedWindow, kAXPositionAttribute, (CFTypeRef *)&positionValue);
+        AXUIElementCopyAttributeValue(focusedWindow, kAXSizeAttribute, (CFTypeRef *)&sizeValue);
+
+        if (positionValue) {
+            AXValueGetValue(positionValue, kAXValueCGPointType, &position);
+            CFRelease(positionValue);
+        }
+        if (sizeValue) {
+            AXValueGetValue(sizeValue, kAXValueCGSizeType, &size);
+            CFRelease(sizeValue);
+        }
+
+        windowBounds = CGRectMake(position.x, position.y, size.width, size.height);
+
+        [self collectAllUIElements:focusedWindow
+                    clickable:clickableElements
+                 nonClickable:nonClickableElements
+                 windowBounds:windowBounds
+                        depth:0
+                     maxDepth:20];
+
+        CFRelease(focusedWindow);
+    }
+
+    CFRelease(appElement);
+
+    return @{
+        @"clickable": clickableElements,
+        @"nonClickable": nonClickableElements,
+        @"clickableCount": @(clickableElements.count),
+        @"nonClickableCount": @(nonClickableElements.count),
+        @"windowBounds": @{
+            @"x": @(windowBounds.origin.x),
+            @"y": @(windowBounds.origin.y),
+            @"width": @(windowBounds.size.width),
+            @"height": @(windowBounds.size.height)
+        }
+    };
+}
+
+- (void)collectAllUIElements:(AXUIElementRef)element
+                   clickable:(NSMutableArray *)clickable
+                nonClickable:(NSMutableArray *)nonClickable
+                windowBounds:(CGRect)windowBounds
+                       depth:(int)depth
+                    maxDepth:(int)maxDepth {
+    if (depth > maxDepth || !element) return;
+
+    CFStringRef roleRef = NULL;
+    AXUIElementCopyAttributeValue(element, kAXRoleAttribute, (CFTypeRef *)&roleRef);
+    NSString *role = (__bridge_transfer NSString *)roleRef;
+
+    AXValueRef positionValue = NULL;
+    AXValueRef sizeValue = NULL;
+    CGPoint position = CGPointZero;
+    CGSize size = CGSizeZero;
+
+    AXUIElementCopyAttributeValue(element, kAXPositionAttribute, (CFTypeRef *)&positionValue);
+    AXUIElementCopyAttributeValue(element, kAXSizeAttribute, (CFTypeRef *)&sizeValue);
+
+    if (positionValue) {
+        AXValueGetValue(positionValue, kAXValueCGPointType, &position);
+        CFRelease(positionValue);
+    }
+    if (sizeValue) {
+        AXValueGetValue(sizeValue, kAXValueCGSizeType, &size);
+        CFRelease(sizeValue);
+    }
+
+    // Determine if clickable and get type
+    BOOL isClickable = NO;
+    NSString *type = role ?: @"unknown";
+
+    NSSet *clickableRoles = [NSSet setWithArray:@[
+        (__bridge NSString *)kAXButtonRole,
+        @"AXLink",
+        (__bridge NSString *)kAXCheckBoxRole,
+        (__bridge NSString *)kAXRadioButtonRole,
+        (__bridge NSString *)kAXPopUpButtonRole,
+        (__bridge NSString *)kAXMenuItemRole,
+        (__bridge NSString *)kAXTextFieldRole,
+        (__bridge NSString *)kAXTextAreaRole,
+        @"AXTabGroup",
+        @"AXTab",
+        (__bridge NSString *)kAXSliderRole,
+        (__bridge NSString *)kAXIncrementorRole,
+        (__bridge NSString *)kAXComboBoxRole
+    ]];
+
+    if ([clickableRoles containsObject:role]) {
+        isClickable = YES;
+    }
+
+    // Get element attributes
+    CFStringRef titleRef = NULL;
+    CFStringRef descRef = NULL;
+    CFStringRef valueRef = NULL;
+    CFStringRef helpRef = NULL;
+    AXUIElementCopyAttributeValue(element, kAXTitleAttribute, (CFTypeRef *)&titleRef);
+    AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute, (CFTypeRef *)&descRef);
+    AXUIElementCopyAttributeValue(element, kAXValueAttribute, (CFTypeRef *)&valueRef);
+    AXUIElementCopyAttributeValue(element, kAXHelpAttribute, (CFTypeRef *)&helpRef);
+
+    NSString *title = (__bridge_transfer NSString *)titleRef ?: @"";
+    NSString *desc = (__bridge_transfer NSString *)descRef ?: @"";
+    NSString *value = @"";
+    NSString *help = (__bridge_transfer NSString *)helpRef ?: @"";
+
+    if (valueRef) {
+        if (CFGetTypeID(valueRef) == CFStringGetTypeID()) {
+            value = (__bridge_transfer NSString *)valueRef;
+        } else {
+            CFRelease(valueRef);
+        }
+    }
+
+    CFBooleanRef enabledRef = NULL;
+    AXUIElementCopyAttributeValue(element, kAXEnabledAttribute, (CFTypeRef *)&enabledRef);
+    BOOL isEnabled = enabledRef ? CFBooleanGetValue(enabledRef) : YES;
+    if (enabledRef) CFRelease(enabledRef);
+
+    // Only add elements with size
+    if (size.width > 0 && size.height > 0) {
+        CGFloat normalizedX = 0;
+        CGFloat normalizedY = 0;
+
+        if (windowBounds.size.width > 0 && windowBounds.size.height > 0) {
+            CGFloat centerX = position.x + size.width / 2 - windowBounds.origin.x;
+            CGFloat centerY = position.y + size.height / 2 - windowBounds.origin.y;
+            normalizedX = centerX / windowBounds.size.width;
+            normalizedY = centerY / windowBounds.size.height;
+        }
+
+        NSDictionary *elementInfo = @{
+            @"type": type,
+            @"role": role ?: @"",
+            @"title": title,
+            @"description": desc,
+            @"value": value,
+            @"help": help,
+            @"isEnabled": @(isEnabled),
+            @"bounds": @{
+                @"x": @(position.x),
+                @"y": @(position.y),
+                @"width": @(size.width),
+                @"height": @(size.height)
+            },
+            @"normalizedPosition": @{
+                @"x": @(normalizedX),
+                @"y": @(normalizedY)
+            }
+        };
+
+        if (isClickable) {
+            [clickable addObject:elementInfo];
+        } else {
+            [nonClickable addObject:elementInfo];
+        }
+    }
+
+    // Recursively process children
+    CFArrayRef children = NULL;
+    AXUIElementCopyAttributeValue(element, kAXChildrenAttribute, (CFTypeRef *)&children);
+
+    if (children) {
+        CFIndex count = CFArrayGetCount(children);
+        for (CFIndex i = 0; i < count; i++) {
+            AXUIElementRef child = (AXUIElementRef)CFArrayGetValueAtIndex(children, i);
+            [self collectAllUIElements:child clickable:clickable nonClickable:nonClickable windowBounds:windowBounds depth:depth + 1 maxDepth:maxDepth];
+        }
+        CFRelease(children);
+    }
+}
+
+#pragma mark - OCR Analysis
+
+- (NSDictionary *)analyzeWithOCR {
+    // Take a screenshot first
+    NSData *imageData = nil;
+
+    if (self.currentAppBundleId) {
+        CGWindowID windowID = [self getWindowIDForCurrentApp];
+        if (windowID != kCGNullWindowID) {
+            imageData = [self takeScreenshotOfWindow:windowID];
+        }
+    }
+
+    if (!imageData) {
+        imageData = [self takeScreenshot];
+    }
+
+    if (!imageData) {
+        return @{@"error": @"Failed to capture screenshot for OCR"};
+    }
+
+    // Create CGImage from PNG data
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)imageData, NULL);
+    if (!source) {
+        return @{@"error": @"Failed to create image source"};
+    }
+
+    CGImageRef cgImage = CGImageSourceCreateImageAtIndex(source, 0, NULL);
+    CFRelease(source);
+
+    if (!cgImage) {
+        return @{@"error": @"Failed to create image for OCR"};
+    }
+
+    // Perform OCR using Vision framework
+    __block NSMutableArray *textResults = [NSMutableArray array];
+    __block NSError *ocrError = nil;
+
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+
+    VNRecognizeTextRequest *request = [[VNRecognizeTextRequest alloc] initWithCompletionHandler:^(VNRequest *request, NSError *error) {
+        if (error) {
+            ocrError = error;
+        } else {
+            for (VNRecognizedTextObservation *observation in request.results) {
+                VNRecognizedText *topCandidate = [[observation topCandidates:1] firstObject];
+                if (topCandidate) {
+                    CGRect boundingBox = observation.boundingBox;
+                    // Convert from normalized coordinates (origin bottom-left) to pixels (origin top-left)
+                    CGFloat imageWidth = CGImageGetWidth(cgImage);
+                    CGFloat imageHeight = CGImageGetHeight(cgImage);
+
+                    CGFloat x = boundingBox.origin.x * imageWidth;
+                    CGFloat y = (1 - boundingBox.origin.y - boundingBox.size.height) * imageHeight;
+                    CGFloat width = boundingBox.size.width * imageWidth;
+                    CGFloat height = boundingBox.size.height * imageHeight;
+
+                    [textResults addObject:@{
+                        @"text": topCandidate.string,
+                        @"confidence": @(topCandidate.confidence),
+                        @"bounds": @{
+                            @"x": @(x),
+                            @"y": @(y),
+                            @"width": @(width),
+                            @"height": @(height)
+                        }
+                    }];
+                }
+            }
+        }
+        dispatch_semaphore_signal(semaphore);
+    }];
+
+    request.recognitionLevel = VNRequestTextRecognitionLevelAccurate;
+    request.usesLanguageCorrection = YES;
+
+    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:cgImage options:@{}];
+
+    NSError *performError = nil;
+    [handler performRequests:@[request] error:&performError];
+
+    if (performError) {
+        CGImageRelease(cgImage);
+        return @{@"error": [NSString stringWithFormat:@"OCR failed: %@", performError.localizedDescription]};
+    }
+
+    // Wait for completion (with timeout)
+    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+
+    CGImageRelease(cgImage);
+
+    if (ocrError) {
+        return @{@"error": [NSString stringWithFormat:@"OCR failed: %@", ocrError.localizedDescription]};
+    }
+
+    return @{
+        @"success": @YES,
+        @"textBlocks": textResults,
+        @"count": @(textResults.count)
+    };
 }
 
 #pragma mark - Browser Command Proxy

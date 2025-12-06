@@ -8,6 +8,7 @@
     "activeTab",
     "nativeMessaging",
     "tabs",
+    "webNavigation",
     "<all_urls>"
   ],
 
