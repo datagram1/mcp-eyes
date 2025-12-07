@@ -60,6 +60,11 @@ model User {
   activityPattern         CustomerActivityPattern?
   aiConnections           AIConnection[]
 
+  // OAuth & Remote MCP
+  oauthTokens             OAuthAccessToken[]
+  oauthCodes              OAuthAuthorizationCode[]
+  mcpConnections          McpConnection[]
+
   @@map("users")
 }
 
@@ -496,8 +501,202 @@ model AuditLog {
 }
 
 // ============================================
+// OAUTH - Dynamic Client Registration (RFC 7591)
+// ============================================
+
+model OAuthClient {
+  id                  String    @id @default(cuid())
+  clientId            String    @unique  // Public identifier (UUID)
+  clientSecretHash    String?             // Hashed, only for confidential clients
+  clientName          String              // "Claude", "Cursor", "Claude Code"
+  clientUri           String?             // Homepage of client
+
+  // Registration
+  redirectUris        String[]            // Allowed callback URLs
+  grantTypes          String[]  @default(["authorization_code", "refresh_token"])
+  responseTypes       String[]  @default(["code"])
+  tokenEndpointAuth   String    @default("none") // "none" for public clients
+
+  // Metadata
+  logoUri             String?
+  contacts            String[]  @default([])
+
+  // Tracking
+  registeredByIp      String?
+  registeredByAgent   String?             // User-Agent header
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  tokens              OAuthAccessToken[]
+  authCodes           OAuthAuthorizationCode[]
+
+  @@index([clientId])
+  @@map("oauth_clients")
+}
+
+// ============================================
+// OAUTH - Authorization Codes
+// ============================================
+
+model OAuthAuthorizationCode {
+  id                  String    @id @default(cuid())
+  code                String    @unique  // Hashed authorization code
+
+  // PKCE (required)
+  codeChallenge       String
+  codeChallengeMethod String    @default("S256")
+
+  // Request context
+  redirectUri         String              // Must match on token exchange
+  scope               String[]            // Requested scopes
+  resource            String              // The tenant MCP URL (audience)
+  state               String?             // Client state parameter
+
+  // Relations
+  clientId            String
+  client              OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Lifecycle
+  expiresAt           DateTime            // Short-lived (10 minutes)
+  usedAt              DateTime?           // Set when exchanged for token
+
+  createdAt           DateTime  @default(now())
+
+  @@index([code])
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_authorization_codes")
+}
+
+// ============================================
+// OAUTH - Access & Refresh Tokens
+// ============================================
+
+model OAuthAccessToken {
+  id                  String    @id @default(cuid())
+  accessTokenHash     String    @unique   // SHA256 hash of token
+  refreshTokenHash    String?   @unique   // SHA256 hash of refresh token
+  tokenType           String    @default("Bearer")
+
+  // Scopes & audience
+  scope               String[]            // Granted scopes
+  audience            String              // The tenant MCP URL this token is for
+
+  // Expiry
+  accessExpiresAt     DateTime            // Short-lived (1 hour)
+  refreshExpiresAt    DateTime?           // Longer-lived (30 days)
+
+  // Relations
+  clientId            String
+  client              OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectionId        String
+  connection          McpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  // Revocation
+  revokedAt           DateTime?
+  revokedReason       String?
+
+  createdAt           DateTime  @default(now())
+  lastUsedAt          DateTime?
+
+  @@index([accessTokenHash])
+  @@index([refreshTokenHash])
+  @@index([clientId])
+  @@index([userId])
+  @@index([connectionId])
+  @@map("oauth_access_tokens")
+}
+
+// ============================================
+// MCP CONNECTIONS - Per-User Endpoint Management
+// ============================================
+
+model McpConnection {
+  id                  String    @id @default(cuid())
+  userId              String
+
+  // Endpoint identifier (the UUID in /mcp/{uuid})
+  endpointUuid        String    @unique @default(cuid())
+
+  // Connection metadata
+  name                String              // User-friendly name: "My Claude Desktop"
+  description         String?
+
+  // Which client is using this (populated after first auth)
+  clientName          String?             // "Claude", "Cursor", etc.
+  connectedClientId   String?             // OAuth client ID
+
+  // Status
+  status              McpConnectionStatus @default(ACTIVE)
+
+  // Usage tracking
+  lastUsedAt          DateTime?
+  totalRequests       Int       @default(0)
+
+  // Timestamps
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  revokedAt           DateTime?
+
+  // Relations
+  user                User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokens              OAuthAccessToken[]
+  requestLogs         McpRequestLog[]
+
+  @@index([userId])
+  @@index([endpointUuid])
+  @@index([status])
+  @@map("mcp_connections")
+}
+
+// ============================================
+// MCP REQUEST LOGGING
+// ============================================
+
+model McpRequestLog {
+  id                  String    @id @default(cuid())
+  connectionId        String
+
+  // Request details
+  method              String              // "tools/list", "tools/call", etc.
+  toolName            String?             // For tools/call
+  params              Json?
+
+  // Response
+  success             Boolean
+  errorCode           Int?
+  errorMessage        String?
+  durationMs          Int?
+
+  // Context
+  ipAddress           String?
+  userAgent           String?
+
+  createdAt           DateTime  @default(now())
+
+  connection          McpConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([method])
+  @@index([createdAt])
+  @@map("mcp_request_logs")
+}
+
+// ============================================
 // ENUMS
 // ============================================
+
+enum McpConnectionStatus {
+  ACTIVE              // Can be used
+  PAUSED              // Temporarily disabled
+  REVOKED             // Permanently disabled
+}
 
 enum AccountStatus {
   ACTIVE
