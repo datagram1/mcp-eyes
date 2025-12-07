@@ -9,6 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
 import {
   verifyCodeChallenge,
@@ -20,6 +21,14 @@ import {
 } from '@/lib/oauth';
 import { RateLimiters, getClientIp, rateLimitExceeded, rateLimitHeaders } from '@/lib/rate-limit';
 
+/**
+ * Verify client secret for confidential clients
+ */
+function verifyClientSecret(secret: string, hash: string): boolean {
+  const secretHash = crypto.createHash('sha256').update(secret).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(secretHash), Buffer.from(hash));
+}
+
 export const dynamic = 'force-dynamic';
 
 interface TokenRequestBody {
@@ -29,6 +38,7 @@ interface TokenRequestBody {
   redirect_uri?: string;
   refresh_token?: string;
   client_id?: string;
+  client_secret?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -66,14 +76,11 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleAuthorizationCodeGrant(body: TokenRequestBody) {
-  const { code, code_verifier, redirect_uri, client_id } = body;
+  const { code, code_verifier, redirect_uri, client_id, client_secret } = body;
 
   // Validate required parameters
   if (!code) {
     return errorResponse('invalid_request', 'Missing code parameter');
-  }
-  if (!code_verifier) {
-    return errorResponse('invalid_request', 'Missing code_verifier parameter');
   }
   if (!redirect_uri) {
     return errorResponse('invalid_request', 'Missing redirect_uri parameter');
@@ -104,11 +111,6 @@ async function handleAuthorizationCodeGrant(body: TokenRequestBody) {
     return errorResponse('invalid_grant', 'Authorization code has already been used');
   }
 
-  // Verify PKCE code_verifier
-  if (!verifyCodeChallenge(code_verifier, authCode.codeChallenge, authCode.codeChallengeMethod)) {
-    return errorResponse('invalid_grant', 'Invalid code_verifier');
-  }
-
   // Verify redirect_uri matches
   if (redirect_uri !== authCode.redirectUri) {
     return errorResponse('invalid_grant', 'redirect_uri does not match');
@@ -117,6 +119,31 @@ async function handleAuthorizationCodeGrant(body: TokenRequestBody) {
   // Verify client_id if provided
   if (client_id && client_id !== authCode.client.clientId) {
     return errorResponse('invalid_grant', 'client_id does not match');
+  }
+
+  // Client authentication: either PKCE (public) or client_secret (confidential)
+  const isConfidentialClient = authCode.client.tokenEndpointAuth === 'client_secret_post' ||
+                                authCode.client.tokenEndpointAuth === 'client_secret_basic';
+
+  if (isConfidentialClient) {
+    // Confidential client: require client_secret
+    if (!client_secret) {
+      return errorResponse('invalid_client', 'Missing client_secret for confidential client');
+    }
+    if (!authCode.client.clientSecretHash) {
+      return errorResponse('invalid_client', 'Client has no secret configured');
+    }
+    if (!verifyClientSecret(client_secret, authCode.client.clientSecretHash)) {
+      return errorResponse('invalid_client', 'Invalid client_secret');
+    }
+  } else {
+    // Public client: require PKCE code_verifier
+    if (!code_verifier) {
+      return errorResponse('invalid_request', 'Missing code_verifier parameter');
+    }
+    if (!verifyCodeChallenge(code_verifier, authCode.codeChallenge, authCode.codeChallengeMethod)) {
+      return errorResponse('invalid_grant', 'Invalid code_verifier');
+    }
   }
 
   // Mark code as used
