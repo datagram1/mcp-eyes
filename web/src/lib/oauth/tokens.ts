@@ -178,7 +178,20 @@ export function validateTokenAudience(tokenAudience: string, expectedResource: s
   const normalizedAudience = tokenAudience.replace(/\/+$/, '');
   const normalizedExpected = expectedResource.replace(/\/+$/, '');
 
-  return normalizedAudience === normalizedExpected;
+  // Exact match
+  if (normalizedAudience === normalizedExpected) {
+    return true;
+  }
+
+  // Allow parent resource to match child resource
+  // e.g., token for "/mcp" can access "/mcp/{uuid}"
+  // This is useful when a token is issued for the generic MCP service
+  // and should work for any specific MCP endpoint
+  if (normalizedExpected.startsWith(normalizedAudience + '/')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
