@@ -70,6 +70,7 @@ export default function ConnectionDetailPage() {
   const [editDesc, setEditDesc] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   const fetchConnection = useCallback(async () => {
     try {
@@ -181,6 +182,40 @@ export default function ConnectionDetailPage() {
     await navigator.clipboard.writeText(connection.mcpUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownload = async (platform: string) => {
+    if (!connection) return;
+    setDownloading(platform);
+
+    try {
+      const res = await fetch(`/api/connections/${connectionId}/download?platform=${platform}`);
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Download failed');
+      }
+
+      // Get filename from header or generate one
+      const disposition = res.headers.get('content-disposition');
+      const filenameMatch = disposition?.match(/filename="(.+)"/);
+      const filename = filenameMatch?.[1] || `ScreenControl-${platform}`;
+
+      // Create blob and trigger download
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Download failed');
+    } finally {
+      setDownloading(null);
+    }
   };
 
   const formatRelativeTime = (dateStr: string | null): string => {
@@ -422,6 +457,90 @@ export default function ConnectionDetailPage() {
               </svg>
               Revoke Connection
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Agent Downloads */}
+      {connection.status !== 'REVOKED' && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-semibold text-white mb-2">Download Agent</h2>
+          <p className="text-slate-400 text-sm mb-4">
+            Download a pre-configured agent for your platform. The agent will automatically connect to this MCP endpoint.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* macOS */}
+            <button
+              onClick={() => handleDownload('macos')}
+              disabled={downloading !== null}
+              className="flex flex-col items-center gap-3 p-4 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition"
+            >
+              <span className="text-4xl">🍎</span>
+              <div className="text-center">
+                <p className="text-white font-medium">macOS</p>
+                <p className="text-slate-400 text-xs">Universal (Intel & Apple Silicon)</p>
+              </div>
+              {downloading === 'macos' && (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              )}
+            </button>
+
+            {/* Windows */}
+            <button
+              onClick={() => handleDownload('windows')}
+              disabled={downloading !== null}
+              className="flex flex-col items-center gap-3 p-4 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition"
+            >
+              <span className="text-4xl">🪟</span>
+              <div className="text-center">
+                <p className="text-white font-medium">Windows</p>
+                <p className="text-slate-400 text-xs">Windows 10/11 (x64)</p>
+              </div>
+              {downloading === 'windows' && (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              )}
+            </button>
+
+            {/* Linux GUI */}
+            <button
+              onClick={() => handleDownload('linux-gui')}
+              disabled={downloading !== null}
+              className="flex flex-col items-center gap-3 p-4 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition"
+            >
+              <span className="text-4xl">🐧</span>
+              <div className="text-center">
+                <p className="text-white font-medium">Linux (GUI)</p>
+                <p className="text-slate-400 text-xs">Desktop with X11/Wayland</p>
+              </div>
+              {downloading === 'linux-gui' && (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              )}
+            </button>
+
+            {/* Linux Headless */}
+            <button
+              onClick={() => handleDownload('linux-headless')}
+              disabled={downloading !== null}
+              className="flex flex-col items-center gap-3 p-4 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition"
+            >
+              <span className="text-4xl">🖥️</span>
+              <div className="text-center">
+                <p className="text-white font-medium">Linux (Headless)</p>
+                <p className="text-slate-400 text-xs">Servers, no display</p>
+              </div>
+              {downloading === 'linux-headless' && (
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              )}
+            </button>
+          </div>
+          <div className="mt-4 p-3 bg-slate-900 rounded-lg">
+            <p className="text-slate-400 text-sm">
+              <span className="text-blue-400 font-medium">Endpoint UUID:</span>{' '}
+              <code className="text-slate-300 font-mono text-xs">{connection.endpointUuid}</code>
+            </p>
+            <p className="text-slate-500 text-xs mt-1">
+              This ID will be embedded in the downloaded agent to connect it to this MCP endpoint.
+            </p>
           </div>
         </div>
       )}
