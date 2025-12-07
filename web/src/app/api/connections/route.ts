@@ -154,6 +154,7 @@ export async function POST(request: NextRequest) {
     const redirectUris = [
       'https://claude.ai/oauth/callback',
       'https://claude.ai/api/oauth/callback',
+      'https://claude.ai/api/mcp/auth_callback',
     ];
 
     // Create OAuth client and connection in a transaction

@@ -192,6 +192,7 @@ export async function POST(
     const redirectUris = [
       'https://claude.ai/oauth/callback',
       'https://claude.ai/api/oauth/callback',
+      'https://claude.ai/api/mcp/auth_callback',
     ];
 
     // Perform the regeneration in a transaction

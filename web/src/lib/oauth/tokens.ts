@@ -169,6 +169,13 @@ export function getTokenRemainingLifetime(expiresAt: Date): number {
 /**
  * Validate token audience matches expected resource
  *
+ * The audience can be:
+ * 1. Exact match (e.g., both are https://example.com/mcp/uuid)
+ * 2. Base path match (token audience is https://example.com/mcp,
+ *    resource is https://example.com/mcp/uuid)
+ *
+ * This allows tokens issued for the base MCP path to access specific endpoints.
+ *
  * @param tokenAudience - The audience claim from the token
  * @param expectedResource - The expected resource URL
  * @returns true if audience matches
@@ -178,7 +185,18 @@ export function validateTokenAudience(tokenAudience: string, expectedResource: s
   const normalizedAudience = tokenAudience.replace(/\/+$/, '');
   const normalizedExpected = expectedResource.replace(/\/+$/, '');
 
-  return normalizedAudience === normalizedExpected;
+  // Exact match
+  if (normalizedAudience === normalizedExpected) {
+    return true;
+  }
+
+  // Allow base path match: if token is for /mcp, allow access to /mcp/uuid
+  // This supports the case where Claude requests auth for the base MCP URL
+  if (normalizedExpected.startsWith(normalizedAudience + '/')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

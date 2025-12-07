@@ -31,13 +31,37 @@ const MCP_CAPABILITIES = {
   prompts: {},
 };
 
+// Logging helper
+function logMcp(stage: string, data: Record<string, unknown>) {
+  const timestamp = new Date().toISOString();
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[MCP Endpoint] ${stage} - ${timestamp}`);
+  console.log('='.repeat(60));
+  Object.entries(data).forEach(([key, value]) => {
+    if (key.toLowerCase().includes('token') && typeof value === 'string' && value.length > 20) {
+      console.log(`  ${key}: ${value.substring(0, 12)}...${value.substring(value.length - 4)} (${value.length} chars)`);
+    } else if (typeof value === 'object') {
+      console.log(`  ${key}:`, JSON.stringify(value, null, 2));
+    } else {
+      console.log(`  ${key}: ${value}`);
+    }
+  });
+}
+
 /**
  * Extract and validate Bearer token from Authorization header
  */
 async function validateRequest(request: NextRequest, endpointUuid: string) {
   const authHeader = request.headers.get('authorization');
-  
+
+  logMcp('VALIDATE REQUEST', {
+    endpointUuid,
+    hasAuthHeader: !!authHeader,
+    authHeaderPrefix: authHeader?.substring(0, 20) || 'NONE',
+  });
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    logMcp('ERROR', { error: 'invalid_token', reason: 'Missing or invalid Authorization header' });
     return {
       error: 'invalid_token',
       status: 401,
@@ -51,6 +75,11 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
   const tokenHash = hashToken(token);
   const expectedAudience = APP_URL + '/mcp/' + endpointUuid;
 
+  logMcp('TOKEN LOOKUP', {
+    tokenHash: tokenHash.substring(0, 16) + '...',
+    expectedAudience,
+  });
+
   // Find the token
   const tokenRecord = await prisma.oAuthAccessToken.findUnique({
     where: { accessTokenHash: tokenHash },
@@ -61,6 +90,7 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
   });
 
   if (!tokenRecord) {
+    logMcp('ERROR', { error: 'invalid_token', reason: 'Token not found in database' });
     return {
       error: 'invalid_token',
       status: 401,
@@ -70,8 +100,23 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
     };
   }
 
+  logMcp('TOKEN FOUND', {
+    tokenId: tokenRecord.id,
+    userId: tokenRecord.userId,
+    userEmail: tokenRecord.user.email,
+    connectionId: tokenRecord.connectionId,
+    connectionName: tokenRecord.connection.name,
+    connectionStatus: tokenRecord.connection.status,
+    audience: tokenRecord.audience,
+    expectedAudience,
+    scope: tokenRecord.scope,
+    revokedAt: tokenRecord.revokedAt?.toISOString() || 'NOT REVOKED',
+    expiresAt: tokenRecord.accessExpiresAt.toISOString(),
+  });
+
   // Check if revoked
   if (tokenRecord.revokedAt) {
+    logMcp('ERROR', { error: 'invalid_token', reason: 'Token has been revoked' });
     return {
       error: 'invalid_token',
       status: 401,
@@ -83,6 +128,7 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
 
   // Check if expired
   if (isTokenExpired(tokenRecord.accessExpiresAt)) {
+    logMcp('ERROR', { error: 'invalid_token', reason: 'Token has expired' });
     return {
       error: 'invalid_token',
       status: 401,
@@ -93,7 +139,14 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
   }
 
   // Check audience
-  if (!validateTokenAudience(tokenRecord.audience, expectedAudience)) {
+  const audienceValid = validateTokenAudience(tokenRecord.audience, expectedAudience);
+  logMcp('AUDIENCE CHECK', {
+    tokenAudience: tokenRecord.audience,
+    expectedAudience,
+    valid: audienceValid,
+  });
+  if (!audienceValid) {
+    logMcp('ERROR', { error: 'insufficient_scope', reason: 'Token not valid for this resource' });
     return {
       error: 'insufficient_scope',
       status: 403,
@@ -105,6 +158,7 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
 
   // Check connection is active
   if (tokenRecord.connection.status !== 'ACTIVE') {
+    logMcp('ERROR', { error: 'invalid_token', reason: 'Connection is not active', status: tokenRecord.connection.status });
     return {
       error: 'invalid_token',
       status: 403,
@@ -113,6 +167,8 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
       },
     };
   }
+
+  logMcp('VALIDATION SUCCESS', { userId: tokenRecord.userId, connectionId: tokenRecord.connectionId });
 
   // Update last used timestamp
   await Promise.all([

@@ -20,6 +20,21 @@ export const dynamic = 'force-dynamic';
 const APP_URL = process.env.APP_URL || 'https://screencontrol.knws.co.uk';
 const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'fallback-secret-change-me';
 
+// Logging helper
+function logOAuth(stage: string, data: Record<string, unknown>) {
+  const timestamp = new Date().toISOString();
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[OAuth Consent] ${stage} - ${timestamp}`);
+  console.log('='.repeat(60));
+  Object.entries(data).forEach(([key, value]) => {
+    if (typeof value === 'object') {
+      console.log(`  ${key}:`, JSON.stringify(value, null, 2));
+    } else {
+      console.log(`  ${key}: ${value}`);
+    }
+  });
+}
+
 interface PendingAuthRequest {
   clientId: string;
   clientDbId: string;
@@ -39,7 +54,13 @@ interface PendingAuthRequest {
 export async function GET(request: NextRequest) {
   const requestId = request.nextUrl.searchParams.get('request_id');
 
+  logOAuth('GET - INCOMING REQUEST', {
+    url: request.url,
+    hasRequestId: !!requestId,
+  });
+
   if (!requestId) {
+    logOAuth('ERROR', { error: 'Missing request_id' });
     return NextResponse.json(
       { error: 'Missing request_id' },
       { status: 400 }
@@ -48,7 +69,12 @@ export async function GET(request: NextRequest) {
 
   // Verify user is authenticated
   const session = await getServerSession();
+  logOAuth('SESSION CHECK', {
+    hasSession: !!session,
+    userEmail: session?.user?.email || 'NOT AUTHENTICATED',
+  });
   if (!session?.user?.email) {
+    logOAuth('ERROR', { error: 'Not authenticated' });
     return NextResponse.json(
       { error: 'Not authenticated' },
       { status: 401 }
@@ -58,6 +84,7 @@ export async function GET(request: NextRequest) {
   try {
     // Decode and verify the request token
     const decoded = jwt.verify(requestId, JWT_SECRET) as PendingAuthRequest;
+    logOAuth('DECODED REQUEST', decoded as unknown as Record<string, unknown>);
 
     // Verify the user matches
     const user = await prisma.user.findUnique({
@@ -65,11 +92,14 @@ export async function GET(request: NextRequest) {
     });
 
     if (!user || user.id !== decoded.userId) {
+      logOAuth('ERROR', { error: 'Invalid request', reason: 'User mismatch', sessionUserId: user?.id, decodedUserId: decoded.userId });
       return NextResponse.json(
         { error: 'Invalid request' },
         { status: 403 }
       );
     }
+
+    logOAuth('USER VERIFIED', { userId: user.id, email: user.email });
 
     // Get client info
     const client = await prisma.oAuthClient.findUnique({
@@ -77,11 +107,14 @@ export async function GET(request: NextRequest) {
     });
 
     if (!client) {
+      logOAuth('ERROR', { error: 'Client not found', clientDbId: decoded.clientDbId });
       return NextResponse.json(
         { error: 'Client not found' },
         { status: 404 }
       );
     }
+
+    logOAuth('CLIENT FOUND', { clientId: client.clientId, clientName: client.clientName });
 
     // Get user's agents
     const agents = await prisma.agent.findMany({
@@ -97,6 +130,12 @@ export async function GET(request: NextRequest) {
 
     // Get scope descriptions
     const scopes = getScopeDescriptions(decoded.scope);
+
+    logOAuth('SUCCESS - RETURNING CONSENT DATA', {
+      clientName: client.clientName,
+      scopes: decoded.scope,
+      agentCount: agents.length,
+    });
 
     return NextResponse.json({
       clientName: client.clientName,
@@ -114,6 +153,7 @@ export async function GET(request: NextRequest) {
       state: decoded.state,
     });
   } catch (err) {
+    logOAuth('ERROR', { error: 'Invalid or expired request', details: String(err) });
     console.error('[Consent] Error decoding request:', err);
     return NextResponse.json(
       { error: 'Invalid or expired request' },
@@ -129,7 +169,13 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { request_id, allow } = body;
 
+  logOAuth('POST - INCOMING CONSENT DECISION', {
+    hasRequestId: !!request_id,
+    allow,
+  });
+
   if (!request_id) {
+    logOAuth('ERROR', { error: 'Missing request_id' });
     return NextResponse.json(
       { error: 'Missing request_id' },
       { status: 400 }
@@ -138,7 +184,12 @@ export async function POST(request: NextRequest) {
 
   // Verify user is authenticated
   const session = await getServerSession();
+  logOAuth('SESSION CHECK', {
+    hasSession: !!session,
+    userEmail: session?.user?.email || 'NOT AUTHENTICATED',
+  });
   if (!session?.user?.email) {
+    logOAuth('ERROR', { error: 'Not authenticated' });
     return NextResponse.json(
       { error: 'Not authenticated' },
       { status: 401 }
@@ -148,6 +199,7 @@ export async function POST(request: NextRequest) {
   try {
     // Decode and verify the request token
     const decoded = jwt.verify(request_id, JWT_SECRET) as PendingAuthRequest;
+    logOAuth('DECODED REQUEST', decoded as unknown as Record<string, unknown>);
 
     // Verify the user matches
     const user = await prisma.user.findUnique({
@@ -155,17 +207,21 @@ export async function POST(request: NextRequest) {
     });
 
     if (!user || user.id !== decoded.userId) {
+      logOAuth('ERROR', { error: 'Invalid request', reason: 'User mismatch' });
       return NextResponse.json(
         { error: 'Invalid request' },
         { status: 403 }
       );
     }
 
+    logOAuth('USER VERIFIED', { userId: user.id, email: user.email });
+
     // Build redirect URL
     const redirectUrl = new URL(decoded.redirectUri);
 
     if (!allow) {
       // User denied - redirect with error
+      logOAuth('USER DENIED', { redirectUri: decoded.redirectUri });
       redirectUrl.searchParams.set('error', 'access_denied');
       redirectUrl.searchParams.set('error_description', 'User denied the authorization request');
       if (decoded.state) {
@@ -173,6 +229,8 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json({ redirect: redirectUrl.toString() });
     }
+
+    logOAuth('USER APPROVED', { redirectUri: decoded.redirectUri });
 
     // User approved - generate authorization code
 
@@ -189,6 +247,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (!connection) {
+      logOAuth('CREATING NEW CONNECTION', { userId: user.id, clientName: client?.clientName });
       connection = await prisma.mcpConnection.create({
         data: {
           userId: user.id,
@@ -199,8 +258,16 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    logOAuth('CONNECTION', { connectionId: connection.id, connectionName: connection.name });
+
     // Generate authorization code
     const authCode = generateAuthorizationCode();
+
+    logOAuth('AUTH CODE GENERATED', {
+      expiresAt: authCode.expiresAt.toISOString(),
+      scope: decoded.scope,
+      resource: decoded.resource,
+    });
 
     // Store authorization code
     await prisma.oAuthAuthorizationCode.create({
@@ -224,8 +291,13 @@ export async function POST(request: NextRequest) {
       redirectUrl.searchParams.set('state', decoded.state);
     }
 
+    logOAuth('SUCCESS - REDIRECTING WITH CODE', {
+      redirectUrl: redirectUrl.toString().replace(/code=[^&]+/, 'code=REDACTED'),
+    });
+
     return NextResponse.json({ redirect: redirectUrl.toString() });
   } catch (err) {
+    logOAuth('ERROR', { error: 'Invalid or expired request', details: String(err) });
     console.error('[Consent] Error processing decision:', err);
     return NextResponse.json(
       { error: 'Invalid or expired request' },
