@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>MCPEyes</string>
+    <string>ScreenControl</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.mcpeyes.agent</string>
+    <string>com.screencontrol.agent</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>MCP-Eyes</string>
+    <string>ScreenControl</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -33,18 +33,18 @@
 
     <!-- Privacy descriptions for permission requests -->
     <key>NSAppleEventsUsageDescription</key>
-    <string>MCP-Eyes needs Automation permission to control applications.</string>
+    <string>ScreenControl needs Automation permission to control applications.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>MCP-Eyes needs Screen Recording permission to capture screenshots for LLM analysis.</string>
+    <string>ScreenControl needs Screen Recording permission to capture screenshots for LLM analysis.</string>
 
     <!-- Bonjour service -->
     <key>NSBonjourServices</key>
     <array>
-        <string>_mcp-eyes._tcp</string>
+        <string>_screencontrol._tcp</string>
     </array>
 
     <!-- Network access -->
     <key>NSLocalNetworkUsageDescription</key>
-    <string>MCP-Eyes uses local network to communicate with LLM clients and control servers.</string>
+    <string>ScreenControl uses local network to communicate with LLM clients and control servers.</string>
 </dict>
 </plist>

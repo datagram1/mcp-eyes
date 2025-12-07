@@ -51,4 +51,18 @@
 @property (strong, nonatomic) NSTask *browserBridgeTask;
 @property (strong, nonatomic) NSPipe *browserBridgePipe;
 
+// Debug/ScreenControl WebSocket connection
+@property (strong, nonatomic) NSTextField *debugServerUrlField;
+@property (strong, nonatomic) NSTextField *debugEndpointUuidField;
+@property (strong, nonatomic) NSTextField *debugCustomerIdField;
+@property (strong, nonatomic) NSButton *debugConnectButton;
+@property (strong, nonatomic) NSButton *debugDisconnectButton;
+@property (strong, nonatomic) NSTextField *debugConnectionStatusLabel;
+@property (strong, nonatomic) NSTextField *debugLicenseStatusLabel;
+@property (strong, nonatomic) NSTextField *debugAgentIdLabel;
+@property (strong, nonatomic) NSTextView *debugLogView;
+@property (strong, nonatomic) NSURLSessionWebSocketTask *debugWebSocketTask;
+@property (strong, nonatomic) NSTimer *debugHeartbeatTimer;
+@property (assign, nonatomic) BOOL debugIsConnected;
+
 @end

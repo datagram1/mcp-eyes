@@ -1,5 +1,5 @@
 /**
- * MCP-Eyes App Delegate Implementation
+ * ScreenControl App Delegate Implementation
  * Runs as a menu bar app with status icon and native settings window
  */
 
@@ -7,6 +7,7 @@
 #import <ServiceManagement/ServiceManagement.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <Security/Security.h>
+#import <IOKit/IOKitLib.h>
 #import <signal.h>
 
 // Settings keys for UserDefaults
@@ -59,9 +60,18 @@ extern "C" {
 - (NSView *)createGeneralTabView;
 - (NSView *)createToolsTabView;
 - (NSView *)createPermissionsTabView;
+- (NSView *)createDebugTabView;
+- (void)debugConnect:(id)sender;
+- (void)debugDisconnect:(id)sender;
+- (void)debugSendRegistration;
+- (void)debugSendHeartbeat;
+- (void)debugReceiveMessage;
+- (void)debugLog:(NSString *)message;
+- (NSString *)getMachineId;
 - (CGFloat)addCategoryBox:(NSString *)categoryName categoryId:(NSString *)categoryId tools:(NSArray *)tools toView:(NSView *)documentView atY:(CGFloat)y;
 - (void)categoryToggleChanged:(NSButton *)sender;
 - (void)toolToggleChanged:(NSButton *)sender;
+- (void)loadBundledDebugConfig;
 @end
 
 @implementation AppDelegate
@@ -84,7 +94,7 @@ extern "C" {
     // Create status bar item with googly eyes icon
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
     [self updateStatusBarIcon:NO];
-    self.statusItem.button.toolTip = @"MCP-Eyes Agent";
+    self.statusItem.button.toolTip = @"ScreenControl Agent";
 
     // Create menu
     [self createStatusMenu];
@@ -92,6 +102,9 @@ extern "C" {
 
     // Create settings window
     [self createSettingsWindow];
+
+    // Load bundled debug config to auto-fill debug connection settings
+    [self loadBundledDebugConfig];
 
     // Check permissions on launch
     [self checkPermissions];
@@ -223,7 +236,7 @@ extern "C" {
 - (void)createStatusMenu {
     self.statusMenu = [[NSMenu alloc] init];
 
-    NSMenuItem *headerItem = [[NSMenuItem alloc] initWithTitle:@"MCP-Eyes Agent"
+    NSMenuItem *headerItem = [[NSMenuItem alloc] initWithTitle:@"ScreenControl Agent"
                                                         action:nil
                                                  keyEquivalent:@""];
     headerItem.enabled = NO;
@@ -279,7 +292,7 @@ extern "C" {
 
     [self.statusMenu addItem:[NSMenuItem separatorItem]];
 
-    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit MCP-Eyes"
+    NSMenuItem *quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit ScreenControl"
                                                       action:@selector(quit:)
                                                keyEquivalent:@"q"];
     [self.statusMenu addItem:quitItem];
@@ -300,7 +313,7 @@ extern "C" {
                                                         backing:NSBackingStoreBuffered
                                                           defer:NO];
 
-    self.settingsWindow.title = @"MCP-Eyes Settings";
+    self.settingsWindow.title = @"ScreenControl Settings";
     self.settingsWindow.delegate = self;
     [self.settingsWindow center];
 
@@ -324,6 +337,11 @@ extern "C" {
     permissionsTab.label = @"Permissions";
     permissionsTab.view = [self createPermissionsTabView];
     [self.settingsTabView addTabViewItem:permissionsTab];
+
+    NSTabViewItem *debugTab = [[NSTabViewItem alloc] initWithIdentifier:@"debug"];
+    debugTab.label = @"Debug";
+    debugTab.view = [self createDebugTabView];
+    [self.settingsTabView addTabViewItem:debugTab];
 
     [contentView addSubview:self.settingsTabView];
 
@@ -645,6 +663,406 @@ extern "C" {
     return tabView;
 }
 
+- (NSView *)createDebugTabView {
+    CGFloat tabWidth = 600;
+    CGFloat tabHeight = 650;
+    NSView *tabView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, tabWidth, tabHeight)];
+
+    CGFloat padding = 20;
+    CGFloat labelWidth = 120;
+    CGFloat controlWidth = tabWidth - padding * 2 - labelWidth - 10;
+    CGFloat rowHeight = 30;
+    CGFloat y = tabHeight - 50;
+
+    // ScreenControl Connection Section
+    NSBox *connectionBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 200, tabWidth - padding * 2, 210)];
+    connectionBox.title = @"ScreenControl Server Connection (Debug)";
+    connectionBox.titlePosition = NSAtTop;
+    [tabView addSubview:connectionBox];
+
+    CGFloat boxPadding = 15;
+    CGFloat boxY = 165;
+
+    // Server URL
+    NSTextField *urlLabel = [self createLabel:@"Server URL:"
+                                        frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
+    [connectionBox addSubview:urlLabel];
+
+    self.debugServerUrlField = [[NSTextField alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 20, 24)];
+    self.debugServerUrlField.placeholderString = @"wss://screencontrol.knws.co.uk/ws";
+    self.debugServerUrlField.stringValue = @"wss://screencontrol.knws.co.uk/ws";
+    [connectionBox addSubview:self.debugServerUrlField];
+    boxY -= rowHeight + 5;
+
+    // Endpoint UUID (simulates stamped build)
+    NSTextField *endpointLabel = [self createLabel:@"Endpoint UUID:"
+                                             frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
+    [connectionBox addSubview:endpointLabel];
+
+    self.debugEndpointUuidField = [[NSTextField alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 20, 24)];
+    self.debugEndpointUuidField.placeholderString = @"From MCP connection in dashboard";
+    self.debugEndpointUuidField.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
+    [connectionBox addSubview:self.debugEndpointUuidField];
+    boxY -= rowHeight + 5;
+
+    // Customer ID (optional)
+    NSTextField *customerLabel = [self createLabel:@"Customer ID:"
+                                             frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
+    [connectionBox addSubview:customerLabel];
+
+    self.debugCustomerIdField = [[NSTextField alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 20, 24)];
+    self.debugCustomerIdField.placeholderString = @"Optional - User ID from dashboard";
+    self.debugCustomerIdField.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
+    [connectionBox addSubview:self.debugCustomerIdField];
+    boxY -= rowHeight + 10;
+
+    // Connect/Disconnect buttons
+    self.debugConnectButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding, boxY, 100, 32)];
+    self.debugConnectButton.title = @"Connect";
+    self.debugConnectButton.bezelStyle = NSBezelStyleRounded;
+    self.debugConnectButton.target = self;
+    self.debugConnectButton.action = @selector(debugConnect:);
+    [connectionBox addSubview:self.debugConnectButton];
+
+    self.debugDisconnectButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 110, boxY, 100, 32)];
+    self.debugDisconnectButton.title = @"Disconnect";
+    self.debugDisconnectButton.bezelStyle = NSBezelStyleRounded;
+    self.debugDisconnectButton.target = self;
+    self.debugDisconnectButton.action = @selector(debugDisconnect:);
+    self.debugDisconnectButton.enabled = NO;
+    [connectionBox addSubview:self.debugDisconnectButton];
+    boxY -= rowHeight + 10;
+
+    // Connection status
+    self.debugConnectionStatusLabel = [self createLabel:@"Status: Not connected"
+                                                  frame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
+    self.debugConnectionStatusLabel.textColor = [NSColor secondaryLabelColor];
+    [connectionBox addSubview:self.debugConnectionStatusLabel];
+
+    y -= 220;
+
+    // Status Section
+    NSBox *statusBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 80, tabWidth - padding * 2, 90)];
+    statusBox.title = @"Agent Status";
+    statusBox.titlePosition = NSAtTop;
+    [tabView addSubview:statusBox];
+
+    boxY = 45;
+
+    self.debugLicenseStatusLabel = [self createLabel:@"License: --"
+                                               frame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
+    [statusBox addSubview:self.debugLicenseStatusLabel];
+    boxY -= 25;
+
+    self.debugAgentIdLabel = [self createLabel:@"Agent ID: --"
+                                         frame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
+    self.debugAgentIdLabel.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
+    [statusBox addSubview:self.debugAgentIdLabel];
+
+    y -= 100;
+
+    // Log Section
+    NSBox *logBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, 20, tabWidth - padding * 2, y - 30)];
+    logBox.title = @"Connection Log";
+    logBox.titlePosition = NSAtTop;
+    [tabView addSubview:logBox];
+
+    NSScrollView *logScrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(10, 10, logBox.frame.size.width - 20, logBox.frame.size.height - 35)];
+    logScrollView.hasVerticalScroller = YES;
+    logScrollView.autohidesScrollers = YES;
+    logScrollView.borderType = NSBezelBorder;
+
+    self.debugLogView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, logScrollView.contentSize.width, logScrollView.contentSize.height)];
+    self.debugLogView.editable = NO;
+    self.debugLogView.font = [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
+    self.debugLogView.backgroundColor = [NSColor textBackgroundColor];
+    [self.debugLogView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    logScrollView.documentView = self.debugLogView;
+    [logBox addSubview:logScrollView];
+
+    return tabView;
+}
+
+#pragma mark - Debug WebSocket Connection
+
+- (NSString *)getMachineId {
+    // Get hardware UUID as machine ID
+    io_service_t platformExpert = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
+    if (platformExpert) {
+        CFTypeRef serialNumberAsCFString = IORegistryEntryCreateCFProperty(platformExpert, CFSTR(kIOPlatformUUIDKey), kCFAllocatorDefault, 0);
+        IOObjectRelease(platformExpert);
+        if (serialNumberAsCFString) {
+            NSString *uuid = (__bridge_transfer NSString *)serialNumberAsCFString;
+            return uuid;
+        }
+    }
+    return [[NSUUID UUID] UUIDString]; // Fallback
+}
+
+- (void)debugLog:(NSString *)message {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+        formatter.dateFormat = @"HH:mm:ss";
+        NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+        NSString *logLine = [NSString stringWithFormat:@"[%@] %@\n", timestamp, message];
+
+        NSAttributedString *attrStr = [[NSAttributedString alloc] initWithString:logLine attributes:@{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName: [NSColor textColor]
+        }];
+        [[self.debugLogView textStorage] appendAttributedString:attrStr];
+        [self.debugLogView scrollRangeToVisible:NSMakeRange(self.debugLogView.string.length, 0)];
+    });
+}
+
+- (void)debugConnect:(id)sender {
+    NSString *serverUrl = self.debugServerUrlField.stringValue;
+    if (serverUrl.length == 0) {
+        serverUrl = @"wss://screencontrol.knws.co.uk/ws";
+    }
+
+    [self debugLog:[NSString stringWithFormat:@"Connecting to %@...", serverUrl]];
+
+    NSURL *url = [NSURL URLWithString:serverUrl];
+    if (!url) {
+        [self debugLog:@"ERROR: Invalid URL"];
+        return;
+    }
+
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
+
+    self.debugWebSocketTask = [session webSocketTaskWithURL:url];
+
+    // Start receiving messages
+    [self debugReceiveMessage];
+
+    // Resume the task to start connection
+    [self.debugWebSocketTask resume];
+
+    // Update UI
+    self.debugConnectButton.enabled = NO;
+    self.debugDisconnectButton.enabled = YES;
+    self.debugConnectionStatusLabel.stringValue = @"Status: Connecting...";
+    self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
+
+    // Send registration after a brief delay to ensure connection is established
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        [self debugSendRegistration];
+    });
+}
+
+- (void)debugDisconnect:(id)sender {
+    [self debugLog:@"Disconnecting..."];
+
+    // Stop heartbeat timer
+    [self.debugHeartbeatTimer invalidate];
+    self.debugHeartbeatTimer = nil;
+
+    // Close WebSocket
+    [self.debugWebSocketTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
+    self.debugWebSocketTask = nil;
+
+    self.debugIsConnected = NO;
+
+    // Update UI
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.debugConnectButton.enabled = YES;
+        self.debugDisconnectButton.enabled = NO;
+        self.debugConnectionStatusLabel.stringValue = @"Status: Disconnected";
+        self.debugConnectionStatusLabel.textColor = [NSColor secondaryLabelColor];
+        self.debugLicenseStatusLabel.stringValue = @"License: --";
+        self.debugAgentIdLabel.stringValue = @"Agent ID: --";
+    });
+
+    [self debugLog:@"Disconnected"];
+}
+
+- (void)debugSendRegistration {
+    if (!self.debugWebSocketTask) return;
+
+    NSString *machineId = [self getMachineId];
+    NSString *hostname = [[NSHost currentHost] localizedName];
+    NSString *endpointUuid = self.debugEndpointUuidField.stringValue;
+    NSString *customerId = self.debugCustomerIdField.stringValue;
+
+    // Build registration message matching server expectations
+    NSMutableDictionary *message = [NSMutableDictionary dictionary];
+    message[@"type"] = @"register";
+    message[@"machineId"] = machineId;
+    message[@"machineName"] = hostname;
+    message[@"osType"] = @"darwin";
+    message[@"osVersion"] = [[NSProcessInfo processInfo] operatingSystemVersionString];
+    message[@"arch"] = @"arm64"; // or detect properly
+    message[@"agentVersion"] = @"1.0.0-debug";
+
+    if (endpointUuid.length > 0) {
+        message[@"licenseUuid"] = endpointUuid;
+    }
+    if (customerId.length > 0) {
+        message[@"customerId"] = customerId;
+    }
+
+    // Add fingerprint info (simplified for debug mode)
+    message[@"fingerprint"] = @{
+        @"hostname": hostname,
+        @"cpuModel": @"Apple Silicon",
+        @"macAddresses": @[@"debug-mode"]
+    };
+
+    NSError *error;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:message options:0 error:&error];
+    if (error) {
+        [self debugLog:[NSString stringWithFormat:@"ERROR: Failed to serialize registration: %@", error]];
+        return;
+    }
+
+    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    [self debugLog:[NSString stringWithFormat:@"→ REGISTER: %@", hostname]];
+
+    NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
+    [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *error) {
+        if (error) {
+            [self debugLog:[NSString stringWithFormat:@"ERROR sending registration: %@", error.localizedDescription]];
+        }
+    }];
+}
+
+- (void)debugSendHeartbeat {
+    if (!self.debugWebSocketTask || !self.debugIsConnected) return;
+
+    NSDictionary *message = @{
+        @"type": @"heartbeat",
+        @"timestamp": @([[NSDate date] timeIntervalSince1970] * 1000),
+        @"powerState": @"ACTIVE",
+        @"isScreenLocked": @([self isScreenLocked])
+    };
+
+    NSError *error;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:message options:0 error:&error];
+    if (error) return;
+
+    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+
+    NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
+    [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *error) {
+        if (error) {
+            [self debugLog:[NSString stringWithFormat:@"ERROR sending heartbeat: %@", error.localizedDescription]];
+        } else {
+            [self debugLog:@"→ HEARTBEAT"];
+        }
+    }];
+}
+
+- (void)debugReceiveMessage {
+    if (!self.debugWebSocketTask) return;
+
+    __weak typeof(self) weakSelf = self;
+    [self.debugWebSocketTask receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage *message, NSError *error) {
+        if (error) {
+            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR: WebSocket error: %@", error.localizedDescription]];
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                weakSelf.debugIsConnected = NO;
+                weakSelf.debugConnectButton.enabled = YES;
+                weakSelf.debugDisconnectButton.enabled = NO;
+                weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connection failed";
+                weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemRedColor];
+                [weakSelf.debugHeartbeatTimer invalidate];
+                weakSelf.debugHeartbeatTimer = nil;
+            });
+            return;
+        }
+
+        if (message.type == NSURLSessionWebSocketMessageTypeString) {
+            NSString *text = message.string;
+            NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
+            NSError *jsonError;
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+
+            if (json) {
+                NSString *type = json[@"type"];
+
+                if ([type isEqualToString:@"registered"]) {
+                    [weakSelf debugLog:[NSString stringWithFormat:@"← REGISTERED: license=%@", json[@"licenseStatus"]]];
+
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        weakSelf.debugIsConnected = YES;
+                        weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connected";
+                        weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemGreenColor];
+
+                        NSString *licenseStatus = json[@"licenseStatus"] ?: @"unknown";
+                        weakSelf.debugLicenseStatusLabel.stringValue = [NSString stringWithFormat:@"License: %@", [licenseStatus uppercaseString]];
+
+                        if ([licenseStatus isEqualToString:@"active"]) {
+                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemGreenColor];
+                        } else if ([licenseStatus isEqualToString:@"pending"]) {
+                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemOrangeColor];
+                        } else {
+                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemRedColor];
+                        }
+
+                        NSString *agentId = json[@"agentId"] ?: @"--";
+                        weakSelf.debugAgentIdLabel.stringValue = [NSString stringWithFormat:@"Agent ID: %@", agentId];
+
+                        // Start heartbeat timer
+                        NSInteger heartbeatInterval = [json[@"config"][@"heartbeatInterval"] integerValue] ?: 5000;
+                        weakSelf.debugHeartbeatTimer = [NSTimer scheduledTimerWithTimeInterval:heartbeatInterval / 1000.0
+                                                                                        target:weakSelf
+                                                                                      selector:@selector(debugSendHeartbeat)
+                                                                                      userInfo:nil
+                                                                                       repeats:YES];
+                    });
+
+                } else if ([type isEqualToString:@"heartbeat_ack"]) {
+                    NSString *licenseStatus = json[@"licenseStatus"] ?: @"unknown";
+                    [weakSelf debugLog:[NSString stringWithFormat:@"← HEARTBEAT_ACK: license=%@", licenseStatus]];
+
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        weakSelf.debugLicenseStatusLabel.stringValue = [NSString stringWithFormat:@"License: %@", [licenseStatus uppercaseString]];
+                        if ([licenseStatus isEqualToString:@"active"]) {
+                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemGreenColor];
+                        } else if ([licenseStatus isEqualToString:@"pending"]) {
+                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemOrangeColor];
+                        } else {
+                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemRedColor];
+                        }
+                    });
+
+                } else if ([type isEqualToString:@"ping"]) {
+                    [weakSelf debugLog:@"← PING (server keepalive)"];
+
+                } else if ([type isEqualToString:@"request"]) {
+                    NSString *method = json[@"method"] ?: @"unknown";
+                    [weakSelf debugLog:[NSString stringWithFormat:@"← REQUEST: %@", method]];
+
+                    // Send a basic response
+                    NSDictionary *response = @{
+                        @"type": @"response",
+                        @"id": json[@"id"] ?: @"",
+                        @"result": @{@"status": @"debug-mode"}
+                    };
+                    NSData *respData = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
+                    NSString *respString = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                    NSURLSessionWebSocketMessage *respMsg = [[NSURLSessionWebSocketMessage alloc] initWithString:respString];
+                    [weakSelf.debugWebSocketTask sendMessage:respMsg completionHandler:nil];
+
+                } else if ([type isEqualToString:@"wake"]) {
+                    [weakSelf debugLog:[NSString stringWithFormat:@"← WAKE: reason=%@", json[@"reason"]]];
+
+                } else {
+                    [weakSelf debugLog:[NSString stringWithFormat:@"← %@: %@", type, text]];
+                }
+            } else {
+                [weakSelf debugLog:[NSString stringWithFormat:@"← RAW: %@", text]];
+            }
+        }
+
+        // Continue receiving
+        [weakSelf debugReceiveMessage];
+    }];
+}
+
 - (NSTextField *)createLabel:(NSString *)text frame:(NSRect)frame {
     NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
     label.stringValue = text;
@@ -696,15 +1114,15 @@ extern "C" {
 - (NSString *)getToolsConfigPath {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
     NSString *appSupportDir = [paths firstObject];
-    NSString *mcpEyesDir = [appSupportDir stringByAppendingPathComponent:@"MCPEyes"];
+    NSString *screenControlDir = [appSupportDir stringByAppendingPathComponent:@"ScreenControl"];
 
     // Create directory if it doesn't exist
     NSFileManager *fileManager = [NSFileManager defaultManager];
-    if (![fileManager fileExistsAtPath:mcpEyesDir]) {
-        [fileManager createDirectoryAtPath:mcpEyesDir withIntermediateDirectories:YES attributes:nil error:nil];
+    if (![fileManager fileExistsAtPath:screenControlDir]) {
+        [fileManager createDirectoryAtPath:screenControlDir withIntermediateDirectories:YES attributes:nil error:nil];
     }
 
-    return [mcpEyesDir stringByAppendingPathComponent:kToolsConfigFilename];
+    return [screenControlDir stringByAppendingPathComponent:kToolsConfigFilename];
 }
 
 - (void)loadToolsConfig {
@@ -1373,7 +1791,7 @@ extern "C" {
 #pragma mark - Agent Management
 
 - (void)startAgent {
-    NSLog(@"MCP-Eyes Agent starting...");
+    NSLog(@"ScreenControl Agent starting...");
 
     NSString *apiKey = [self loadOrGenerateAPIKey];
     NSString *portStr = [self loadSetting:kPortKey defaultValue:@"3456"];
@@ -1395,7 +1813,7 @@ extern "C" {
 }
 
 - (void)stopAgent {
-    NSLog(@"MCP-Eyes Agent stopped");
+    NSLog(@"ScreenControl Agent stopped");
     [self.mcpServer stop];
     self.mcpServer = nil;
 }
@@ -1409,7 +1827,7 @@ extern "C" {
 
 - (void)saveTokenFile:(NSString *)apiKey port:(NSUInteger)port {
     // Save token file for MCP proxy to read
-    NSString *tokenPath = [NSHomeDirectory() stringByAppendingPathComponent:@".mcp-eyes-token"];
+    NSString *tokenPath = [NSHomeDirectory() stringByAppendingPathComponent:@".screencontrol-token"];
     NSDictionary *tokenData = @{
         @"apiKey": apiKey,
         @"port": @(port),
@@ -1658,7 +2076,7 @@ extern "C" {
 
     self.statusItem.button.toolTip = @"API Key Copied!";
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        self.statusItem.button.toolTip = @"MCP-Eyes Agent";
+        self.statusItem.button.toolTip = @"ScreenControl Agent";
     });
 }
 
@@ -1732,7 +2150,7 @@ extern "C" {
 
 - (NSString *)browserBridgeServerPath {
     // First check if running from Xcode (development)
-    NSString *devPath = [NSHomeDirectory() stringByAppendingPathComponent:@"dev/mcp_eyes/dist/browser-bridge-server.js"];
+    NSString *devPath = [NSHomeDirectory() stringByAppendingPathComponent:@"dev/screencontrol/dist/browser-bridge-server.js"];
     if ([[NSFileManager defaultManager] fileExistsAtPath:devPath]) {
         return devPath;
     }
@@ -1744,7 +2162,7 @@ extern "C" {
     }
 
     // Fallback to npm global install
-    NSString *npmPath = @"/usr/local/lib/node_modules/mcp-eyes/dist/browser-bridge-server.js";
+    NSString *npmPath = @"/usr/local/lib/node_modules/screencontrol/dist/browser-bridge-server.js";
     if ([[NSFileManager defaultManager] fileExistsAtPath:npmPath]) {
         return npmPath;
     }
@@ -1881,6 +2299,63 @@ extern "C" {
 
 - (BOOL)isBrowserBridgeRunning {
     return self.browserBridgeTask && self.browserBridgeTask.isRunning;
+}
+
+#pragma mark - Debug Configuration
+
+- (void)loadBundledDebugConfig {
+    // Load debug-config.json from app bundle Resources
+    NSString *configPath = [[NSBundle mainBundle] pathForResource:@"debug-config" ofType:@"json"];
+    if (!configPath) {
+        NSLog(@"No bundled debug-config.json found - using defaults");
+        return;
+    }
+
+    NSError *error = nil;
+    NSData *configData = [NSData dataWithContentsOfFile:configPath options:0 error:&error];
+    if (!configData) {
+        NSLog(@"Failed to read debug-config.json: %@", error.localizedDescription);
+        return;
+    }
+
+    NSDictionary *config = [NSJSONSerialization JSONObjectWithData:configData options:0 error:&error];
+    if (!config) {
+        NSLog(@"Failed to parse debug-config.json: %@", error.localizedDescription);
+        return;
+    }
+
+    NSLog(@"Loaded bundled debug config: %@", config);
+
+    // Auto-fill debug fields if autoFillDebugSettings is true
+    if ([config[@"autoFillDebugSettings"] boolValue]) {
+        if (config[@"serverUrl"] && [config[@"serverUrl"] length] > 0) {
+            self.debugServerUrlField.stringValue = config[@"serverUrl"];
+        }
+        if (config[@"endpointUuid"] && [config[@"endpointUuid"] length] > 0) {
+            self.debugEndpointUuidField.stringValue = config[@"endpointUuid"];
+        }
+        if (config[@"customerId"] && [config[@"customerId"] length] > 0) {
+            self.debugCustomerIdField.stringValue = config[@"customerId"];
+        }
+
+        // Log who this debug build belongs to
+        NSString *developerEmail = config[@"developerEmail"];
+        NSString *environment = config[@"environment"];
+        if (developerEmail) {
+            NSLog(@"Debug build configured for developer: %@", developerEmail);
+        }
+        if (environment) {
+            NSLog(@"Environment: %@", environment);
+        }
+    }
+
+    // Auto-connect on startup if configured
+    if ([config[@"connectOnStartup"] boolValue]) {
+        NSLog(@"Auto-connecting to debug server on startup...");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            [self debugConnect:nil];
+        });
+    }
 }
 
 @end

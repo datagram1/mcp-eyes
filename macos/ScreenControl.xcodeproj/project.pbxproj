@@ -18,15 +18,16 @@
 		009 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 205 /* Carbon.framework */; };
 		010 /* FilesystemTools.m in Sources */ = {isa = PBXBuildFile; fileRef = 110 /* FilesystemTools.m */; };
 		011 /* ShellTools.m in Sources */ = {isa = PBXBuildFile; fileRef = 112 /* ShellTools.m */; };
+		012 /* debug-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 113 /* debug-config.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		100 /* MCPEyes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MCPEyes.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		100 /* ScreenControl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreenControl.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		101 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		102 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
 		103 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		104 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		105 /* MCPEyes.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MCPEyes.entitlements; sourceTree = "<group>"; };
+		105 /* ScreenControl.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScreenControl.entitlements; sourceTree = "<group>"; };
 		106 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		201 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		202 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
@@ -39,6 +40,7 @@
 		110 /* FilesystemTools.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FilesystemTools.m; sourceTree = "<group>"; };
 		111 /* ShellTools.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ShellTools.h; sourceTree = "<group>"; };
 		112 /* ShellTools.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ShellTools.m; sourceTree = "<group>"; };
+		113 /* debug-config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "debug-config.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,13 +62,13 @@
 		G01 = {
 			isa = PBXGroup;
 			children = (
-				G02 /* MCPEyes */,
+				G02 /* ScreenControl */,
 				G03 /* Frameworks */,
 				G04 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		G02 /* MCPEyes */ = {
+		G02 /* ScreenControl */ = {
 			isa = PBXGroup;
 			children = (
 				101 /* main.m */,
@@ -80,9 +82,10 @@
 				112 /* ShellTools.m */,
 				103 /* Assets.xcassets */,
 				104 /* Info.plist */,
-				105 /* MCPEyes.entitlements */,
+				105 /* ScreenControl.entitlements */,
+				113 /* debug-config.json */,
 			);
-			path = MCPEyes;
+			path = ScreenControl;
 			sourceTree = "<group>";
 		};
 		G03 /* Frameworks */ = {
@@ -100,7 +103,7 @@
 		G04 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				100 /* MCPEyes.app */,
+				100 /* ScreenControl.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -108,9 +111,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		T01 /* MCPEyes */ = {
+		T01 /* ScreenControl */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C01 /* Build configuration list for PBXNativeTarget "MCPEyes" */;
+			buildConfigurationList = C01 /* Build configuration list for PBXNativeTarget "ScreenControl" */;
 			buildPhases = (
 				S01 /* Sources */,
 				F01 /* Frameworks */,
@@ -120,9 +123,9 @@
 			);
 			dependencies = (
 			);
-			name = MCPEyes;
-			productName = MCPEyes;
-			productReference = 100 /* MCPEyes.app */;
+			name = ScreenControl;
+			productName = ScreenControl;
+			productReference = 100 /* ScreenControl.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -139,7 +142,7 @@
 					};
 				};
 			};
-			buildConfigurationList = C02 /* Build configuration list for PBXProject "MCPEyes" */;
+			buildConfigurationList = C02 /* Build configuration list for PBXProject "ScreenControl" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -152,7 +155,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				T01 /* MCPEyes */,
+				T01 /* ScreenControl */,
 			);
 		};
 /* End PBXProject section */
@@ -163,6 +166,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				003 /* Assets.xcassets in Resources */,
+				012 /* debug-config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -189,14 +193,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = MCPEyes/MCPEyes.entitlements;
+				CODE_SIGN_ENTITLEMENTS = ScreenControl/ScreenControl.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MCPEyes/Info.plist;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 MCP-Eyes. All rights reserved.";
+				INFOPLIST_FILE = ScreenControl/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 ScreenControl. All rights reserved.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -204,7 +208,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 2.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.agent;
+				PRODUCT_BUNDLE_IDENTIFIER = com.screencontrol.agent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
@@ -215,14 +219,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = MCPEyes/MCPEyes.entitlements;
+				CODE_SIGN_ENTITLEMENTS = ScreenControl/ScreenControl.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = MCPEyes/Info.plist;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 MCP-Eyes. All rights reserved.";
+				INFOPLIST_FILE = ScreenControl/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 ScreenControl. All rights reserved.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -230,7 +234,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MARKETING_VERSION = 2.0.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.agent;
+				PRODUCT_BUNDLE_IDENTIFIER = com.screencontrol.agent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
@@ -350,7 +354,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C01 /* Build configuration list for PBXNativeTarget "MCPEyes" */ = {
+		C01 /* Build configuration list for PBXNativeTarget "ScreenControl" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BC01 /* Debug */,
@@ -359,7 +363,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C02 /* Build configuration list for PBXProject "MCPEyes" */ = {
+		C02 /* Build configuration list for PBXProject "ScreenControl" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BC03 /* Debug */,
