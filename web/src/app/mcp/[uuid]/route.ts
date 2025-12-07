@@ -15,6 +15,7 @@ import { prisma } from '@/lib/prisma';
 import { hashToken, isTokenExpired, validateTokenAudience } from '@/lib/oauth';
 import { RateLimiters, getClientIp, rateLimitExceeded } from '@/lib/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
+import { agentRegistry } from '@/lib/control-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -1083,22 +1084,103 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
     };
   };
 
-  // Helper to create a "no agents" response (legacy, use selectAgent instead)
-  const noAgentsResponse = (toolName: string) => ({
-    content: [{
-      type: 'text',
-      text: `Cannot execute ${toolName}: No agents are currently online. Please ensure a ScreenControl agent is running and connected.`,
-    }],
-    isError: true,
-  });
+  // Helper to execute a command on an agent via WebSocket
+  const executeAgentCommand = async (
+    agent: { id: string; hostname: string | null; displayName: string | null; osType: string },
+    method: string,
+    params: Record<string, unknown> = {}
+  ): Promise<{ content: { type: string; text?: string; data?: string; mimeType?: string }[]; isError?: boolean }> => {
+    try {
+      logMcp('EXECUTING AGENT COMMAND', {
+        agentDbId: agent.id,
+        agentName: formatAgentName(agent),
+        method,
+        params,
+      });
 
-  // Helper to create a pending response for tools that need agent integration
-  const pendingResponse = (toolName: string, agent: { id: string; hostname: string | null; displayName: string | null; osType: string }, details: string) => ({
-    content: [{
-      type: 'text',
-      text: `Tool "${toolName}" acknowledged for agent "${formatAgentName(agent)}" (${agent.osType}).\n\n${details}\n\nNote: Full agent integration is pending. The command has been logged and will be executed when agent WebSocket forwarding is implemented.`,
-    }],
-  });
+      // Use agentRegistry to send the command via WebSocket
+      // agentRegistry.sendCommand accepts both connection ID and database ID
+      const result = await agentRegistry.sendCommand(agent.id, method, params);
+
+      logMcp('AGENT COMMAND RESULT', {
+        agentDbId: agent.id,
+        method,
+        resultType: typeof result,
+        hasResult: !!result,
+      });
+
+      // Handle different result types
+      if (result === null || result === undefined) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Command "${method}" completed on "${formatAgentName(agent)}" (${agent.osType}).`,
+          }],
+        };
+      }
+
+      // If result is an object with image data (screenshot)
+      if (typeof result === 'object' && result !== null) {
+        const resultObj = result as Record<string, unknown>;
+
+        // Screenshot result - return as image
+        if (resultObj.imageData || resultObj.data || resultObj.base64) {
+          const imageData = (resultObj.imageData || resultObj.data || resultObj.base64) as string;
+          const mimeType = (resultObj.mimeType || resultObj.format || 'image/png') as string;
+
+          return {
+            content: [{
+              type: 'image',
+              data: imageData,
+              mimeType: mimeType.includes('/') ? mimeType : `image/${mimeType}`,
+            }],
+          };
+        }
+
+        // Error result
+        if (resultObj.error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error from agent "${formatAgentName(agent)}": ${resultObj.error}${resultObj.message ? ` - ${resultObj.message}` : ''}`,
+            }],
+            isError: true,
+          };
+        }
+
+        // Generic object result - serialize it
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      }
+
+      // String or primitive result
+      return {
+        content: [{
+          type: 'text',
+          text: String(result),
+        }],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logMcp('AGENT COMMAND ERROR', {
+        agentDbId: agent.id,
+        method,
+        error: errorMessage,
+      });
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Failed to execute "${method}" on "${formatAgentName(agent)}" (${agent.osType}): ${errorMessage}`,
+        }],
+        isError: true,
+      };
+    }
+  };
 
   switch (toolName) {
     // === Emergency Control ===
@@ -1188,254 +1270,397 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
     case 'desktop_screenshot': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - desktop_screenshot', { agent: result.agent.id, args });
-      return pendingResponse(toolName, result.agent, `Will capture screenshot.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'screenshot',
+        arguments: {
+          format: args?.format || 'png',
+          quality: args?.quality,
+        },
+      });
     }
 
     case 'screen_find_text': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - screen_find_text', { agent: result.agent.id, text: args?.text });
-      return pendingResponse(toolName, result.agent, `Will search for text "${args?.text}" on screen.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'screen_find_text',
+        arguments: { text: args?.text },
+      });
     }
 
     case 'screen_find_image': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - screen_find_image', { agent: result.agent.id, hasImage: !!args?.imageBase64, threshold: args?.threshold });
-      return pendingResponse(toolName, result.agent, `Will search for image pattern on screen.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'screen_find_image',
+        arguments: {
+          imageBase64: args?.imageBase64,
+          threshold: args?.threshold,
+        },
+      });
     }
 
     // === Mouse Actions ===
     case 'mouse_click': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - mouse_click', { agent: result.agent.id, x: args?.x, y: args?.y, button: args?.button });
-      return pendingResponse(toolName, result.agent, `Will click at (${args?.x}, ${args?.y}) with ${args?.button || 'left'} button.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'click',
+        arguments: {
+          x: args?.x,
+          y: args?.y,
+          button: args?.button || 'left',
+          clickCount: args?.clickCount || 1,
+        },
+      });
     }
 
     case 'mouse_move': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - mouse_move', { agent: result.agent.id, x: args?.x, y: args?.y });
-      return pendingResponse(toolName, result.agent, `Will move cursor to (${args?.x}, ${args?.y}).`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'mouse_move',
+        arguments: { x: args?.x, y: args?.y },
+      });
     }
 
     case 'mouse_drag': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - mouse_drag', { agent: result.agent.id, startX: args?.startX, startY: args?.startY, endX: args?.endX, endY: args?.endY });
-      return pendingResponse(toolName, result.agent, `Will drag from (${args?.startX}, ${args?.startY}) to (${args?.endX}, ${args?.endY}).`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'mouse_drag',
+        arguments: {
+          startX: args?.startX,
+          startY: args?.startY,
+          endX: args?.endX,
+          endY: args?.endY,
+          button: args?.button || 'left',
+        },
+      });
     }
 
     case 'mouse_scroll': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - mouse_scroll', { agent: result.agent.id, deltaX: args?.deltaX, deltaY: args?.deltaY });
-      return pendingResponse(toolName, result.agent, `Will scroll by (${args?.deltaX || 0}, ${args?.deltaY}).`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'scroll',
+        arguments: {
+          x: args?.x,
+          y: args?.y,
+          deltaX: args?.deltaX || 0,
+          deltaY: args?.deltaY,
+        },
+      });
     }
 
     // === Keyboard Actions ===
     case 'keyboard_type': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - keyboard_type', { agent: result.agent.id, textLength: args?.text?.length, preview: args?.text?.substring(0, 50) });
-      return pendingResponse(toolName, result.agent, `Will type ${args?.text?.length || 0} characters.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'type',
+        arguments: {
+          text: args?.text,
+          delay: args?.delay,
+        },
+      });
     }
 
     case 'keyboard_press': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - keyboard_press', { agent: result.agent.id, key: args?.key, modifiers: args?.modifiers });
-      return pendingResponse(toolName, result.agent, `Will press key "${args?.key}"${args?.modifiers?.length ? ` with ${args.modifiers.join('+')}` : ''}.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'key_press',
+        arguments: {
+          key: args?.key,
+          modifiers: args?.modifiers,
+        },
+      });
     }
 
     case 'keyboard_shortcut': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - keyboard_shortcut', { agent: result.agent.id, shortcut: args?.shortcut });
-      return pendingResponse(toolName, result.agent, `Will execute shortcut "${args?.shortcut}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'keyboard_shortcut',
+        arguments: { shortcut: args?.shortcut },
+      });
     }
 
     // === Browser Automation ===
     case 'browser_navigate': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_navigate', { agent: result.agent.id, url: args?.url });
-      return pendingResponse(toolName, result.agent, `Will navigate to "${args?.url}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_navigate',
+        arguments: { url: args?.url },
+      });
     }
 
     case 'browser_click': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_click', { agent: result.agent.id, selector: args?.selector, text: args?.text });
-      return pendingResponse(toolName, result.agent, `Will click element ${args?.selector ? `"${args.selector}"` : `with text "${args?.text}"`}.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_click',
+        arguments: {
+          selector: args?.selector,
+          text: args?.text,
+          index: args?.index,
+        },
+      });
     }
 
     case 'browser_fill': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_fill', { agent: result.agent.id, selector: args?.selector, valueLength: args?.value?.length });
-      return pendingResponse(toolName, result.agent, `Will fill "${args?.selector}" with ${args?.value?.length || 0} characters.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_fill',
+        arguments: {
+          selector: args?.selector,
+          value: args?.value,
+        },
+      });
     }
 
     case 'browser_screenshot': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_screenshot', { agent: result.agent.id, fullPage: args?.fullPage });
-      return pendingResponse(toolName, result.agent, `Will capture browser screenshot${args?.fullPage ? ' (full page)' : ''}.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_screenshot',
+        arguments: {
+          fullPage: args?.fullPage,
+          selector: args?.selector,
+        },
+      });
     }
 
     case 'browser_get_text': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_get_text', { agent: result.agent.id, selector: args?.selector });
-      return pendingResponse(toolName, result.agent, `Will get text content${args?.selector ? ` from "${args.selector}"` : ' from page'}.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_get_text',
+        arguments: { selector: args?.selector },
+      });
     }
 
     case 'browser_get_elements': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_get_elements', { agent: result.agent.id, selector: args?.selector });
-      return pendingResponse(toolName, result.agent, `Will get interactive elements from page.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_get_elements',
+        arguments: {},
+      });
     }
 
     case 'browser_select': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_select', { agent: result.agent.id, selector: args?.selector, value: args?.value });
-      return pendingResponse(toolName, result.agent, `Will select "${args?.value}" from "${args?.selector}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_select',
+        arguments: {
+          selector: args?.selector,
+          value: args?.value,
+        },
+      });
     }
 
     case 'browser_wait': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_wait', { agent: result.agent.id, selector: args?.selector, timeout: args?.timeout });
-      return pendingResponse(toolName, result.agent, `Will wait for "${args?.selector}"${args?.timeout ? ` (timeout: ${args.timeout}ms)` : ''}.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_wait',
+        arguments: {
+          selector: args?.selector,
+          text: args?.text,
+          timeout: args?.timeout,
+        },
+      });
     }
 
     case 'browser_back': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_back', { agent: result.agent.id });
-      return pendingResponse(toolName, result.agent, `Will navigate back in browser history.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_back',
+        arguments: {},
+      });
     }
 
     case 'browser_forward': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_forward', { agent: result.agent.id });
-      return pendingResponse(toolName, result.agent, `Will navigate forward in browser history.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_forward',
+        arguments: {},
+      });
     }
 
     case 'browser_refresh': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_refresh', { agent: result.agent.id });
-      return pendingResponse(toolName, result.agent, `Will refresh the current page.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_refresh',
+        arguments: {},
+      });
     }
 
     case 'browser_tabs': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_tabs', { agent: result.agent.id, action: args?.action });
-      return pendingResponse(toolName, result.agent, `Will ${args?.action || 'list'} browser tabs.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_tabs',
+        arguments: {
+          action: args?.action,
+          tabIndex: args?.tabIndex,
+          url: args?.url,
+        },
+      });
     }
 
     case 'browser_evaluate': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - browser_evaluate', { agent: result.agent.id, scriptLength: args?.script?.length });
-      return pendingResponse(toolName, result.agent, `Will execute JavaScript (${args?.script?.length || 0} chars).`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'browser_evaluate',
+        arguments: { script: args?.script },
+      });
     }
 
     // === Window Management ===
     case 'window_list': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - window_list', { agent: result.agent.id });
-      return pendingResponse(toolName, result.agent, `Will list all open windows.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'window_list',
+        arguments: {},
+      });
     }
 
     case 'window_focus': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - window_focus', { agent: result.agent.id, windowId: args?.windowId, title: args?.title });
-      return pendingResponse(toolName, result.agent, `Will focus window ${args?.windowId || args?.title || 'specified'}.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'window_focus',
+        arguments: {
+          windowId: args?.windowId,
+          title: args?.title,
+        },
+      });
     }
 
     case 'window_resize': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - window_resize', { agent: result.agent.id, width: args?.width, height: args?.height });
-      return pendingResponse(toolName, result.agent, `Will resize window to ${args?.width}x${args?.height}.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'window_resize',
+        arguments: {
+          windowId: args?.windowId,
+          width: args?.width,
+          height: args?.height,
+        },
+      });
     }
 
     case 'window_move': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - window_move', { agent: result.agent.id, x: args?.x, y: args?.y });
-      return pendingResponse(toolName, result.agent, `Will move window to (${args?.x}, ${args?.y}).`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'window_move',
+        arguments: {
+          windowId: args?.windowId,
+          x: args?.x,
+          y: args?.y,
+        },
+      });
     }
 
     // === Application Control ===
     case 'app_launch': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - app_launch', { agent: result.agent.id, app: args?.app, path: args?.path });
-      return pendingResponse(toolName, result.agent, `Will launch application "${args?.app || args?.path}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'app_launch',
+        arguments: {
+          app: args?.app,
+          args: args?.args,
+        },
+      });
     }
 
     case 'app_close': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - app_close', { agent: result.agent.id, app: args?.app, pid: args?.pid });
-      return pendingResponse(toolName, result.agent, `Will close application "${args?.app || args?.pid}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'app_close',
+        arguments: {
+          app: args?.app,
+          force: args?.force,
+        },
+      });
     }
 
     // === Clipboard ===
     case 'clipboard_read': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - clipboard_read', { agent: result.agent.id });
-      return pendingResponse(toolName, result.agent, `Will read clipboard contents.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'clipboard_read',
+        arguments: {},
+      });
     }
 
     case 'clipboard_write': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - clipboard_write', { agent: result.agent.id, contentLength: args?.content?.length });
-      return pendingResponse(toolName, result.agent, `Will write ${args?.content?.length || 0} characters to clipboard.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'clipboard_write',
+        arguments: { text: args?.text },
+      });
     }
 
     // === File Operations ===
     case 'file_read': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - file_read', { agent: result.agent.id, path: args?.path });
-      return pendingResponse(toolName, result.agent, `Will read file "${args?.path}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'file_read',
+        arguments: {
+          path: args?.path,
+          encoding: args?.encoding,
+        },
+      });
     }
 
     case 'file_write': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - file_write', { agent: result.agent.id, path: args?.path, contentLength: args?.content?.length });
-      return pendingResponse(toolName, result.agent, `Will write ${args?.content?.length || 0} characters to "${args?.path}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'file_write',
+        arguments: {
+          path: args?.path,
+          content: args?.content,
+          encoding: args?.encoding,
+        },
+      });
     }
 
     case 'file_list': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - file_list', { agent: result.agent.id, path: args?.path });
-      return pendingResponse(toolName, result.agent, `Will list files in "${args?.path}".`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'file_list',
+        arguments: { path: args?.path },
+      });
     }
 
     // === System ===
     case 'system_info': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
-      logMcp('TOOL RESULT - system_info', { agent: result.agent.id });
-      return pendingResponse(toolName, result.agent, `Will get system information.`);
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'system_info',
+        arguments: {},
+      });
     }
 
     default:
