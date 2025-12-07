@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { authOptions } from '@/lib/auth-options';
+import { prisma } from '@/lib/prisma';
 
 export default async function DashboardLayout({
   children,
@@ -13,6 +14,13 @@ export default async function DashboardLayout({
   if (!session) {
     redirect('/login');
   }
+
+  // Fetch online agent count for the badge
+  const onlineAgentCount = await prisma.agent.count({
+    where: {
+      status: 'ONLINE',
+    },
+  });
 
   return (
     <div className="min-h-screen bg-slate-900">
@@ -33,8 +41,13 @@ export default async function DashboardLayout({
               <Link href="/dashboard" className="text-slate-300 hover:text-white transition">
                 Dashboard
               </Link>
-              <Link href="/dashboard/agents" className="text-slate-300 hover:text-white transition">
+              <Link href="/dashboard/agents" className="text-slate-300 hover:text-white transition flex items-center gap-2">
                 Agents
+                {onlineAgentCount > 0 && (
+                  <span className="bg-green-500 text-white text-xs font-medium px-2 py-0.5 rounded-full">
+                    {onlineAgentCount}
+                  </span>
+                )}
               </Link>
               <Link href="/dashboard/connections" className="text-slate-300 hover:text-white transition">
                 Connections

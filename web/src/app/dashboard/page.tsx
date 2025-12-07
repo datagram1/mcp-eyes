@@ -5,7 +5,7 @@ import { authOptions } from '@/lib/auth-options';
 import { prisma } from '@/lib/db';
 
 async function getDashboardData(userId: string) {
-  const [user, licenses, agents] = await Promise.all([
+  const [user, licenses, agents, recentActivity] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -35,9 +35,48 @@ async function getDashboardData(userId: string) {
       },
       orderBy: { lastSeenAt: 'desc' },
     }),
+    // Recent command activity
+    prisma.commandLog.findMany({
+      where: {
+        agent: {
+          license: {
+            userId,
+          },
+        },
+      },
+      include: {
+        agent: {
+          select: {
+            hostname: true,
+          },
+        },
+      },
+      orderBy: { startedAt: 'desc' },
+      take: 10,
+    }),
   ]);
 
-  return { user, licenses, agents };
+  // Calculate agent status breakdown
+  const statusCounts = {
+    online: agents.filter(a => a.status === 'ONLINE').length,
+    offline: agents.filter(a => a.status === 'OFFLINE').length,
+    blocked: agents.filter(a => a.state === 'BLOCKED').length,
+  };
+
+  const stateCounts = {
+    active: agents.filter(a => a.state === 'ACTIVE').length,
+    pending: agents.filter(a => a.state === 'PENDING').length,
+    blocked: agents.filter(a => a.state === 'BLOCKED').length,
+    expired: agents.filter(a => a.state === 'EXPIRED').length,
+  };
+
+  const powerCounts = {
+    active: agents.filter(a => a.powerState === 'ACTIVE').length,
+    passive: agents.filter(a => a.powerState === 'PASSIVE').length,
+    sleep: agents.filter(a => a.powerState === 'SLEEP').length,
+  };
+
+  return { user, licenses, agents, recentActivity, statusCounts, stateCounts, powerCounts };
 }
 
 export default async function DashboardPage() {
@@ -47,7 +86,7 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  const { user, licenses, agents } = await getDashboardData(session.user.id);
+  const { user, licenses, agents, recentActivity, statusCounts, stateCounts, powerCounts } = await getDashboardData(session.user.id);
 
   // Calculate stats
   const activeLicense = licenses.find(l => l.status === 'ACTIVE');
@@ -151,6 +190,135 @@ export default async function DashboardPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Agent Fleet Status Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Agent Status Summary */}
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+          <h2 className="text-xl font-semibold text-white mb-4">Agent Fleet Status</h2>
+
+          {/* Connection Status */}
+          <div className="mb-4">
+            <p className="text-slate-400 text-sm mb-2">Connection Status</p>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-green-400"></div>
+                <span className="text-white font-medium">{statusCounts.online}</span>
+                <span className="text-slate-400 text-sm">Online</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-slate-500"></div>
+                <span className="text-white font-medium">{statusCounts.offline}</span>
+                <span className="text-slate-400 text-sm">Offline</span>
+              </div>
+              {statusCounts.blocked > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-400"></div>
+                  <span className="text-white font-medium">{statusCounts.blocked}</span>
+                  <span className="text-slate-400 text-sm">Blocked</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Activation State */}
+          <div className="mb-4">
+            <p className="text-slate-400 text-sm mb-2">Activation State</p>
+            <div className="flex flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-blue-400"></div>
+                <span className="text-white font-medium">{stateCounts.active}</span>
+                <span className="text-slate-400 text-sm">Active</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-amber-400"></div>
+                <span className="text-white font-medium">{stateCounts.pending}</span>
+                <span className="text-slate-400 text-sm">Pending</span>
+              </div>
+              {stateCounts.blocked > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-400"></div>
+                  <span className="text-white font-medium">{stateCounts.blocked}</span>
+                  <span className="text-slate-400 text-sm">Blocked</span>
+                </div>
+              )}
+              {stateCounts.expired > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-slate-400"></div>
+                  <span className="text-white font-medium">{stateCounts.expired}</span>
+                  <span className="text-slate-400 text-sm">Expired</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Power State */}
+          <div>
+            <p className="text-slate-400 text-sm mb-2">Power State</p>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
+                <span className="text-white font-medium">{powerCounts.active}</span>
+                <span className="text-slate-400 text-sm">Active</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-slate-400"></div>
+                <span className="text-white font-medium">{powerCounts.passive}</span>
+                <span className="text-slate-400 text-sm">Passive</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
+                <span className="text-white font-medium">{powerCounts.sleep}</span>
+                <span className="text-slate-400 text-sm">Sleep</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Activity */}
+        <div className="bg-slate-800 border border-slate-700 rounded-xl">
+          <div className="p-6 border-b border-slate-700">
+            <h2 className="text-xl font-semibold text-white">Recent Activity</h2>
+          </div>
+          <div className="divide-y divide-slate-700 max-h-64 overflow-y-auto">
+            {recentActivity.length === 0 ? (
+              <div className="p-6 text-center">
+                <p className="text-slate-400">No recent activity</p>
+              </div>
+            ) : (
+              recentActivity.map((log) => (
+                <div key={log.id} className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${
+                      log.status === 'COMPLETED' ? 'bg-green-400' :
+                      log.status === 'FAILED' ? 'bg-red-400' :
+                      log.status === 'EXECUTING' ? 'bg-blue-400' :
+                      'bg-slate-400'
+                    }`}></div>
+                    <div>
+                      <p className="text-white text-sm font-medium">{log.toolName || log.method}</p>
+                      <p className="text-slate-400 text-xs">{log.agent.hostname}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-xs font-medium ${
+                      log.status === 'COMPLETED' ? 'text-green-400' :
+                      log.status === 'FAILED' ? 'text-red-400' :
+                      log.status === 'EXECUTING' ? 'text-blue-400' :
+                      'text-slate-400'
+                    }`}>
+                      {log.status}
+                    </p>
+                    <p className="text-slate-500 text-xs">
+                      {formatRelativeTime(log.startedAt)}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
