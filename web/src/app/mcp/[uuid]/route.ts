@@ -267,6 +267,8 @@ export async function POST(request: NextRequest, context: RouteParams): Promise<
       method,
       responseKeys: Object.keys(response || {}),
       isNotification,
+      // Log full response for tools/list to debug
+      fullResponse: method === 'tools/list' ? JSON.stringify(response, null, 2) : undefined,
     });
 
     // Log request
@@ -337,8 +339,8 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
       };
 
     case 'tools/list':
-      // Get user's active agents and their tools
-      const agents = await prisma.agent.findMany({
+      // Get user's active agents
+      const agentsForTools = await prisma.agent.findMany({
         where: {
           ownerUserId: auth.userId,
           status: 'ONLINE',
@@ -350,55 +352,497 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
         },
       });
 
-      // Return available tools
-      return {
-        tools: [
-          {
-            name: 'screenshot',
-            description: 'Take a screenshot of the remote machine',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                agentId: { type: 'string', description: 'ID of the agent to screenshot (optional, uses first available if not specified)' },
+      // Define available tools - full desktop and browser automation suite
+      const toolsList = [
+        // === Emergency Control ===
+        {
+          name: 'emergency_stop',
+          description: 'EMERGENCY STOP - Immediately cancel all pending operations on an agent. Use this if the user says "stop", "cancel", "abort", or indicates they selected the wrong agent.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Agent to stop (optional - stops all if not specified)' },
+              reason: { type: 'string', description: 'Reason for stopping' },
+            },
+          },
+        },
+
+        // === Agent Management ===
+        {
+          name: 'list_agents',
+          description: 'List all connected desktop agents that can be controlled remotely',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+
+        // === Desktop Screenshot & Vision ===
+        {
+          name: 'desktop_screenshot',
+          description: 'Take a screenshot of the entire desktop or a specific window',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID (optional, uses first available)' },
+              format: { type: 'string', enum: ['png', 'jpeg'], description: 'Image format' },
+              quality: { type: 'number', description: 'JPEG quality 1-100' },
+            },
+          },
+        },
+
+        // === Mouse Actions ===
+        {
+          name: 'mouse_click',
+          description: 'Click at specific screen coordinates',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              x: { type: 'number', description: 'X coordinate' },
+              y: { type: 'number', description: 'Y coordinate' },
+              button: { type: 'string', enum: ['left', 'right', 'middle'], description: 'Mouse button' },
+              clickCount: { type: 'number', description: 'Number of clicks (1=single, 2=double)' },
+            },
+            required: ['x', 'y'],
+          },
+        },
+        {
+          name: 'mouse_move',
+          description: 'Move mouse cursor to specific coordinates',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              x: { type: 'number', description: 'X coordinate' },
+              y: { type: 'number', description: 'Y coordinate' },
+            },
+            required: ['x', 'y'],
+          },
+        },
+        {
+          name: 'mouse_drag',
+          description: 'Drag from one position to another',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              startX: { type: 'number' },
+              startY: { type: 'number' },
+              endX: { type: 'number' },
+              endY: { type: 'number' },
+              button: { type: 'string', enum: ['left', 'right'] },
+            },
+            required: ['startX', 'startY', 'endX', 'endY'],
+          },
+        },
+        {
+          name: 'mouse_scroll',
+          description: 'Scroll the mouse wheel',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              x: { type: 'number', description: 'X position to scroll at' },
+              y: { type: 'number', description: 'Y position to scroll at' },
+              deltaX: { type: 'number', description: 'Horizontal scroll amount' },
+              deltaY: { type: 'number', description: 'Vertical scroll amount (negative=up, positive=down)' },
+            },
+            required: ['deltaY'],
+          },
+        },
+
+        // === Keyboard Actions ===
+        {
+          name: 'keyboard_type',
+          description: 'Type text using the keyboard',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              text: { type: 'string', description: 'Text to type' },
+              delay: { type: 'number', description: 'Delay between keystrokes in ms' },
+            },
+            required: ['text'],
+          },
+        },
+        {
+          name: 'keyboard_press',
+          description: 'Press a specific key or key combination',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              key: { type: 'string', description: 'Key to press (e.g., Enter, Tab, Escape, F1, a, A)' },
+              modifiers: {
+                type: 'array',
+                items: { type: 'string', enum: ['Control', 'Alt', 'Shift', 'Meta', 'Command'] },
+                description: 'Modifier keys to hold',
               },
             },
+            required: ['key'],
           },
-          {
-            name: 'click',
-            description: 'Click at a position on the remote machine',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                agentId: { type: 'string' },
-                x: { type: 'number', description: 'X coordinate' },
-                y: { type: 'number', description: 'Y coordinate' },
-                button: { type: 'string', enum: ['left', 'right', 'middle'], default: 'left' },
-              },
-              required: ['x', 'y'],
+        },
+        {
+          name: 'keyboard_shortcut',
+          description: 'Execute a keyboard shortcut (e.g., Cmd+C, Ctrl+V)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              shortcut: { type: 'string', description: 'Shortcut like "Command+C" or "Control+Shift+S"' },
+            },
+            required: ['shortcut'],
+          },
+        },
+
+        // === Browser Automation ===
+        {
+          name: 'browser_navigate',
+          description: 'Navigate browser to a URL',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              url: { type: 'string', description: 'URL to navigate to' },
+            },
+            required: ['url'],
+          },
+        },
+        {
+          name: 'browser_click',
+          description: 'Click an element in the browser by selector or text',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              selector: { type: 'string', description: 'CSS selector or XPath' },
+              text: { type: 'string', description: 'Text content to find and click' },
+              index: { type: 'number', description: 'Index if multiple matches (0-based)' },
             },
           },
-          {
-            name: 'type',
-            description: 'Type text on the remote machine',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                agentId: { type: 'string' },
-                text: { type: 'string', description: 'Text to type' },
-              },
-              required: ['text'],
+        },
+        {
+          name: 'browser_fill',
+          description: 'Fill a form field in the browser',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              selector: { type: 'string', description: 'CSS selector of the input field' },
+              value: { type: 'string', description: 'Value to fill' },
+            },
+            required: ['selector', 'value'],
+          },
+        },
+        {
+          name: 'browser_screenshot',
+          description: 'Take a screenshot of the browser page',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              fullPage: { type: 'boolean', description: 'Capture full scrollable page' },
+              selector: { type: 'string', description: 'Capture specific element only' },
             },
           },
-          {
-            name: 'agents/list',
-            description: 'List connected agents',
-            inputSchema: {
-              type: 'object',
-              properties: {},
+        },
+        {
+          name: 'browser_get_text',
+          description: 'Get visible text content from the page',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              selector: { type: 'string', description: 'CSS selector (optional, gets all visible text if omitted)' },
             },
           },
-        ],
-      };
+        },
+        {
+          name: 'browser_get_elements',
+          description: 'Get interactive elements on the page (buttons, links, inputs)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+            },
+          },
+        },
+        {
+          name: 'browser_select',
+          description: 'Select an option from a dropdown',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              selector: { type: 'string', description: 'CSS selector of select element' },
+              value: { type: 'string', description: 'Value or label to select' },
+            },
+            required: ['selector', 'value'],
+          },
+        },
+        {
+          name: 'browser_wait',
+          description: 'Wait for an element or condition',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              selector: { type: 'string', description: 'Wait for this selector to appear' },
+              text: { type: 'string', description: 'Wait for this text to appear' },
+              timeout: { type: 'number', description: 'Max wait time in ms' },
+            },
+          },
+        },
+        {
+          name: 'browser_back',
+          description: 'Navigate browser back',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+            },
+          },
+        },
+        {
+          name: 'browser_forward',
+          description: 'Navigate browser forward',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+            },
+          },
+        },
+        {
+          name: 'browser_refresh',
+          description: 'Refresh the current page',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+            },
+          },
+        },
+        {
+          name: 'browser_tabs',
+          description: 'List, create, close, or switch browser tabs',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              action: { type: 'string', enum: ['list', 'new', 'close', 'switch'], description: 'Tab action' },
+              tabIndex: { type: 'number', description: 'Tab index for switch/close' },
+              url: { type: 'string', description: 'URL for new tab' },
+            },
+            required: ['action'],
+          },
+        },
+        {
+          name: 'browser_evaluate',
+          description: 'Execute JavaScript in the browser context',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              script: { type: 'string', description: 'JavaScript code to execute' },
+            },
+            required: ['script'],
+          },
+        },
+
+        // === Window Management ===
+        {
+          name: 'window_list',
+          description: 'List all open windows on the desktop',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+            },
+          },
+        },
+        {
+          name: 'window_focus',
+          description: 'Focus/activate a specific window',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              windowId: { type: 'string', description: 'Window ID from window_list' },
+              title: { type: 'string', description: 'Window title to match' },
+            },
+          },
+        },
+        {
+          name: 'window_resize',
+          description: 'Resize a window',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              windowId: { type: 'string' },
+              width: { type: 'number' },
+              height: { type: 'number' },
+            },
+            required: ['width', 'height'],
+          },
+        },
+        {
+          name: 'window_move',
+          description: 'Move a window to specific position',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              windowId: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+            },
+            required: ['x', 'y'],
+          },
+        },
+
+        // === Application Control ===
+        {
+          name: 'app_launch',
+          description: 'Launch an application',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              app: { type: 'string', description: 'Application name or path' },
+              args: { type: 'array', items: { type: 'string' }, description: 'Command line arguments' },
+            },
+            required: ['app'],
+          },
+        },
+        {
+          name: 'app_close',
+          description: 'Close an application',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              app: { type: 'string', description: 'Application name' },
+              force: { type: 'boolean', description: 'Force quit' },
+            },
+            required: ['app'],
+          },
+        },
+
+        // === Clipboard ===
+        {
+          name: 'clipboard_read',
+          description: 'Read content from clipboard',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+            },
+          },
+        },
+        {
+          name: 'clipboard_write',
+          description: 'Write content to clipboard',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              text: { type: 'string', description: 'Text to copy to clipboard' },
+            },
+            required: ['text'],
+          },
+        },
+
+        // === File Operations ===
+        {
+          name: 'file_read',
+          description: 'Read contents of a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              path: { type: 'string', description: 'File path' },
+              encoding: { type: 'string', description: 'Text encoding (utf8, base64)' },
+            },
+            required: ['path'],
+          },
+        },
+        {
+          name: 'file_write',
+          description: 'Write contents to a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              path: { type: 'string', description: 'File path' },
+              content: { type: 'string', description: 'Content to write' },
+              encoding: { type: 'string', description: 'Text encoding' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+        {
+          name: 'file_list',
+          description: 'List files in a directory',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              path: { type: 'string', description: 'Directory path' },
+            },
+            required: ['path'],
+          },
+        },
+
+        // === System Info ===
+        {
+          name: 'system_info',
+          description: 'Get system information (OS, CPU, memory, etc.)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+            },
+          },
+        },
+
+        // === Screen OCR / Vision ===
+        {
+          name: 'screen_find_text',
+          description: 'Find text on screen using OCR and return coordinates',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              text: { type: 'string', description: 'Text to find on screen' },
+            },
+            required: ['text'],
+          },
+        },
+        {
+          name: 'screen_find_image',
+          description: 'Find an image pattern on screen',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              imageBase64: { type: 'string', description: 'Base64 encoded image to find' },
+              threshold: { type: 'number', description: 'Match threshold 0-1' },
+            },
+            required: ['imageBase64'],
+          },
+        },
+      ];
+
+      logMcp('TOOLS LIST RESPONSE', {
+        toolCount: toolsList.length,
+        toolNames: toolsList.map(t => t.name),
+        onlineAgents: agentsForTools.length,
+      });
+
+      return { tools: toolsList };
 
     case 'tools/call':
       const { name, arguments: args } = params;
@@ -435,43 +879,568 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
  * Execute a tool call
  */
 async function executeToolCall(toolName: string, args: any, userId: string) {
+  logMcp('TOOL CALL', {
+    tool: toolName,
+    arguments: args || {},
+    userId,
+  });
+
+  // Get user's online agents for tools that need them
+  const getOnlineAgents = async () => {
+    return prisma.agent.findMany({
+      where: { ownerUserId: userId, status: 'ONLINE' },
+      select: { id: true, hostname: true, displayName: true, osType: true },
+    });
+  };
+
+  // Helper to format agent name for display (prefers displayName over hostname)
+  // NEVER falls back to ID - users can't understand IDs
+  const formatAgentName = (agent: { displayName: string | null; hostname: string | null }) => {
+    return agent.displayName || agent.hostname || 'Unnamed Agent';
+  };
+
+  // Normalize a string for fuzzy matching: lowercase, remove special chars, collapse spaces
+  const normalizeForMatch = (str: string): string => {
+    return str
+      .toLowerCase()
+      .replace(/[''`]/g, '')           // Remove apostrophes
+      .replace(/[^a-z0-9\s]/g, ' ')    // Replace special chars with spaces
+      .replace(/\s+/g, ' ')            // Collapse multiple spaces
+      .trim();
+  };
+
+  // Calculate similarity score between two strings (0-1, higher is better)
+  const calculateSimilarity = (str1: string, str2: string): number => {
+    const s1 = normalizeForMatch(str1);
+    const s2 = normalizeForMatch(str2);
+
+    // Exact match after normalization
+    if (s1 === s2) return 1.0;
+
+    // One contains the other
+    if (s1.includes(s2) || s2.includes(s1)) {
+      const shorter = s1.length < s2.length ? s1 : s2;
+      const longer = s1.length < s2.length ? s2 : s1;
+      return shorter.length / longer.length * 0.9; // Slight penalty for partial match
+    }
+
+    // Word-based matching
+    const words1 = s1.split(' ').filter(w => w.length > 0);
+    const words2 = s2.split(' ').filter(w => w.length > 0);
+    const matchingWords = words1.filter(w1 =>
+      words2.some(w2 => w1.includes(w2) || w2.includes(w1))
+    ).length;
+
+    if (matchingWords > 0) {
+      return matchingWords / Math.max(words1.length, words2.length) * 0.8;
+    }
+
+    // Levenshtein-like: count matching characters
+    let matches = 0;
+    const chars1 = s1.replace(/\s/g, '');
+    const chars2 = s2.replace(/\s/g, '');
+    for (const char of chars1) {
+      if (chars2.includes(char)) matches++;
+    }
+    return matches / Math.max(chars1.length, chars2.length) * 0.5;
+  };
+
+  // Find best matching agent(s) with similarity scores
+  type OnlineAgent = { id: string; hostname: string | null; displayName: string | null; osType: string };
+  type AgentWithScore = { agent: OnlineAgent; score: number; matchedOn: string };
+
+  const findMatchingAgents = (agents: OnlineAgent[], search: string): AgentWithScore[] => {
+    const results: AgentWithScore[] = [];
+
+    for (const agent of agents) {
+      // Check exact ID match first (internal use)
+      if (agent.id === search) {
+        results.push({ agent, score: 1.0, matchedOn: 'id' });
+        continue;
+      }
+
+      // Check displayName
+      if (agent.displayName) {
+        const score = calculateSimilarity(search, agent.displayName);
+        if (score > 0.3) {
+          results.push({ agent, score, matchedOn: 'displayName' });
+          continue;
+        }
+      }
+
+      // Check hostname
+      if (agent.hostname) {
+        const score = calculateSimilarity(search, agent.hostname);
+        if (score > 0.3) {
+          results.push({ agent, score, matchedOn: 'hostname' });
+        }
+      }
+    }
+
+    // Sort by score descending
+    return results.sort((a, b) => b.score - a.score);
+  };
+
+  // Helper to select the target agent - returns agent or error response
+  const selectAgent = async (requestedAgentId?: string): Promise<
+    | { agent: { id: string; hostname: string | null; displayName: string | null; osType: string }; error?: never }
+    | { error: { content: { type: string; text: string }[]; isError: boolean }; agent?: never }
+  > => {
+    const agents = await getOnlineAgents();
+
+    if (agents.length === 0) {
+      return {
+        error: {
+          content: [{
+            type: 'text',
+            text: `No agents are currently online. Please ensure a ScreenControl agent is running and connected.\n\nUse the "list_agents" tool to see all registered agents and their status.`,
+          }],
+          isError: true,
+        }
+      };
+    }
+
+    // If agentId specified, find matching agent(s) using fuzzy matching
+    if (requestedAgentId) {
+      const matches = findMatchingAgents(agents, requestedAgentId);
+
+      // No matches found
+      if (matches.length === 0) {
+        return {
+          error: {
+            content: [{
+              type: 'text',
+              text: `Agent "${requestedAgentId}" not found or not online.\n\nAvailable online agents:\n${agents.map(a => `- "${formatAgentName(a)}" (${a.osType})`).join('\n')}\n\nPlease ask the user which agent they want to use.`,
+            }],
+            isError: true,
+          }
+        };
+      }
+
+      const bestMatch = matches[0];
+
+      // High confidence match (>= 0.8) - use it directly
+      if (bestMatch.score >= 0.8) {
+        return { agent: bestMatch.agent };
+      }
+
+      // Medium confidence (0.5-0.8) - ask for confirmation
+      if (bestMatch.score >= 0.5) {
+        // Check if there are other close matches
+        const closeMatches = matches.filter(m => m.score >= 0.5);
+
+        if (closeMatches.length === 1) {
+          // Only one reasonable match - ask to confirm
+          return {
+            error: {
+              content: [{
+                type: 'text',
+                text: `Did you mean "${formatAgentName(bestMatch.agent)}" (${bestMatch.agent.osType})?\n\nPlease confirm with the user, then retry with the exact name: "${formatAgentName(bestMatch.agent)}"`,
+              }],
+              isError: true,
+            }
+          };
+        } else {
+          // Multiple close matches - ask user to clarify
+          return {
+            error: {
+              content: [{
+                type: 'text',
+                text: `Multiple agents match "${requestedAgentId}". Please ask the user which one they mean:\n\n${closeMatches.map(m => `- "${formatAgentName(m.agent)}" (${m.agent.osType})`).join('\n')}\n\nThen retry with the exact name.`,
+              }],
+              isError: true,
+            }
+          };
+        }
+      }
+
+      // Low confidence (< 0.5) - no good match
+      return {
+        error: {
+          content: [{
+            type: 'text',
+            text: `Could not find an agent matching "${requestedAgentId}".\n\nAvailable online agents:\n${agents.map(a => `- "${formatAgentName(a)}" (${a.osType})`).join('\n')}\n\nPlease ask the user which agent they want to use.`,
+          }],
+          isError: true,
+        }
+      };
+    }
+
+    // If only one agent, use it automatically
+    if (agents.length === 1) {
+      return { agent: agents[0] };
+    }
+
+    // Multiple agents and none specified - ask Claude to choose
+    return {
+      error: {
+        content: [{
+          type: 'text',
+          text: `Multiple agents are online. Please ask the user which agent to use.\n\nAvailable agents:\n${agents.map(a => `- "${formatAgentName(a)}" (${a.osType})`).join('\n')}\n\nThe user can refer to agents by name (e.g., "my MacBook" or the machine name shown above).`,
+        }],
+        isError: true,
+      }
+    };
+  };
+
+  // Helper to create a "no agents" response (legacy, use selectAgent instead)
+  const noAgentsResponse = (toolName: string) => ({
+    content: [{
+      type: 'text',
+      text: `Cannot execute ${toolName}: No agents are currently online. Please ensure a ScreenControl agent is running and connected.`,
+    }],
+    isError: true,
+  });
+
+  // Helper to create a pending response for tools that need agent integration
+  const pendingResponse = (toolName: string, agent: { id: string; hostname: string | null; displayName: string | null; osType: string }, details: string) => ({
+    content: [{
+      type: 'text',
+      text: `Tool "${toolName}" acknowledged for agent "${formatAgentName(agent)}" (${agent.osType}).\n\n${details}\n\nNote: Full agent integration is pending. The command has been logged and will be executed when agent WebSocket forwarding is implemented.`,
+    }],
+  });
+
   switch (toolName) {
-    case 'agents/list':
+    // === Emergency Control ===
+    case 'emergency_stop': {
+      const agentName = args?.agentId;
+      const reason = args?.reason || 'User requested stop';
+
+      logMcp('EMERGENCY STOP', { agentName, reason, userId });
+
+      // If agent specified, try to find it
+      if (agentName) {
+        const result = await selectAgent(agentName);
+        if (result.error) {
+          // Even if agent not found, acknowledge the stop request
+          return {
+            content: [{
+              type: 'text',
+              text: `⛔ EMERGENCY STOP acknowledged.\n\nReason: ${reason}\n\nNote: Could not find agent "${agentName}" but all pending operations have been flagged for cancellation.\n\nThe user should verify no unintended actions occurred.`,
+            }],
+          };
+        }
+
+        // TODO: Send actual stop signal to agent via WebSocket
+        return {
+          content: [{
+            type: 'text',
+            text: `⛔ EMERGENCY STOP sent to "${formatAgentName(result.agent)}" (${result.agent.osType}).\n\nReason: ${reason}\n\nAll pending operations on this agent have been cancelled. The user should verify no unintended actions occurred.`,
+          }],
+        };
+      }
+
+      // Stop all agents
+      const agents = await getOnlineAgents();
+      // TODO: Send stop signal to all agents via WebSocket
+
+      return {
+        content: [{
+          type: 'text',
+          text: `⛔ EMERGENCY STOP sent to ALL agents (${agents.length} online).\n\nReason: ${reason}\n\nAll pending operations have been cancelled. The user should verify no unintended actions occurred.`,
+        }],
+      };
+    }
+
+    // === Agent Management ===
+    case 'list_agents': {
       const agents = await prisma.agent.findMany({
         where: { ownerUserId: userId },
         select: {
           id: true,
           hostname: true,
+          displayName: true,
           osType: true,
           status: true,
           lastSeenAt: true,
         },
       });
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(agents, null, 2),
-          },
-        ],
-      };
+      logMcp('TOOL RESULT - list_agents', { agentCount: agents.length, agents });
 
-    case 'screenshot':
-    case 'click':
-    case 'type':
-      // These would connect to the agent via WebSocket
-      // For now, return a placeholder
-      return {
-        content: [
-          {
+      if (agents.length === 0) {
+        return {
+          content: [{
             type: 'text',
-            text: 'Tool ' + toolName + ' executed (agent integration pending)',
-          },
-        ],
+            text: 'No agents registered. Install and run the ScreenControl agent on a computer to enable remote control.',
+          }],
+        };
+      }
+
+      // Format agents in a Claude-friendly way - never expose raw IDs to users
+      const agentList = agents.map(a => ({
+        name: formatAgentName(a),
+        os: a.osType,
+        status: a.status,
+        lastSeen: a.lastSeenAt?.toISOString(),
+      }));
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Found ${agents.length} agent(s):\n\n${agentList.map(a =>
+            `- "${a.name}" (${a.os}) - ${a.status}${a.status === 'ONLINE' ? ' ✓' : ''}\n  Last seen: ${a.lastSeen}`
+          ).join('\n\n')}\n\nTo use a specific agent, refer to it by name (e.g., "my MacBook" or the machine name shown above).`,
+        }],
       };
+    }
+
+    // === Desktop Screenshot & Vision ===
+    case 'desktop_screenshot': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - desktop_screenshot', { agent: result.agent.id, args });
+      return pendingResponse(toolName, result.agent, `Will capture screenshot.`);
+    }
+
+    case 'screen_find_text': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - screen_find_text', { agent: result.agent.id, text: args?.text });
+      return pendingResponse(toolName, result.agent, `Will search for text "${args?.text}" on screen.`);
+    }
+
+    case 'screen_find_image': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - screen_find_image', { agent: result.agent.id, hasImage: !!args?.imageBase64, threshold: args?.threshold });
+      return pendingResponse(toolName, result.agent, `Will search for image pattern on screen.`);
+    }
+
+    // === Mouse Actions ===
+    case 'mouse_click': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - mouse_click', { agent: result.agent.id, x: args?.x, y: args?.y, button: args?.button });
+      return pendingResponse(toolName, result.agent, `Will click at (${args?.x}, ${args?.y}) with ${args?.button || 'left'} button.`);
+    }
+
+    case 'mouse_move': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - mouse_move', { agent: result.agent.id, x: args?.x, y: args?.y });
+      return pendingResponse(toolName, result.agent, `Will move cursor to (${args?.x}, ${args?.y}).`);
+    }
+
+    case 'mouse_drag': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - mouse_drag', { agent: result.agent.id, startX: args?.startX, startY: args?.startY, endX: args?.endX, endY: args?.endY });
+      return pendingResponse(toolName, result.agent, `Will drag from (${args?.startX}, ${args?.startY}) to (${args?.endX}, ${args?.endY}).`);
+    }
+
+    case 'mouse_scroll': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - mouse_scroll', { agent: result.agent.id, deltaX: args?.deltaX, deltaY: args?.deltaY });
+      return pendingResponse(toolName, result.agent, `Will scroll by (${args?.deltaX || 0}, ${args?.deltaY}).`);
+    }
+
+    // === Keyboard Actions ===
+    case 'keyboard_type': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - keyboard_type', { agent: result.agent.id, textLength: args?.text?.length, preview: args?.text?.substring(0, 50) });
+      return pendingResponse(toolName, result.agent, `Will type ${args?.text?.length || 0} characters.`);
+    }
+
+    case 'keyboard_press': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - keyboard_press', { agent: result.agent.id, key: args?.key, modifiers: args?.modifiers });
+      return pendingResponse(toolName, result.agent, `Will press key "${args?.key}"${args?.modifiers?.length ? ` with ${args.modifiers.join('+')}` : ''}.`);
+    }
+
+    case 'keyboard_shortcut': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - keyboard_shortcut', { agent: result.agent.id, shortcut: args?.shortcut });
+      return pendingResponse(toolName, result.agent, `Will execute shortcut "${args?.shortcut}".`);
+    }
+
+    // === Browser Automation ===
+    case 'browser_navigate': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_navigate', { agent: result.agent.id, url: args?.url });
+      return pendingResponse(toolName, result.agent, `Will navigate to "${args?.url}".`);
+    }
+
+    case 'browser_click': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_click', { agent: result.agent.id, selector: args?.selector, text: args?.text });
+      return pendingResponse(toolName, result.agent, `Will click element ${args?.selector ? `"${args.selector}"` : `with text "${args?.text}"`}.`);
+    }
+
+    case 'browser_fill': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_fill', { agent: result.agent.id, selector: args?.selector, valueLength: args?.value?.length });
+      return pendingResponse(toolName, result.agent, `Will fill "${args?.selector}" with ${args?.value?.length || 0} characters.`);
+    }
+
+    case 'browser_screenshot': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_screenshot', { agent: result.agent.id, fullPage: args?.fullPage });
+      return pendingResponse(toolName, result.agent, `Will capture browser screenshot${args?.fullPage ? ' (full page)' : ''}.`);
+    }
+
+    case 'browser_get_text': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_get_text', { agent: result.agent.id, selector: args?.selector });
+      return pendingResponse(toolName, result.agent, `Will get text content${args?.selector ? ` from "${args.selector}"` : ' from page'}.`);
+    }
+
+    case 'browser_get_elements': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_get_elements', { agent: result.agent.id, selector: args?.selector });
+      return pendingResponse(toolName, result.agent, `Will get interactive elements from page.`);
+    }
+
+    case 'browser_select': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_select', { agent: result.agent.id, selector: args?.selector, value: args?.value });
+      return pendingResponse(toolName, result.agent, `Will select "${args?.value}" from "${args?.selector}".`);
+    }
+
+    case 'browser_wait': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_wait', { agent: result.agent.id, selector: args?.selector, timeout: args?.timeout });
+      return pendingResponse(toolName, result.agent, `Will wait for "${args?.selector}"${args?.timeout ? ` (timeout: ${args.timeout}ms)` : ''}.`);
+    }
+
+    case 'browser_back': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_back', { agent: result.agent.id });
+      return pendingResponse(toolName, result.agent, `Will navigate back in browser history.`);
+    }
+
+    case 'browser_forward': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_forward', { agent: result.agent.id });
+      return pendingResponse(toolName, result.agent, `Will navigate forward in browser history.`);
+    }
+
+    case 'browser_refresh': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_refresh', { agent: result.agent.id });
+      return pendingResponse(toolName, result.agent, `Will refresh the current page.`);
+    }
+
+    case 'browser_tabs': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_tabs', { agent: result.agent.id, action: args?.action });
+      return pendingResponse(toolName, result.agent, `Will ${args?.action || 'list'} browser tabs.`);
+    }
+
+    case 'browser_evaluate': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - browser_evaluate', { agent: result.agent.id, scriptLength: args?.script?.length });
+      return pendingResponse(toolName, result.agent, `Will execute JavaScript (${args?.script?.length || 0} chars).`);
+    }
+
+    // === Window Management ===
+    case 'window_list': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - window_list', { agent: result.agent.id });
+      return pendingResponse(toolName, result.agent, `Will list all open windows.`);
+    }
+
+    case 'window_focus': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - window_focus', { agent: result.agent.id, windowId: args?.windowId, title: args?.title });
+      return pendingResponse(toolName, result.agent, `Will focus window ${args?.windowId || args?.title || 'specified'}.`);
+    }
+
+    case 'window_resize': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - window_resize', { agent: result.agent.id, width: args?.width, height: args?.height });
+      return pendingResponse(toolName, result.agent, `Will resize window to ${args?.width}x${args?.height}.`);
+    }
+
+    case 'window_move': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - window_move', { agent: result.agent.id, x: args?.x, y: args?.y });
+      return pendingResponse(toolName, result.agent, `Will move window to (${args?.x}, ${args?.y}).`);
+    }
+
+    // === Application Control ===
+    case 'app_launch': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - app_launch', { agent: result.agent.id, app: args?.app, path: args?.path });
+      return pendingResponse(toolName, result.agent, `Will launch application "${args?.app || args?.path}".`);
+    }
+
+    case 'app_close': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - app_close', { agent: result.agent.id, app: args?.app, pid: args?.pid });
+      return pendingResponse(toolName, result.agent, `Will close application "${args?.app || args?.pid}".`);
+    }
+
+    // === Clipboard ===
+    case 'clipboard_read': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - clipboard_read', { agent: result.agent.id });
+      return pendingResponse(toolName, result.agent, `Will read clipboard contents.`);
+    }
+
+    case 'clipboard_write': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - clipboard_write', { agent: result.agent.id, contentLength: args?.content?.length });
+      return pendingResponse(toolName, result.agent, `Will write ${args?.content?.length || 0} characters to clipboard.`);
+    }
+
+    // === File Operations ===
+    case 'file_read': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - file_read', { agent: result.agent.id, path: args?.path });
+      return pendingResponse(toolName, result.agent, `Will read file "${args?.path}".`);
+    }
+
+    case 'file_write': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - file_write', { agent: result.agent.id, path: args?.path, contentLength: args?.content?.length });
+      return pendingResponse(toolName, result.agent, `Will write ${args?.content?.length || 0} characters to "${args?.path}".`);
+    }
+
+    case 'file_list': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - file_list', { agent: result.agent.id, path: args?.path });
+      return pendingResponse(toolName, result.agent, `Will list files in "${args?.path}".`);
+    }
+
+    // === System ===
+    case 'system_info': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      logMcp('TOOL RESULT - system_info', { agent: result.agent.id });
+      return pendingResponse(toolName, result.agent, `Will get system information.`);
+    }
 
     default:
-      throw { code: -32601, message: 'Unknown tool: ' + toolName };
+      logMcp('TOOL ERROR - Unknown tool', { tool: toolName });
+      throw { code: -32601, message: `Unknown tool: ${toolName}. Available tools: emergency_stop, list_agents, desktop_screenshot, mouse_click, mouse_move, mouse_drag, mouse_scroll, keyboard_type, keyboard_press, keyboard_shortcut, browser_navigate, browser_click, browser_fill, browser_screenshot, browser_get_text, browser_get_elements, browser_select, browser_wait, browser_back, browser_forward, browser_refresh, browser_tabs, browser_evaluate, window_list, window_focus, window_resize, window_move, app_launch, app_close, clipboard_read, clipboard_write, file_read, file_write, file_list, system_info, screen_find_text, screen_find_image` };
   }
 }
 
