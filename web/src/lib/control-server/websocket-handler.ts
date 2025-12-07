@@ -9,6 +9,7 @@ import { IncomingMessage } from 'http';
 import { AgentMessage, ConnectedAgent } from './types';
 import { NetworkUtils } from './network';
 import { LocalAgentRegistry } from './agent-registry';
+import { checkLicenseStatus } from './db-service';
 
 /**
  * Handle a new agent WebSocket connection
@@ -82,11 +83,51 @@ export function handleAgentConnection(
                 currentTask: msg.currentTask,
               });
             }
+
+            // Check license status on heartbeat (1.2.4)
+            if (agent.dbId) {
+              try {
+                const licenseCheck = await checkLicenseStatus(agent.dbId);
+
+                // Check if there are pending commands for this agent
+                const hasPendingCommands = registry.hasPendingQueuedCommands(agent.id);
+
+                // Send heartbeat_ack with license status and pending commands flag
+                socket.send(
+                  JSON.stringify({
+                    type: 'heartbeat_ack',
+                    id: msg.id,
+                    licenseStatus: licenseCheck.licenseStatus,
+                    licenseChanged: licenseCheck.changed,
+                    licenseMessage: licenseCheck.message,
+                    pendingCommands: hasPendingCommands, // (1.2.19)
+                    config: licenseCheck.changed
+                      ? {
+                          heartbeatInterval: getHeartbeatInterval(agent.powerState),
+                          state: licenseCheck.licenseStatus === 'active' ? 'ACTIVE' : 'DEGRADED',
+                        }
+                      : undefined,
+                  })
+                );
+
+                // Update agent's license status in memory if changed
+                if (licenseCheck.changed) {
+                  agent.licenseStatus = licenseCheck.licenseStatus;
+                  agent.state = licenseCheck.licenseStatus === 'active' ? 'ACTIVE' :
+                               licenseCheck.licenseStatus === 'expired' ? 'EXPIRED' :
+                               licenseCheck.licenseStatus === 'blocked' ? 'BLOCKED' : 'PENDING';
+                }
+              } catch (err) {
+                console.error('[WS] License check error:', err);
+              }
+            }
           }
           break;
 
         case 'state_change':
           if (agent) {
+            const previousPowerState = agent.powerState;
+
             await registry.updateState(agent, {
               powerState: msg.powerState || agent.powerState,
               isScreenLocked: msg.isScreenLocked ?? agent.isScreenLocked,
@@ -94,7 +135,7 @@ export function handleAgentConnection(
             });
 
             // If power state changed, send new config
-            if (msg.powerState && msg.powerState !== agent.powerState) {
+            if (msg.powerState && msg.powerState !== previousPowerState) {
               socket.send(
                 JSON.stringify({
                   type: 'config',
@@ -105,6 +146,15 @@ export function handleAgentConnection(
                   },
                 })
               );
+
+              // If agent just woke up (was SLEEP, now ACTIVE or PASSIVE), process queued commands
+              if (previousPowerState === 'SLEEP' && (msg.powerState === 'ACTIVE' || msg.powerState === 'PASSIVE')) {
+                console.log(`[WS] Agent ${agent.machineName || agent.machineId} woke up, checking queued commands`);
+                // Process asynchronously to not block
+                registry.processQueuedCommands(agent.id).catch((err) => {
+                  console.error('[WS] Error processing queued commands:', err);
+                });
+              }
             }
           }
           break;

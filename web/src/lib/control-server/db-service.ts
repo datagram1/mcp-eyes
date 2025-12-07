@@ -490,6 +490,158 @@ function parseOSType(osType?: string): 'WINDOWS' | 'MACOS' | 'LINUX' {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// License Status Check (1.2.4)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Check current license status for an agent (fast DB query for heartbeat)
+ */
+export async function checkLicenseStatus(agentDbId: string): Promise<{
+  licenseStatus: 'active' | 'pending' | 'expired' | 'blocked';
+  changed: boolean;
+  message?: string;
+}> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentDbId },
+    select: {
+      state: true,
+      license: {
+        select: {
+          status: true,
+          validUntil: true,
+          isTrial: true,
+          trialEnds: true,
+        },
+      },
+    },
+  });
+
+  if (!agent) {
+    return { licenseStatus: 'blocked', changed: true, message: 'Agent not found' };
+  }
+
+  // Check blocked/expired state first
+  if (agent.state === 'BLOCKED') {
+    return { licenseStatus: 'blocked', changed: false };
+  }
+  if (agent.state === 'EXPIRED') {
+    return { licenseStatus: 'expired', changed: false };
+  }
+
+  // Check license validity
+  let newStatus: 'active' | 'pending' | 'expired' | 'blocked' = 'pending';
+  let changed = false;
+  let message: string | undefined;
+
+  if (agent.license) {
+    if (agent.license.status === 'SUSPENDED') {
+      newStatus = 'blocked';
+      message = 'License suspended';
+    } else if (agent.license.status === 'EXPIRED') {
+      newStatus = 'expired';
+      message = 'License expired';
+    } else if (agent.license.status === 'ACTIVE') {
+      // Check expiry dates
+      const now = new Date();
+      if (agent.license.validUntil && agent.license.validUntil < now) {
+        newStatus = 'expired';
+        message = 'License validity period ended';
+        changed = true;
+        // Update the agent state in DB
+        await prisma.agent.update({
+          where: { id: agentDbId },
+          data: { state: 'EXPIRED' },
+        });
+      } else if (agent.license.isTrial && agent.license.trialEnds && agent.license.trialEnds < now) {
+        newStatus = 'expired';
+        message = 'Trial period ended';
+        changed = true;
+        await prisma.agent.update({
+          where: { id: agentDbId },
+          data: { state: 'EXPIRED' },
+        });
+      } else {
+        newStatus = 'active';
+      }
+    }
+  }
+
+  // Check if status changed from what agent has
+  if (agent.state === 'ACTIVE' && newStatus !== 'active') {
+    changed = true;
+  } else if (agent.state === 'PENDING' && newStatus === 'active') {
+    changed = true;
+  }
+
+  return { licenseStatus: newStatus, changed, message };
+}
+
+/**
+ * Check pre-conditions before forwarding a command (1.2.6)
+ */
+export async function checkCommandPreConditions(
+  agentDbId: string,
+  method: string
+): Promise<{
+  allowed: boolean;
+  reason?: string;
+}> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentDbId },
+    select: {
+      state: true,
+      powerState: true,
+      isScreenLocked: true,
+      license: {
+        select: { status: true },
+      },
+    },
+  });
+
+  if (!agent) {
+    return { allowed: false, reason: 'Agent not found' };
+  }
+
+  // Check agent state
+  if (agent.state === 'BLOCKED') {
+    return { allowed: false, reason: 'Agent is blocked' };
+  }
+  if (agent.state === 'EXPIRED') {
+    return { allowed: false, reason: 'License expired' };
+  }
+
+  // Check license
+  if (agent.license?.status !== 'ACTIVE') {
+    return { allowed: false, reason: 'License not active' };
+  }
+
+  // Allow PENDING agents for basic operations
+  if (agent.state === 'PENDING') {
+    const allowedForPending = ['ping', 'status', 'getInfo'];
+    if (!allowedForPending.includes(method)) {
+      return { allowed: false, reason: 'Agent awaiting activation - limited commands only' };
+    }
+  }
+
+  // Screen lock check - allow certain tools even when locked
+  if (agent.isScreenLocked) {
+    const allowedWhenLocked = [
+      'ping',
+      'status',
+      'getInfo',
+      'fs_list',
+      'fs_read',
+      'shell_exec',
+    ];
+    if (!allowedWhenLocked.some((m) => method.includes(m))) {
+      return { allowed: false, reason: 'Screen is locked - limited commands only' };
+    }
+  }
+
+  return { allowed: true };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Activity Pattern Tracking
 // ═══════════════════════════════════════════════════════════════════════════
 

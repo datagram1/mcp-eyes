@@ -24,13 +24,27 @@ import {
   updateAgentHeartbeat,
   logCommand,
   updateCommandLog,
+  checkCommandPreConditions,
 } from './db-service';
+
+// Command queue entry for sleeping agents (1.2.18)
+interface QueuedCommand {
+  id: string;
+  method: string;
+  params: Record<string, unknown>;
+  context?: { aiConnectionId?: string; ipAddress?: string };
+  queuedAt: Date;
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+}
 
 class LocalAgentRegistry implements IAgentRegistry {
   private agents = new Map<string, ConnectedAgent>();
   private agentsByMachineId = new Map<string, string>(); // machineId -> agentId
   private agentsByDbId = new Map<string, string>(); // dbId -> connectionId
   private sessionIds = new Map<string, string>(); // connectionId -> sessionId
+  private commandQueue = new Map<string, QueuedCommand[]>(); // agentId -> queued commands (1.2.18)
 
   /**
    * Register a new agent connection
@@ -256,6 +270,28 @@ class LocalAgentRegistry implements IAgentRegistry {
       throw new Error(`Agent not found: ${agentId}`);
     }
 
+    // Pre-condition checks (1.2.6)
+    if (agent.dbId) {
+      try {
+        const preCheck = await checkCommandPreConditions(agent.dbId, method);
+        if (!preCheck.allowed) {
+          throw new Error(`Command blocked: ${preCheck.reason}`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Command blocked:')) {
+          throw err;
+        }
+        console.error('[Registry] Pre-condition check error:', err);
+        // Continue anyway if DB check fails
+      }
+    }
+
+    // If agent is sleeping, queue the command (1.2.18)
+    if (agent.powerState === 'SLEEP') {
+      console.log(`[Registry] Agent ${agentId} is sleeping, queueing command: ${method}`);
+      return this.queueCommand(agentId, method, params, context);
+    }
+
     if (agent.socket.readyState !== WebSocket.OPEN) {
       throw new Error(`Agent not connected: ${agentId}`);
     }
@@ -336,6 +372,92 @@ class LocalAgentRegistry implements IAgentRegistry {
 
       agent.socket.send(JSON.stringify(message));
     });
+  }
+
+  /**
+   * Queue a command for a sleeping agent (1.2.18)
+   */
+  private queueCommand(
+    agentId: string,
+    method: string,
+    params: Record<string, unknown>,
+    context?: { aiConnectionId?: string; ipAddress?: string }
+  ): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const commandId = uuidv4();
+
+      // 5 minute timeout for queued commands
+      const timeout = setTimeout(() => {
+        this.removeQueuedCommand(agentId, commandId);
+        reject(new Error('Queued command timeout - agent did not wake'));
+      }, 300000);
+
+      const queuedCommand: QueuedCommand = {
+        id: commandId,
+        method,
+        params,
+        context,
+        queuedAt: new Date(),
+        resolve,
+        reject,
+        timeout,
+      };
+
+      const queue = this.commandQueue.get(agentId) || [];
+      queue.push(queuedCommand);
+      this.commandQueue.set(agentId, queue);
+
+      console.log(`[Registry] Queued command ${commandId} for agent ${agentId}: ${method}`);
+    });
+  }
+
+  /**
+   * Remove a queued command
+   */
+  private removeQueuedCommand(agentId: string, commandId: string): void {
+    const queue = this.commandQueue.get(agentId);
+    if (queue) {
+      const index = queue.findIndex((c) => c.id === commandId);
+      if (index !== -1) {
+        clearTimeout(queue[index].timeout);
+        queue.splice(index, 1);
+        if (queue.length === 0) {
+          this.commandQueue.delete(agentId);
+        }
+      }
+    }
+  }
+
+  /**
+   * Check if agent has pending queued commands (1.2.19)
+   */
+  hasPendingQueuedCommands(agentId: string): boolean {
+    const queue = this.commandQueue.get(agentId);
+    return queue !== undefined && queue.length > 0;
+  }
+
+  /**
+   * Process queued commands when agent wakes up
+   */
+  async processQueuedCommands(agentId: string): Promise<void> {
+    const queue = this.commandQueue.get(agentId);
+    if (!queue || queue.length === 0) return;
+
+    console.log(`[Registry] Processing ${queue.length} queued commands for agent ${agentId}`);
+
+    // Process commands in order
+    const commands = [...queue];
+    this.commandQueue.delete(agentId);
+
+    for (const cmd of commands) {
+      clearTimeout(cmd.timeout);
+      try {
+        const result = await this.sendCommand(agentId, cmd.method, cmd.params, cmd.context);
+        cmd.resolve(result);
+      } catch (err) {
+        cmd.reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
   }
 
   /**
@@ -482,6 +604,111 @@ class LocalAgentRegistry implements IAgentRegistry {
     }
 
     return stats;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Wake Broadcasts (1.2.12, 1.2.13)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Broadcast wake signal to all sleeping agents (1.2.12)
+   * Called when user logs into portal or AI connects
+   */
+  broadcastWake(reason: 'portal_login' | 'ai_connection', customerId?: string): number {
+    let wokenCount = 0;
+
+    for (const agent of this.agents.values()) {
+      // Filter by customer if specified
+      if (customerId && agent.customerId !== customerId) {
+        continue;
+      }
+
+      // Only wake sleeping agents
+      if (agent.powerState !== 'SLEEP') {
+        continue;
+      }
+
+      // Only wake active/pending agents (not blocked/expired)
+      if (agent.state !== 'ACTIVE' && agent.state !== 'PENDING') {
+        continue;
+      }
+
+      try {
+        agent.socket.send(
+          JSON.stringify({
+            type: 'wake',
+            id: uuidv4(),
+            reason,
+            config: {
+              heartbeatInterval: 5000, // Wake to ACTIVE interval
+              powerState: 'ACTIVE',
+            },
+          })
+        );
+
+        // Update local state
+        agent.powerState = 'ACTIVE';
+        wokenCount++;
+
+        console.log(
+          `[Registry] Woke agent ${agent.machineName || agent.machineId} (reason: ${reason})`
+        );
+      } catch (err) {
+        console.error(`[Registry] Failed to wake agent ${agent.id}:`, err);
+      }
+    }
+
+    if (wokenCount > 0) {
+      console.log(`[Registry] Broadcast wake (${reason}): woke ${wokenCount} agents`);
+    }
+
+    return wokenCount;
+  }
+
+  /**
+   * Wake a specific agent
+   */
+  wakeAgent(agentId: string, reason: string = 'command'): boolean {
+    const agent = this.getAgent(agentId);
+    if (!agent) {
+      return false;
+    }
+
+    if (agent.powerState !== 'SLEEP') {
+      return true; // Already awake
+    }
+
+    try {
+      agent.socket.send(
+        JSON.stringify({
+          type: 'wake',
+          id: uuidv4(),
+          reason,
+          config: {
+            heartbeatInterval: 5000,
+            powerState: 'ACTIVE',
+          },
+        })
+      );
+
+      agent.powerState = 'ACTIVE';
+      console.log(`[Registry] Woke agent ${agent.machineName || agent.machineId} (reason: ${reason})`);
+      return true;
+    } catch (err) {
+      console.error(`[Registry] Failed to wake agent ${agentId}:`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Get all sleeping agents for a customer
+   */
+  getSleepingAgents(customerId?: string): ConnectedAgent[] {
+    return Array.from(this.agents.values()).filter((agent) => {
+      if (agent.powerState !== 'SLEEP') return false;
+      if (customerId && agent.customerId !== customerId) return false;
+      return true;
+    });
   }
 }
 

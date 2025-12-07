@@ -28,7 +28,7 @@ Quick reference for all development phases, their purpose, and dependencies.
 | Phase | Name | Purpose | Dependencies | Independent? | Status |
 |-------|------|---------|--------------|--------------|--------|
 | **0** | Codebase Consolidation | Merge `./web` and `./control_server` into single Next.js app | None | ✅ Yes | ✅ **17/18 DONE** |
-| **1** | Control Server | Database schema, transports (Streamable HTTP, SSE, WebSocket), agent management | Phase 0 | ⚠️ Partial | 🟡 **~75% DONE** |
+| **1** | Control Server | Database schema, transports (Streamable HTTP, SSE, WebSocket), agent management | Phase 0 | ⚠️ Partial | 🟡 **~85% DONE** |
 | **2** | Agent Consolidation (macOS) | Native Objective-C tools in MCPEyes.app, MCP proxy becomes pure relay | None | ✅ Yes | ✅ **CORE DONE** |
 | **3** | Windows Agent | Native C++/C# agent (ScreenControl.exe) | Phase 2 (template) | ⚠️ Partial | 🟡 **~60% DONE** |
 | **4** | Linux Agent | Native C/C++ agent with GUI and headless modes | Phase 2 (template) | ⚠️ Partial | 🟡 **~50% DONE** |
@@ -48,17 +48,19 @@ Quick reference for all development phases, their purpose, and dependencies.
 > - ✅ Production build tested
 > - ⏳ Documentation update (0.1.14)
 
-**Phase 1: Control Server** `IN PROGRESS (~75%)`
+**Phase 1: Control Server** `IN PROGRESS (~85%)`
 > The hub that all agents connect to. Implements Streamable HTTP (for Claude.ai), SSE (legacy), and WebSocket (agents). Handles licensing, authorization, and command routing.
 > - ✅ Database schema complete (all models)
 > - ✅ Prisma migrations applied, client generated
 > - ✅ WebSocket handler with agent registry
 > - ✅ MCP endpoint (/api/mcp) with JSON-RPC
 > - ✅ SSE endpoint (/api/mcp/sse) for Open WebUI
-> - ✅ License validation on connect (db-service.ts)
+> - ✅ License validation on connect + heartbeat check
 > - ✅ Command/connection logging to database
 > - ✅ Activity pattern tracking & quiet hours
-> - ⏳ Wake broadcasts, command queue
+> - ✅ Pre-condition checks before command forwarding
+> - ✅ Wake broadcasts (portal login, AI connection)
+> - ✅ Command queue for sleeping agents
 > - ⏳ Production deployment (TLS, rate limiting)
 
 **Phase 2: Agent Consolidation (macOS)** `CORE COMPLETE ✓` (Control Server integration pending Phase 1)
@@ -1236,22 +1238,22 @@ Agents are behind firewalls. We can't push to them. They must connect to us and 
 - [x] 1.2.1 Implement WebSocket connection handler with agent registry
 - [x] 1.2.2 Implement REGISTER message handling (validate customer, fingerprint)
 - [x] 1.2.3 Implement HEARTBEAT protocol with adaptive intervals
-- [ ] 1.2.4 Implement license status check on each heartbeat (fast DB query)
+- [x] 1.2.4 Implement license status check on each heartbeat ✓ (checkLicenseStatus in db-service.ts)
 - [x] 1.2.5 Implement command routing (AI → Control Server → Agent)
-- [ ] 1.2.6 Implement pre-condition checks before command forwarding
+- [x] 1.2.6 Implement pre-condition checks before command forwarding ✓ (checkCommandPreConditions)
 - [x] 1.2.7 Implement graceful disconnect handling (mark offline, don't delete)
 - [x] 1.2.8 Add Prisma client integration for agent state persistence
 - [x] 1.2.9 Implement connection logging to database (via db-service.ts)
 - [x] 1.2.10 Implement command logging to database (via db-service.ts)
 - [x] 1.2.11 Implement power state management (ACTIVE/PASSIVE/SLEEP)
-- [ ] 1.2.12 Implement "wake all" broadcast on portal login
-- [ ] 1.2.13 Implement "wake all" broadcast on AI connection
+- [x] 1.2.12 Implement "wake all" broadcast on portal login ✓ (broadcastWake in agent-registry.ts)
+- [x] 1.2.13 Implement "wake all" broadcast on AI connection ✓ (broadcastWake)
 - [x] 1.2.14 Implement activity-based heartbeat interval adjustment
 - [x] 1.2.15 Track customer activity patterns (hourly buckets) ✓ (recordActivity in db-service.ts)
 - [x] 1.2.16 Implement quiet hours prediction (simple heuristics) ✓ (detectQuietHours in db-service.ts)
 - [ ] 1.2.17 Implement customer schedule overrides (always active, custom hours)
-- [ ] 1.2.18 Implement command queue for sleeping agents
-- [ ] 1.2.19 Implement pendingCommands flag in heartbeat_ack
+- [x] 1.2.18 Implement command queue for sleeping agents ✓ (queueCommand, processQueuedCommands)
+- [x] 1.2.19 Implement pendingCommands flag in heartbeat_ack ✓ (hasPendingQueuedCommands)
 
 ### 1.3 Agent-Side Connection & License Cache
 
