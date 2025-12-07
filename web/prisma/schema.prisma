@@ -203,6 +203,9 @@ model Agent {
   groupName         String?
   tags              String[]
 
+  // Agent secret for re-authentication after token expiry
+  agentSecretHash   String?   // bcrypt hash of agent's API key
+
   // Relations
   license           License     @relation(fields: [licenseId], references: [id], onDelete: Cascade)
   owner             User?       @relation("AgentOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)

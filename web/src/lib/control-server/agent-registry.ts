@@ -263,10 +263,23 @@ class LocalAgentRegistry implements IAgentRegistry {
       licenseStatus: 'active' | 'pending' | 'expired' | 'blocked';
       licenseUuid: string | null;
       isNew: boolean;
+      secretError?: string;
     };
 
     try {
       dbResult = await findOrCreateAgent(msg, remoteAddress);
+
+      // Check for agent secret validation failure
+      if (dbResult.secretError) {
+        console.error(`[Registry] Agent secret validation failed: ${dbResult.secretError}`);
+        socket.send(JSON.stringify({
+          type: 'error',
+          code: 'INVALID_AGENT_SECRET',
+          message: dbResult.secretError,
+        }));
+        socket.close(4001, 'Agent secret validation failed');
+        return null;
+      }
     } catch (err) {
       console.error('[Registry] Database error during registration:', err);
       // Continue without DB persistence for now

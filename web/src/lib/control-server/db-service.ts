@@ -14,6 +14,7 @@ import {
 } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import * as bcrypt from 'bcryptjs';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Agent Database Operations
@@ -30,6 +31,7 @@ export async function findOrCreateAgent(
   licenseStatus: 'active' | 'pending' | 'expired' | 'blocked';
   licenseUuid: string | null;
   isNew: boolean;
+  secretError?: string;  // Set if agent secret validation failed
 }> {
   // First, try to find existing agent by customerId + machineId
   let agent = await prisma.agent.findFirst({
@@ -43,6 +45,32 @@ export async function findOrCreateAgent(
   });
 
   let isNew = false;
+
+  // If existing agent has a stored secret, validate the provided one
+  if (agent?.agentSecretHash && msg.agentSecret) {
+    const secretValid = await bcrypt.compare(msg.agentSecret, agent.agentSecretHash);
+    if (!secretValid) {
+      console.log(`[DB] Agent secret validation failed for ${agent.hostname || agent.machineId}`);
+      return {
+        agentDbId: agent.id,
+        licenseStatus: 'blocked',
+        licenseUuid: agent.licenseUuid,
+        isNew: false,
+        secretError: 'Agent secret does not match stored secret',
+      };
+    }
+    console.log(`[DB] Agent secret validated for ${agent.hostname || agent.machineId}`);
+  } else if (agent?.agentSecretHash && !msg.agentSecret) {
+    // Agent has a stored secret but client didn't provide one
+    console.log(`[DB] Agent has stored secret but none provided for ${agent.hostname || agent.machineId}`);
+    return {
+      agentDbId: agent.id,
+      licenseStatus: 'blocked',
+      licenseUuid: agent.licenseUuid,
+      isNew: false,
+      secretError: 'Agent secret required but not provided',
+    };
+  }
 
   if (!agent) {
     // Create new agent - need a license first
@@ -77,6 +105,13 @@ export async function findOrCreateAgent(
       },
     });
 
+    // Hash agent secret if provided
+    let agentSecretHash: string | null = null;
+    if (msg.agentSecret) {
+      agentSecretHash = await bcrypt.hash(msg.agentSecret, 10);
+      console.log(`[DB] Hashing agent secret for new agent ${msg.machineName || msg.machineId}`);
+    }
+
     // Create the agent
     agent = await prisma.agent.create({
       data: {
@@ -100,6 +135,7 @@ export async function findOrCreateAgent(
         powerState: 'PASSIVE',
         firstSeenAt: new Date(),
         lastSeenAt: new Date(),
+        agentSecretHash,  // Store hashed secret on creation
       },
       include: {
         license: true,
@@ -108,6 +144,13 @@ export async function findOrCreateAgent(
 
     isNew = true;
   } else {
+    // If existing agent doesn't have a secret yet but provides one, store it
+    let agentSecretHashUpdate: string | undefined = undefined;
+    if (!agent.agentSecretHash && msg.agentSecret) {
+      agentSecretHashUpdate = await bcrypt.hash(msg.agentSecret, 10);
+      console.log(`[DB] Storing agent secret for existing agent ${agent.hostname || agent.machineId}`);
+    }
+
     // Update existing agent with new connection info
     agent = await prisma.agent.update({
       where: { id: agent.id },
@@ -119,6 +162,8 @@ export async function findOrCreateAgent(
         ipAddress: remoteAddress,
         status: 'ONLINE',
         lastSeenAt: new Date(),
+        // Only set agentSecretHash if we're storing it for the first time
+        ...(agentSecretHashUpdate ? { agentSecretHash: agentSecretHashUpdate } : {}),
       },
       include: {
         license: true,

@@ -126,6 +126,7 @@ export interface AgentMessage {
   arch?: string;
   agentVersion?: string;
   fingerprint?: FingerprintData;
+  agentSecret?: string;  // API key for re-authentication after token expiry
 
   // Response data
   result?: unknown;
