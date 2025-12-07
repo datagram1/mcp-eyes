@@ -26,8 +26,9 @@ interface PendingAuthRequest {
   userId: string;
   redirectUri: string;
   scope: ScopeName[];
-  codeChallenge: string;
-  codeChallengeMethod: string;
+  codeChallenge?: string;      // Optional for confidential clients
+  codeChallengeMethod?: string; // Optional for confidential clients
+  isConfidentialClient?: boolean;
   resource: string;
   state?: string;
   exp: number;
@@ -203,11 +204,13 @@ export async function POST(request: NextRequest) {
     const authCode = generateAuthorizationCode();
 
     // Store authorization code
+    // Note: codeChallenge is only present if PKCE was used (public clients)
+    // Confidential clients skip PKCE and use client_secret at token exchange
     await prisma.oAuthAuthorizationCode.create({
       data: {
         code: authCode.hash,
-        codeChallenge: decoded.codeChallenge,
-        codeChallengeMethod: decoded.codeChallengeMethod,
+        codeChallenge: decoded.codeChallenge || '',  // Empty string for confidential clients
+        codeChallengeMethod: decoded.codeChallengeMethod || 'none',  // 'none' for confidential clients
         redirectUri: decoded.redirectUri,
         scope: decoded.scope,
         resource: decoded.resource,
