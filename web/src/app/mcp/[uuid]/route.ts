@@ -247,17 +247,40 @@ export async function POST(request: NextRequest, context: RouteParams): Promise<
   // Handle JSON-RPC
   const { id, method, params } = rpcRequest;
 
+  logMcp('JSON-RPC REQUEST', {
+    id: id ?? 'NOTIFICATION (no id)',
+    method,
+    params: params || {},
+  });
+
+  // Check if this is a notification (no id field = no response expected)
+  const isNotification = id === undefined || id === null;
+
   // Log the request
   const startTime = Date.now();
-  let success = true;
-  let errorCode: number | undefined;
-  let errorMessage: string | undefined;
 
   try {
     const response = await handleMcpMethod(method, params, validation);
-    
+
+    logMcp('JSON-RPC RESPONSE SUCCESS', {
+      id: id ?? 'NOTIFICATION',
+      method,
+      responseKeys: Object.keys(response || {}),
+      isNotification,
+    });
+
     // Log request
     await logRequest(validation.connectionId, method, params, true, Date.now() - startTime, request);
+
+    // Notifications don't get responses per JSON-RPC spec
+    if (isNotification) {
+      return new NextResponse(null, {
+        status: 202,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
 
     return NextResponse.json({
       jsonrpc: '2.0',
@@ -270,12 +293,29 @@ export async function POST(request: NextRequest, context: RouteParams): Promise<
       },
     });
   } catch (error: any) {
-    success = false;
     const code = error.code || -32603;
     const message = error.message || 'Internal error';
 
+    logMcp('JSON-RPC RESPONSE ERROR', {
+      id: id ?? 'NOTIFICATION',
+      method,
+      errorCode: code,
+      errorMessage: message,
+      isNotification,
+    });
+
     // Log request
     await logRequest(validation.connectionId, method, params, false, Date.now() - startTime, request, code, message);
+
+    // Notifications don't get error responses either
+    if (isNotification) {
+      return new NextResponse(null, {
+        status: 202,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
 
     return jsonRpcError(id, code, message);
   }
@@ -371,6 +411,19 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
       return { prompts: [] };
 
     case 'ping':
+      return {};
+
+    // MCP Notifications - these don't require meaningful responses
+    case 'notifications/initialized':
+      // Client confirms it received our initialize response
+      return {};
+
+    case 'notifications/cancelled':
+      // Client cancelled a pending request
+      return {};
+
+    case 'notifications/progress':
+      // Progress update from client
       return {};
 
     default:
@@ -556,6 +609,24 @@ export async function GET(request: NextRequest, context: RouteParams): Promise<R
 }
 
 /**
+ * Handle DELETE requests (session termination)
+ * MCP clients may send DELETE to close a session
+ */
+export async function DELETE(request: NextRequest, context: RouteParams): Promise<Response> {
+  const { uuid } = await context.params;
+
+  logMcp('DELETE REQUEST (session close)', { endpointUuid: uuid });
+
+  // Just acknowledge the session close
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
+/**
  * Handle OPTIONS for CORS
  */
 export async function OPTIONS() {
@@ -563,7 +634,7 @@ export async function OPTIONS() {
     status: 204,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
       'Access-Control-Max-Age': '86400',
     },

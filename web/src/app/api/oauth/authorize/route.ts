@@ -29,6 +29,9 @@ export const dynamic = 'force-dynamic';
 
 const APP_URL = process.env.APP_URL || 'https://screencontrol.knws.co.uk';
 
+// Log APP_URL on module load
+console.log('[OAuth Authorize] APP_URL configured as:', APP_URL);
+
 // Logging helper
 function logOAuth(stage: string, data: Record<string, unknown>) {
   const timestamp = new Date().toISOString();

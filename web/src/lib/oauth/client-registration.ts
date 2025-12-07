@@ -22,6 +22,7 @@ export interface ClientRegistrationRequest {
 
 export interface ClientRegistrationResponse {
   client_id: string;
+  client_secret?: string; // Only for confidential clients
   client_name: string;
   redirect_uris: string[];
   client_uri?: string;
@@ -42,7 +43,7 @@ export interface ClientRegistrationError {
 
 const ALLOWED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 const ALLOWED_RESPONSE_TYPES = ['code'];
-const ALLOWED_TOKEN_AUTH_METHODS = ['none']; // Public clients only
+const ALLOWED_TOKEN_AUTH_METHODS = ['none', 'client_secret_post']; // Public and confidential clients
 
 /**
  * Validate redirect URI.
@@ -131,7 +132,7 @@ export function validateRegistrationRequest(
     if (!ALLOWED_TOKEN_AUTH_METHODS.includes(request.token_endpoint_auth_method)) {
       return {
         error: 'invalid_client_metadata',
-        error_description: 'Only token_endpoint_auth_method "none" is supported for public clients',
+        error_description: `Unsupported token_endpoint_auth_method: ${request.token_endpoint_auth_method}. Supported: ${ALLOWED_TOKEN_AUTH_METHODS.join(', ')}`,
       };
     }
   }
@@ -155,24 +156,37 @@ export async function registerClient(
   // Generate unique client ID
   const clientId = uuidv4();
 
+  // Determine if this is a confidential client (needs client_secret)
+  const tokenEndpointAuth = request.token_endpoint_auth_method || 'none';
+  const isConfidentialClient = tokenEndpointAuth === 'client_secret_post';
+
+  // Generate client_secret for confidential clients
+  let clientSecret: string | undefined;
+  let clientSecretHash: string | undefined;
+  if (isConfidentialClient) {
+    clientSecret = crypto.randomBytes(32).toString('hex');
+    clientSecretHash = crypto.createHash('sha256').update(clientSecret).digest('hex');
+  }
+
   // Create client in database
   const client = await prisma.oAuthClient.create({
     data: {
       clientId,
+      clientSecretHash, // Will be null for public clients
       clientName: request.client_name,
       clientUri: request.client_uri,
       logoUri: request.logo_uri,
       redirectUris: request.redirect_uris,
       grantTypes: request.grant_types || ALLOWED_GRANT_TYPES,
       responseTypes: request.response_types || ALLOWED_RESPONSE_TYPES,
-      tokenEndpointAuth: request.token_endpoint_auth_method || 'none',
+      tokenEndpointAuth,
       contacts: request.contacts || [],
       registeredByIp: context.ipAddress,
       registeredByAgent: context.userAgent,
     },
   });
 
-  return {
+  const response: ClientRegistrationResponse = {
     client_id: client.clientId,
     client_name: client.clientName,
     redirect_uris: client.redirectUris,
@@ -184,6 +198,13 @@ export async function registerClient(
     token_endpoint_auth_method: client.tokenEndpointAuth,
     client_id_issued_at: Math.floor(client.createdAt.getTime() / 1000),
   };
+
+  // Include client_secret in response for confidential clients
+  if (clientSecret) {
+    response.client_secret = clientSecret;
+  }
+
+  return response;
 }
 
 /**

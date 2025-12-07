@@ -13,13 +13,34 @@ import { RateLimiters, getClientIp, rateLimitExceeded, rateLimitHeaders } from '
 
 export const dynamic = 'force-dynamic';
 
+// Logging helper
+function logRegister(stage: string, data: Record<string, unknown>) {
+  const timestamp = new Date().toISOString();
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`[OAuth Register] ${stage} - ${timestamp}`);
+  console.log('='.repeat(60));
+  Object.entries(data).forEach(([key, value]) => {
+    if (typeof value === 'object') {
+      console.log(`  ${key}:`, JSON.stringify(value, null, 2));
+    } else {
+      console.log(`  ${key}: ${value}`);
+    }
+  });
+}
+
 export async function POST(request: NextRequest) {
   // Get client IP for rate limiting and tracking
   const ipAddress = getClientIp(request);
 
+  logRegister('INCOMING REQUEST', {
+    ipAddress,
+    userAgent: request.headers.get('user-agent'),
+  });
+
   // Check rate limit (10 registrations per hour per IP)
   const rateLimit = RateLimiters.oauthRegister(ipAddress);
   if (!rateLimit.success) {
+    logRegister('RATE LIMITED', { ipAddress });
     return rateLimitExceeded(rateLimit);
   }
 
@@ -27,8 +48,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as ClientRegistrationRequest;
     const userAgent = request.headers.get('user-agent') || undefined;
 
+    logRegister('REQUEST BODY', body as unknown as Record<string, unknown>);
+
     // Register the client
     const result = await registerClient(body, { ipAddress, userAgent });
+
+    logRegister('REGISTRATION RESULT', result as unknown as Record<string, unknown>);
 
     // Check if it's an error response
     if ('error' in result) {
