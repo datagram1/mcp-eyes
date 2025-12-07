@@ -9,8 +9,8 @@ interface Agent {
   agentKey: string;
   hostname: string;
   machineId: string;
-  fingerprint: string | null;
-  fingerprintDetails: Record<string, unknown> | null;
+  machineFingerprint: string | null;
+  fingerprintRaw: Record<string, unknown> | null;
   customerId: string | null;
   licenseUuid: string | null;
   osType: 'MACOS' | 'WINDOWS' | 'LINUX';
@@ -31,7 +31,6 @@ interface Agent {
   label: string | null;
   groupName: string | null;
   tags: string[];
-  notes: string | null;
 }
 
 const osIcons: Record<string, string> = {
@@ -410,15 +409,15 @@ export default function AgentDetailPage({ params }: PageProps) {
       </div>
 
       {/* Fingerprint Details */}
-      {agent.fingerprintDetails && (
+      {agent.fingerprintRaw && (
         <div className="bg-slate-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4">Hardware Fingerprint</h3>
           <div className="bg-slate-900 rounded p-3 font-mono text-sm text-slate-300 overflow-x-auto">
-            <pre>{JSON.stringify(agent.fingerprintDetails, null, 2)}</pre>
+            <pre>{JSON.stringify(agent.fingerprintRaw, null, 2)}</pre>
           </div>
-          {agent.fingerprint && (
+          {agent.machineFingerprint && (
             <p className="mt-2 text-slate-400 text-sm">
-              Hash: <code className="text-slate-300">{agent.fingerprint}</code>
+              Hash: <code className="text-slate-300">{agent.machineFingerprint}</code>
             </p>
           )}
         </div>
