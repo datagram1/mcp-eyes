@@ -1,0 +1,25 @@
+[Unit]
+Description=ScreenControl Agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=@CMAKE_INSTALL_PREFIX@/bin/screencontrol --daemon
+Restart=always
+RestartSec=5
+User=root
+Environment=DISPLAY=:0
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=screencontrol
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log/screencontrol /etc/screencontrol
+
+[Install]
+WantedBy=multi-user.target

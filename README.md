@@ -1,105 +1,197 @@
-# MCP-Eyes
+# ScreenControl (formerly MCP-Eyes)
 
-**Professional cross-platform MCP server for GUI automation with Apple Accessibility, browser extension integration, and AI-powered analysis.**
+**Multi-tenant SaaS platform enabling AI/LLM systems to control remote computers through a centralized control server.**
 
 [![npm version](https://img.shields.io/npm/v/mcp-eyes.svg?cache=1)](https://www.npmjs.com/package/mcp-eyes)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 
+> **Provider**: Key Network Services Ltd
+
+## Overview
+
+ScreenControl is an enterprise platform that connects AI assistants (Claude.ai, local LLMs, OpenAI, etc.) to remote computers for automation tasks. The platform consists of:
+
+- **Control Server**: Public-facing router/hub that manages agent connections and AI authorization
+- **Agents**: Native apps (macOS, Windows, Linux) with full desktop automation capabilities
+- **Web Platform**: Customer portal for licensing, billing, agent management, and AI configuration
+- **MCP Protocol**: Industry-standard Model Context Protocol for AI tool integration
+
+## Platform Architecture
+
+### Full Platform Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              AI / LLM (The Brain)                                │
+│                     Claude.ai, OpenAI, Ollama, Local LLM, etc.                   │
+└─────────────────────────────────────────┬───────────────────────────────────────┘
+                                          │
+        ┌─────────────────────────────────┼─────────────────────────────────┐
+        │                                 │                                 │
+        ▼                                 ▼                                 ▼
+┌───────────────────┐           ┌───────────────────┐             ┌─────────────────┐
+│   MASTER AGENT    │           │   MASTER AGENT    │             │  Claude.ai      │
+│   (Customer A)    │           │   (Customer B)    │             │  (Direct)       │
+│                   │           │                   │             │                 │
+│ ┌───────────────┐ │           │ ┌───────────────┐ │             │ Streamable HTTP │
+│ │ Local LLM     │ │           │ │ OpenAI API    │ │             │ (no agent)      │
+│ │ (Ollama)      │ │           │ │ Claude API    │ │             │                 │
+│ └───────────────┘ │           │ └───────────────┘ │             │                 │
+│                   │           │                   │             │                 │
+│ MCPEyes.app       │           │ ScreenControl.exe │             │                 │
+│ + AI Integration  │           │ + AI Integration  │             │                 │
+└─────────┬─────────┘           └─────────┬─────────┘             └────────┬────────┘
+          │                               │                                │
+          │ WebSocket                     │ WebSocket                      │ Streamable HTTP
+          │                               │                                │
+          ▼                               ▼                                ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                           CONTROL SERVER (Edge Router)                            │
+│                           control.yourcompany.com                                 │
+│                                                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│  │                              DATABASE                                        │ │
+│  │  PostgreSQL + Prisma                                                         │ │
+│  │  • Customers/Users        • AI Connections       • Command Logs              │ │
+│  │  • Licenses               • Agent Permissions    • Audit Trail               │ │
+│  │  • Agents (master/worker) • Sessions             • Billing                   │ │
+│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                   │
+│  Transports:                          Authorization:                              │
+│  • Streamable HTTP (/mcp)             • Validate AI-backed connections           │
+│  • SSE (/mcp/sse) - legacy            • Check license status & limits            │
+│  • WebSocket (/ws) - agents           • Route commands to licensed agents        │
+│                                                                                   │
+│  Routing:                             Licensing:                                  │
+│  • Master → Worker command relay      • Trial/Active/Expired                     │
+│  • Cross-network agent routing        • Concurrent agent limits                  │
+│  • Status aggregation                 • Phone-home validation                    │
+└──────────────────────────────────────────┬───────────────────────────────────────┘
+                                           │
+                           WebSocket (all agents connect outbound)
+                                           │
+          ┌────────────────────────────────┼────────────────────────────────┐
+          ▼                                ▼                                ▼
+┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
+│  WORKER AGENT   │              │  WORKER AGENT   │              │  WORKER AGENT   │
+│   (macOS)       │              │   (Windows)     │              │   (Linux)       │
+│                 │              │                 │              │                 │
+│ MCPEyes.app     │              │ ScreenControl   │              │ ScreenControl   │
+│                 │              │     .exe        │              │   (GUI/CLI)     │
+│ All Tools:      │              │                 │              │                 │
+│ • GUI           │              │ All Tools       │              │ All Tools       │
+│ • Browser       │              │                 │              │ + Headless      │
+│ • Filesystem    │              │                 │              │   Server Mode   │
+│ • Shell         │              │                 │              │                 │
+└─────────────────┘              └─────────────────┘              └─────────────────┘
+```
+
+### Control Server: WAN Bridge for Firewall Traversal
+
+The control server is essential for remote/WAN access - it bridges commands to worker agents behind firewalls:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           REMOTE / WAN SCENARIO                                  │
+│                                                                                  │
+│  ┌─────────────────┐                              ┌─────────────────────────┐   │
+│  │  Claude.ai      │                              │  CORPORATE NETWORK      │   │
+│  │  (or Master     │     Cannot reach directly    │  (Behind Firewall/NAT)  │   │
+│  │   Agent)        │ ─ ─ ─ ─ ─ ─ ✗ ─ ─ ─ ─ ─ ─ ─►│  Worker Agents          │   │
+│  └────────┬────────┘                              └────────────┬────────────┘   │
+│           │ HTTPS (443)                   WebSocket (outbound) │                │
+│           ▼                                                    ▼                │
+│  ┌──────────────────────────────────────────────────────────────────────────┐   │
+│  │                        CONTROL SERVER (Public Internet)                   │   │
+│  │  • Workers connect OUTBOUND (no firewall issues)                          │   │
+│  │  • Bridges commands to connected workers                                  │   │
+│  │  • Solves NAT traversal problem                                           │   │
+│  └──────────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Bonjour Local Network Discovery (Port 3456)
+
+For same-network scenarios, master agents communicate **directly** with workers on port 3456:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           LOCAL LAN SCENARIO                                     │
+│                                                                                  │
+│  ┌─────────────────┐         Bonjour mDNS          ┌─────────────────┐          │
+│  │  MASTER AGENT   │◄─────── _screencontrol._tcp ──│  WORKER AGENT   │          │
+│  │  + AI/LLM       │                               │  :3456          │          │
+│  └────────┬────────┘                               └────────┬────────┘          │
+│           │◄──────────── Port 3456 (Direct) ────────────────┘                   │
+│                                                                                  │
+│  Control Server: Still receives heartbeats for licensing/status (async)        │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Concepts
+
+| Term | Description |
+|------|-------------|
+| **Master Agent** | Agent with AI/LLM connected (local or API). Issues commands to workers. |
+| **Worker Agent** | Executes commands from master. No AI - just receives and runs tasks. |
+| **Control Server** | WAN bridge for firewall traversal. Routes commands, validates licenses, tracks status. |
+| **Bonjour Discovery** | LAN optimization. Master talks directly to local workers on port 3456. |
+
+### Port Summary
+
+| Port | Protocol | Scope | Purpose |
+|------|----------|-------|---------|
+| **443** | HTTPS/WSS | WAN | Control server - AI connections, agent WebSockets |
+| **3456** | HTTP | LAN | Direct master→worker communication (Bonjour) |
+| **3457** | HTTP | localhost | Agent tools server (browser, fs, shell) |
+
+### Connection Modes
+
+| Mode | Path | Port | Use Case |
+|------|------|------|----------|
+| **Direct Cloud** | Claude.ai → Control Server → Workers | 443 | Workers behind firewalls |
+| **Master via WAN** | Master → Control Server → Workers | 443 | Remote networks |
+| **Master via LAN** | Master → Bonjour → Workers | 3456 | Same network, direct |
+| **Hybrid** | LAN (3456) + WAN (443) | Both | Multi-site enterprise |
+
 ## Features
 
 ### Core Capabilities
 
-- **Native Desktop Automation**: Apple Accessibility integration for macOS, PowerShell for Windows, wmctrl for Linux
-- **Browser Extension Integration**: Direct DOM manipulation via Chrome, Firefox, Edge, and Safari extensions
-- **Multi-Browser Support**: Target specific browsers or use the default (most recently focused)
-- **AI Assistant Integration**: Compatible with Claude, Cursor, and other MCP-compatible AI assistants
-- **Cross-Platform Support**: macOS, Windows, and Linux
+- **Multi-Agent Management**: Control multiple computers from a single AI connection
+- **Cross-Platform Agents**: macOS (now), Windows (planned), Linux with headless mode (planned)
+- **Native Desktop Automation**: Apple Accessibility, Windows UI Automation, X11/Wayland
+- **Browser Extension Integration**: Direct DOM manipulation via Chrome, Firefox, Edge, Safari
+- **Filesystem & Shell Tools**: Full file system access and command execution
+- **Licensing & Billing**: Stripe integration, trial periods, concurrent agent limits
+- **Audit Logging**: Full command history and audit trail
 
-### New in v1.1.16
+### Security
 
-- **Integrated Browser Bridge**: MCPEyes.app now automatically spawns and manages the browser bridge server - no separate process to run!
-- **Auto-Restart**: Browser bridge automatically restarts if it crashes
-- **Simplified Setup**: Just launch MCPEyes.app and everything starts automatically
+- **AI Authorization**: Only authenticated AI connections can send commands
+- **License Validation**: Agents phone home to verify license status
+- **Agent Permissions**: Fine-grained control over which AI can access which agents
+- **Tool Restrictions**: Allow/deny specific tools per agent
+- **TLS Encryption**: All connections encrypted in transit
 
-### v1.1.15
+### Transports
 
-- **Playwright-Style Browser Automation**: New browser tools matching Playwright patterns - `browser_navigate`, `browser_screenshot`, `browser_go_back`, `browser_go_forward`, `browser_get_visible_html`, `browser_hover`, `browser_drag`, `browser_press_key`
-- **Open WebUI Support**: SSE transport server for HTTP-based MCP clients (Open WebUI, custom integrations)
-- **Browser Bridge Server**: WebSocket-based bridge connecting MCP tools to browser extensions
-- **40+ Browser Tools**: Full DOM interaction including clicking, filling forms, executing scripts, debugging, navigation, screenshots, and advanced automation
-- **Native macOS App**: Menu bar app with settings UI and permission management
-- **Web Configuration UI**: Browser-based dashboard for agent configuration
-- **MCP Proxy Architecture**: Secure HTTP backend with API key authentication
-- **Control Server**: Centralized management of multiple agents across the internet with WebSocket connections, Bonjour discovery, and unified API
-- **LLM-Optimized Tool Descriptions**: Workflow-focused descriptions that teach LLMs proper automation patterns instead of just listing verbs
-- **Enhanced Browser Tools**: Advanced form filling with fuzzy label matching, intelligent page inspection, and multi-element workflows
-- **JavaScript Execution**: Fixed `browser_executeScript` with IIFE wrapping to support return statements
-- **Graphics Optimization**: Fixed macOS menu bar app graphics context errors with icon caching and animation batching
+| Transport | Use Case | Status |
+|-----------|----------|--------|
+| **Streamable HTTP** | Claude.ai, modern MCP clients | Implementing |
+| **SSE** | Open WebUI, legacy clients | Supported |
+| **stdio** | Local LLMs (Ollama, LM Studio) | Supported |
+| **WebSocket** | Agent connections | Supported |
 
-## Architecture
+## Quick Start (Local Development)
 
-MCP-Eyes uses a **single entry point** architecture where Claude/Cursor only connects to one server (`mcp-proxy-server.js`), which coordinates all backend services.
+For local development without the control server, agents can run standalone:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│           MCP Client (Claude Code, Claude Desktop, Cursor)       │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ MCP Protocol (stdio)
-                             │
-                             │  ⭐ SINGLE ENTRY POINT
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     mcp-proxy-server.js                          │
-│                                                                  │
-│   The ONLY server Claude connects to. Routes all tool requests  │
-│   to the appropriate backend service.                            │
-└─────────────────────────────┬───────────────────────────────────┘
-                              │
-                              │ HTTP (localhost:3456)
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      MCPEyes.app (menu bar)                      │
-│                                                                  │
-│   ┌─────────────────────────────────────────────────────────┐   │
-│   │  HTTP Server (:3456)                                     │   │
-│   │  • Screenshots, Accessibility API, Mouse/Keyboard        │   │
-│   │  • Window management, OCR analysis                       │   │
-│   │  • Proxies /browser/* requests to bridge                 │   │
-│   └─────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│                              │ spawns & manages                  │
-│                              ▼                                   │
-│   ┌─────────────────────────────────────────────────────────┐   │
-│   │  Browser Bridge Server (:3457)                           │   │
-│   │  • WebSocket server for browser extensions               │   │
-│   │  • Auto-restarts on crash                                │   │
-│   └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │ WebSocket
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Browser Extensions                           │
-│                   Chrome / Firefox / Edge                        │
-│                                                                  │
-│   • DOM manipulation    • Form filling                          │
-│   • Tab management      • Script execution                       │
-└─────────────────────────────────────────────────────────────────┘
-```
+### Prerequisites
 
-### Component Responsibilities
-
-| Component | Port | Purpose |
-|-----------|------|---------|
-| **mcp-proxy-server.js** | stdio | MCP server Claude connects to. Routes tools to backends. |
-| **MCPEyes.app** | 3456 | Native macOS tools + spawns browser bridge automatically |
-| **browser-bridge-server.js** | 3457 | WebSocket bridge to browser extensions (auto-managed by MCPEyes.app) |
-| **Browser Extension** | - | Executes DOM operations in browser context |
-
-### Prerequisites for Full Functionality
-
-1. **MCPEyes.app** must be running (handles both native tools AND browser bridge)
-2. **Browser extension** must be installed and enabled
+1. **MCPEyes.app** must be running (macOS agent)
+2. **Browser extension** installed and enabled (for browser tools)
 
 ## Quick Start
 
@@ -209,6 +301,50 @@ npm run build
 | `analyzeWithOCR` | Analyze screen content using Vision framework OCR |
 | `checkPermissions` | Check accessibility and screen recording permission status |
 | `wait` | Wait for specified milliseconds |
+
+### Filesystem Tools (New in v1.1.16)
+
+| Tool | Description |
+|------|-------------|
+| `fs_list` | List files and directories at or under a given path (supports recursive listing) |
+| `fs_read` | Read file contents with optional size limit (default 128KB) |
+| `fs_read_range` | Read a file segment by line range (1-based, inclusive) |
+| `fs_write` | Create or overwrite a file (supports append mode, auto-creates directories) |
+| `fs_delete` | Delete a file or directory (optional recursive delete) |
+| `fs_move` | Move or rename a file or directory |
+| `fs_search` | Find files by glob pattern (e.g., `**/*.ts`, `*.json`) |
+| `fs_grep` | Search within files using regex (ripgrep wrapper with grep fallback) |
+| `fs_patch` | Apply focused transformations to a file (replace, insert_after, insert_before) |
+
+### Shell Tools (New in v1.1.16)
+
+| Tool | Description |
+|------|-------------|
+| `shell_exec` | Run a command and return output when finished (with timeout support) |
+| `shell_start_session` | Start an interactive or long-running command session |
+| `shell_send_input` | Send input to a running shell session |
+| `shell_stop_session` | Stop/terminate a running session (supports signals) |
+
+**Shell Session Example:**
+```javascript
+// Start a long-running process
+const { session_id } = await mcpClient.callTool('shell_start_session', {
+  command: 'python server.py',
+  cwd: '/path/to/project'
+});
+
+// Send input to the session
+await mcpClient.callTool('shell_send_input', {
+  session_id,
+  input: 'quit\n'
+});
+
+// Stop the session
+await mcpClient.callTool('shell_stop_session', {
+  session_id,
+  signal: 'TERM'
+});
+```
 
 ### Browser Extension Tools
 
@@ -1037,22 +1173,62 @@ The agent will automatically:
 
 ## Platform Support
 
-### macOS
+### macOS (MCPEyes.app)
 
+- **Native Objective-C**: All tools compiled to machine code
 - **Apple Accessibility API**: Native UI element detection
-- **JXA Integration**: JavaScript for Automation
-- **Screen Recording**: Screenshot capture permission
-- **Native App**: Menu bar app for status and settings
+- **Screen Recording**: Screenshot capture via CGWindowListCreateImage
+- **Menu Bar App**: Status icon with settings window
+- **Bonjour**: Local network discovery via mDNS
+- **Browser Bridge**: Node.js WebSocket server for browser extensions
 
-### Windows
+### Windows (ScreenControl - C++ Service + C# Tray)
 
-- **PowerShell Integration**: Native process management
-- **Administrator Rights**: Automatic detection and handling
+**Hybrid Architecture for Security + Development Speed:**
 
-### Linux
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ScreenControlService.exe (C++ Win32)                       │
+│  ├── Windows Service (runs as SYSTEM)                       │
+│  ├── HTTP Server :3456 (cpp-httplib)                        │
+│  ├── All tools (screenshot, click, fs, shell)              │
+│  ├── Control Server WebSocket client                        │
+│  ├── License cache & fingerprinting                         │
+│  └── Spawns browser-bridge Node.js                          │
+│                                                              │
+│  PROTECTED: All business logic, licensing, anti-piracy      │
+├──────────────────────────────────────────────────────────────┤
+│  ScreenControlTray.exe (C# WinForms .NET 8)                 │
+│  ├── NotifyIcon (system tray)                               │
+│  ├── ContextMenuStrip (status, settings, restart)          │
+│  ├── SettingsForm (TabControl)                              │
+│  └── HttpClient to localhost:3456/status                    │
+│                                                              │
+│  UNPROTECTED: Just UI, easy to update, no secrets           │
+└─────────────────────────────────────────────────────────────┘
+```
 
-- **wmctrl Integration**: X11 window management
-- **X11 Support**: Native Linux GUI control
+**Key Components:**
+- **C++ Service**: Runs independently of user login, starts at boot
+- **C# Tray App**: User-friendly status display and settings
+- **Named Pipe/HTTP**: Service ↔ Tray communication
+- **UI Automation**: Windows accessibility tree inspection
+- **Desktop Duplication API**: High-performance screenshots (captures DRM)
+- **SendInput API**: Native mouse/keyboard simulation
+
+**Why This Architecture:**
+- Service protects all IP (licensing, fingerprinting, tools)
+- Tray app has no secrets - safe if reversed
+- C# WinForms: Much faster UI development than Win32 DialogBox
+- Self-contained: No .NET runtime required (single-file publish)
+
+### Linux (Planned)
+
+- **C/C++ Native**: Same protection as Windows/macOS
+- **GUI Mode**: GTK system tray for desktop environments
+- **Headless Mode**: CLI/systemd service for servers
+- **X11/Wayland**: Support for both display servers
+- **xdotool/ydotool**: Input simulation
 
 ## Tech Stack
 
@@ -1151,27 +1327,95 @@ This workflow lets the LLM complete file uploads (including Finder navigation), 
 
 ### Testing
 
+MCP-Eyes includes a comprehensive automated test suite:
+
 ```bash
-# Run all tests
-npm run test:all
+# Run all unit tests (recommended)
+npm test
 
-# MCP structure validation
-npm run test:validate-mcp
+# Run specific test suites
+npm run test:fs        # Filesystem tools tests
+npm run test:shell     # Shell tools tests
+npm run test:registry  # Tool registry tests
 
-# Server startup tests
-npm run test:startup
+# Run with integration tests (requires running server)
+npm run test:integration
+
+# Full test suite with build
+npm run test:all       # Build + unit tests + validation
+npm run test:ci        # Build + unit tests (for CI pipelines)
+
+# Validation tests
+npm run test:validate  # MCP structure validation
+npm run test:startup   # Server startup tests
 ```
+
+**Test Coverage:**
+- **Filesystem Tools**: 21 tests covering all 9 fs_* operations
+- **Shell Tools**: 20 tests for command execution and session management
+- **Tool Registry**: 17 tests for profile and configuration management
+
+### Tool Registry (New in v1.1.16)
+
+The tool registry system allows you to enable/disable tools by category or individually:
+
+**Configuration Location:**
+- macOS: `~/Library/Application Support/MCPEyes/tools.json`
+- Other: `~/.mcp-eyes-tools.json`
+
+**Configuration Structure:**
+```json
+{
+  "version": 1,
+  "activeProfile": "default",
+  "profiles": [
+    {
+      "id": "default",
+      "label": "Default",
+      "enabled": true,
+      "categories": [
+        {
+          "id": "filesystem",
+          "label": "Filesystem Tools",
+          "enabled": true,
+          "tools": [
+            { "id": "fs_read", "enabled": true },
+            { "id": "fs_write", "enabled": false }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Use Cases:**
+- Disable filesystem tools in production environments
+- Create restricted profiles for specific workflows
+- Enable/disable shell tools based on security requirements
 
 ### Project Structure
 
 ```
 mcp-eyes/
 ├── src/                    # TypeScript source files
+│   ├── mcp-proxy-server.ts        # MCP proxy with all tools (main entry)
 │   ├── mcp-sse-server.ts          # SSE server for Open WebUI
-│   ├── mcp-proxy-server.ts        # MCP proxy with browser tools
 │   ├── browser-bridge-server.ts   # WebSocket bridge for browser extensions
+│   ├── filesystem-tools.ts        # Filesystem tools implementation
+│   ├── shell-tools.ts             # Shell tools implementation
+│   ├── tool-registry.ts           # Tool registry and profile management
 │   ├── basic-server.ts            # Basic MCP server (stdio)
 │   └── advanced-server-simple.ts  # Advanced MCP server (stdio)
+├── test/                   # Test suites
+│   ├── run-all-tests.js           # Main test runner
+│   ├── test-filesystem-tools.js   # Filesystem tools tests (21 tests)
+│   ├── test-shell-tools.js        # Shell tools tests (20 tests)
+│   ├── test-tool-registry.js      # Tool registry tests (17 tests)
+│   └── test-mcp-tools.js          # MCP integration tests
+├── tests/                  # Validation tests
+│   ├── validate-mcp-structure.js  # MCP structure validation
+│   └── test-server-startup.js     # Server startup tests
 ├── extension/              # Browser extensions
 │   ├── chrome/            # Chrome/Edge extension (MV3)
 │   ├── firefox/           # Firefox extension (MV2)
@@ -1220,6 +1464,97 @@ export MCP_EYES_LOG_LEVEL=debug  # DEBUG, INFO, WARN, ERROR, FATAL
 ```
 
 ## Usage Examples
+
+### Filesystem Operations (New in v1.1.16)
+
+```javascript
+// List directory contents
+const files = await mcpClient.callTool('fs_list', {
+  path: '/Users/me/projects',
+  recursive: true,
+  max_depth: 2
+});
+
+// Read file content
+const content = await mcpClient.callTool('fs_read', {
+  path: '/Users/me/config.json',
+  max_bytes: 65536  // Optional limit
+});
+
+// Read specific lines (great for large files)
+const lines = await mcpClient.callTool('fs_read_range', {
+  path: '/Users/me/logs/app.log',
+  start_line: 100,
+  end_line: 150
+});
+
+// Write file (creates directories automatically)
+await mcpClient.callTool('fs_write', {
+  path: '/Users/me/output/result.txt',
+  content: 'Hello World',
+  mode: 'overwrite',  // or 'append', 'create_if_missing'
+  create_dirs: true
+});
+
+// Search for files
+const matches = await mcpClient.callTool('fs_search', {
+  base: '/Users/me/projects',
+  glob: '**/*.ts',
+  max_results: 100
+});
+
+// Search within files (like grep)
+const results = await mcpClient.callTool('fs_grep', {
+  base: '/Users/me/projects',
+  pattern: 'TODO:',
+  glob: '*.ts',
+  max_matches: 50
+});
+
+// Patch file (safe find-replace)
+await mcpClient.callTool('fs_patch', {
+  path: '/Users/me/config.json',
+  operations: [
+    { type: 'replace_first', pattern: '"debug": false', replacement: '"debug": true' },
+    { type: 'insert_after', match: '"version"', insert: '  "updated": "2024-01-15",' }
+  ],
+  dry_run: false  // Set true to preview changes
+});
+```
+
+### Shell Command Execution (New in v1.1.16)
+
+```javascript
+// Simple command execution
+const result = await mcpClient.callTool('shell_exec', {
+  command: 'npm run build',
+  cwd: '/Users/me/project',
+  timeout_seconds: 300,
+  capture_stderr: true
+});
+console.log(result.stdout, result.exit_code);
+
+// Start long-running process
+const session = await mcpClient.callTool('shell_start_session', {
+  command: 'npm run dev',
+  cwd: '/Users/me/project'
+});
+
+// Monitor session output (streamed via SSE events)
+// Session emits 'shell_session_output' events
+
+// Send input to running session
+await mcpClient.callTool('shell_send_input', {
+  session_id: session.session_id,
+  input: 'rs\n'  // Restart command for nodemon
+});
+
+// Stop the session
+await mcpClient.callTool('shell_stop_session', {
+  session_id: session.session_id,
+  signal: 'TERM'  // or 'KILL', 'INT'
+});
+```
 
 ### Web Automation Workflow (Recommended Pattern)
 

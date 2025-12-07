@@ -228,6 +228,25 @@
         case 'findElementWithDebug':
           return await sendToInjectedScript('findElementWithDebug', payload);
 
+        // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+        case 'hover':
+          return await sendToInjectedScript('hover', payload);
+
+        case 'drag':
+          return await sendToInjectedScript('drag', payload);
+
+        case 'pressKey':
+          return await sendToInjectedScript('pressKey', payload);
+
+        case 'getVisibleHtml':
+          return await sendToInjectedScript('getVisibleHtml', payload);
+
+        case 'uploadFile':
+          return await sendToInjectedScript('uploadFile', payload);
+
+        case 'cropScreenshot':
+          return await sendToInjectedScript('cropScreenshot', payload);
+
         default:
           return { error: `Unknown action: ${action}` };
       }

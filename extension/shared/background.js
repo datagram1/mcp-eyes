@@ -235,6 +235,36 @@ const browserAPI = (() => {
             result = await closeTab(payload?.tabId);
             break;
 
+          // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+
+          case 'navigate':
+            result = await navigateToUrl(payload?.tabId, payload?.url, payload?.waitUntil, payload?.timeout);
+            break;
+
+          case 'screenshot':
+            result = await captureScreenshot(payload?.tabId, payload?.selector, payload?.fullPage);
+            break;
+
+          case 'goBack':
+            result = await goBack(payload?.tabId);
+            break;
+
+          case 'goForward':
+            result = await goForward(payload?.tabId);
+            break;
+
+          case 'hover':
+          case 'drag':
+          case 'pressKey':
+          case 'getVisibleHtml':
+          case 'uploadFile':
+            result = await sendToContentScript(payload?.tabId, { action, payload });
+            break;
+
+          case 'saveAsPdf':
+            result = { error: 'saveAsPdf requires native browser print API - use Cmd+P or browser.tabs.saveAsPDF (Firefox only)' };
+            break;
+
           default:
             result = { error: `Unknown action: ${action}` };
         }
@@ -461,6 +491,36 @@ const browserAPI = (() => {
 
         case 'ping':
           response = { status: 'ok', timestamp: Date.now() };
+          break;
+
+        // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+
+        case 'navigate':
+          response = await navigateToUrl(payload?.tabId, payload?.url, payload?.waitUntil, payload?.timeout);
+          break;
+
+        case 'screenshot':
+          response = await captureScreenshot(payload?.tabId, payload?.selector, payload?.fullPage);
+          break;
+
+        case 'goBack':
+          response = await goBack(payload?.tabId);
+          break;
+
+        case 'goForward':
+          response = await goForward(payload?.tabId);
+          break;
+
+        case 'hover':
+        case 'drag':
+        case 'pressKey':
+        case 'getVisibleHtml':
+        case 'uploadFile':
+          response = await sendToContentScript(tabId, { action, payload });
+          break;
+
+        case 'saveAsPdf':
+          response = { error: 'saveAsPdf requires native browser print API - use Cmd+P or browser.tabs.saveAsPDF (Firefox only)' };
           break;
 
         default:
@@ -839,6 +899,182 @@ const browserAPI = (() => {
     try {
       await browserAPI.tabs.remove(tabId);
       return { success: true, tabId };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+
+  /**
+   * Navigate to a URL in the specified tab
+   */
+  async function navigateToUrl(tabId, url, waitUntil, timeout) {
+    if (!url) {
+      return { error: 'URL is required' };
+    }
+
+    try {
+      // Get target tab
+      let targetTabId = tabId;
+      if (!targetTabId) {
+        const activeTab = await getActiveTab();
+        if (activeTab.error) return activeTab;
+        targetTabId = activeTab.id;
+      }
+
+      // Update the tab URL
+      const tab = await browserAPI.tabs.update(targetTabId, { url });
+
+      // Wait for page load if requested
+      if (waitUntil === 'load' || waitUntil === 'domcontentloaded' || waitUntil === 'networkidle') {
+        await waitForTabLoad(targetTabId, timeout || 30000);
+      }
+
+      // Get updated tab info
+      const updatedTab = await browserAPI.tabs.get(targetTabId);
+
+      return {
+        success: true,
+        tabId: targetTabId,
+        url: updatedTab.url,
+        title: updatedTab.title
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Wait for a tab to finish loading
+   */
+  function waitForTabLoad(tabId, timeout) {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        browserAPI.tabs.onUpdated.removeListener(listener);
+        reject(new Error('Navigation timeout'));
+      }, timeout);
+
+      const listener = (updatedTabId, changeInfo) => {
+        if (updatedTabId === tabId && changeInfo.status === 'complete') {
+          clearTimeout(timeoutId);
+          browserAPI.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      };
+
+      browserAPI.tabs.onUpdated.addListener(listener);
+    });
+  }
+
+  /**
+   * Capture a screenshot of the visible tab
+   */
+  async function captureScreenshot(tabId, selector, fullPage) {
+    try {
+      // Get target tab
+      let targetTabId = tabId;
+      if (!targetTabId) {
+        const activeTab = await getActiveTab();
+        if (activeTab.error) return activeTab;
+        targetTabId = activeTab.id;
+      }
+
+      // Focus the tab first
+      await focusTab(targetTabId);
+
+      // Small delay to ensure tab is visible
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Capture the visible tab
+      const dataUrl = await browserAPI.tabs.captureVisibleTab(null, {
+        format: 'png'
+      });
+
+      // If selector is specified, we need to crop via content script
+      if (selector) {
+        const cropResult = await sendToContentScript(targetTabId, {
+          action: 'cropScreenshot',
+          payload: { screenshot: dataUrl, selector }
+        });
+        if (cropResult.error) {
+          return { screenshot: dataUrl, note: 'Could not crop to selector, returning full screenshot' };
+        }
+        return { screenshot: cropResult.screenshot, selector };
+      }
+
+      // If fullPage is requested, we need to scroll and stitch
+      if (fullPage) {
+        // For now, just return visible area with a note
+        return {
+          screenshot: dataUrl,
+          note: 'Full page screenshot requires scrolling - returning visible area'
+        };
+      }
+
+      return { screenshot: dataUrl };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Navigate back in browser history
+   */
+  async function goBack(tabId) {
+    try {
+      let targetTabId = tabId;
+      if (!targetTabId) {
+        const activeTab = await getActiveTab();
+        if (activeTab.error) return activeTab;
+        targetTabId = activeTab.id;
+      }
+
+      await browserAPI.tabs.goBack(targetTabId);
+
+      // Wait a bit for navigation
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Get updated tab info
+      const tab = await browserAPI.tabs.get(targetTabId);
+
+      return {
+        success: true,
+        tabId: targetTabId,
+        url: tab.url,
+        title: tab.title
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Navigate forward in browser history
+   */
+  async function goForward(tabId) {
+    try {
+      let targetTabId = tabId;
+      if (!targetTabId) {
+        const activeTab = await getActiveTab();
+        if (activeTab.error) return activeTab;
+        targetTabId = activeTab.id;
+      }
+
+      await browserAPI.tabs.goForward(targetTabId);
+
+      // Wait a bit for navigation
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Get updated tab info
+      const tab = await browserAPI.tabs.get(targetTabId);
+
+      return {
+        success: true,
+        tabId: targetTabId,
+        url: tab.url,
+        title: tab.title
+      };
     } catch (error) {
       return { error: error.message };
     }

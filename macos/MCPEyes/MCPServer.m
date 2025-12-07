@@ -3,6 +3,8 @@
  */
 
 #import "MCPServer.h"
+#import "FilesystemTools.h"
+#import "ShellTools.h"
 #import <sys/socket.h>
 #import <netinet/in.h>
 #import <arpa/inet.h>
@@ -22,6 +24,9 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 @property (nonatomic, strong) NSString *currentAppBundleId;
 @property (nonatomic, strong) NSDictionary *currentAppBounds;
 @property (nonatomic, strong) NSURLSession *urlSession;
+// Tool instances (readwrite internally)
+@property (nonatomic, strong, readwrite) FilesystemTools *filesystemTools;
+@property (nonatomic, strong, readwrite) ShellTools *shellTools;
 @end
 
 @implementation MCPServer
@@ -47,6 +52,9 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
         config.timeoutIntervalForRequest = 30.0;
         _urlSession = [NSURLSession sessionWithConfiguration:config];
+        // Initialize tool instances
+        _filesystemTools = [[FilesystemTools alloc] init];
+        _shellTools = [[ShellTools alloc] init];
     }
     return self;
 }
@@ -126,6 +134,9 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     }
 
     _serverThread = nil;
+
+    // Clean up shell sessions
+    [_shellTools cleanupAllSessions];
 
     if ([self.delegate respondsToSelector:@selector(serverDidStop)]) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -442,6 +453,140 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
             NSNumber *milliseconds = params[@"milliseconds"] ?: @1000;
             [NSThread sleepForTimeInterval:milliseconds.doubleValue / 1000.0];
             return @{@"success": @YES, @"waited_ms": milliseconds};
+        }
+        // ======= FILESYSTEM TOOLS =======
+        else if ([path isEqualToString:@"/fs/list"]) {
+            NSString *fsPath = params[@"path"];
+            if (!fsPath) {
+                return @{@"error": @"path is required"};
+            }
+            BOOL recursive = [params[@"recursive"] boolValue];
+            NSInteger maxDepth = [params[@"max_depth"] integerValue] ?: 3;
+            return [self.filesystemTools listDirectory:fsPath recursive:recursive maxDepth:maxDepth];
+        }
+        else if ([path isEqualToString:@"/fs/read"]) {
+            NSString *fsPath = params[@"path"];
+            if (!fsPath) {
+                return @{@"error": @"path is required"};
+            }
+            NSInteger maxBytes = [params[@"max_bytes"] integerValue] ?: 131072;
+            return [self.filesystemTools readFile:fsPath maxBytes:maxBytes];
+        }
+        else if ([path isEqualToString:@"/fs/read_range"]) {
+            NSString *fsPath = params[@"path"];
+            NSNumber *startLine = params[@"start_line"];
+            NSNumber *endLine = params[@"end_line"];
+            if (!fsPath || !startLine || !endLine) {
+                return @{@"error": @"path, start_line, and end_line are required"};
+            }
+            return [self.filesystemTools readFileRange:fsPath
+                                             startLine:[startLine integerValue]
+                                               endLine:[endLine integerValue]];
+        }
+        else if ([path isEqualToString:@"/fs/write"]) {
+            NSString *fsPath = params[@"path"];
+            NSString *content = params[@"content"];
+            if (!fsPath || !content) {
+                return @{@"error": @"path and content are required"};
+            }
+            BOOL createDirs = params[@"create_dirs"] ? [params[@"create_dirs"] boolValue] : YES;
+            NSString *mode = params[@"mode"] ?: @"overwrite";
+            return [self.filesystemTools writeFile:fsPath content:content createDirs:createDirs mode:mode];
+        }
+        else if ([path isEqualToString:@"/fs/delete"]) {
+            NSString *fsPath = params[@"path"];
+            if (!fsPath) {
+                return @{@"error": @"path is required"};
+            }
+            BOOL recursive = [params[@"recursive"] boolValue];
+            return [self.filesystemTools deletePath:fsPath recursive:recursive];
+        }
+        else if ([path isEqualToString:@"/fs/move"]) {
+            NSString *fromPath = params[@"from"];
+            NSString *toPath = params[@"to"];
+            if (!fromPath || !toPath) {
+                return @{@"error": @"from and to are required"};
+            }
+            return [self.filesystemTools movePath:fromPath toPath:toPath];
+        }
+        else if ([path isEqualToString:@"/fs/search"]) {
+            NSString *basePath = params[@"base"];
+            if (!basePath) {
+                return @{@"error": @"base is required"};
+            }
+            NSString *glob = params[@"glob"] ?: @"**/*";
+            NSInteger maxResults = [params[@"max_results"] integerValue] ?: 200;
+            return [self.filesystemTools searchFiles:basePath glob:glob maxResults:maxResults];
+        }
+        else if ([path isEqualToString:@"/fs/grep"]) {
+            NSString *basePath = params[@"base"];
+            NSString *pattern = params[@"pattern"];
+            if (!basePath || !pattern) {
+                return @{@"error": @"base and pattern are required"};
+            }
+            NSString *glob = params[@"glob"];
+            NSInteger maxMatches = [params[@"max_matches"] integerValue] ?: 200;
+            return [self.filesystemTools grepFiles:basePath pattern:pattern glob:glob maxMatches:maxMatches];
+        }
+        else if ([path isEqualToString:@"/fs/patch"]) {
+            NSString *fsPath = params[@"path"];
+            NSArray *operations = params[@"operations"];
+            if (!fsPath || !operations) {
+                return @{@"error": @"path and operations are required"};
+            }
+            BOOL dryRun = [params[@"dry_run"] boolValue];
+            return [self.filesystemTools patchFile:fsPath operations:operations dryRun:dryRun];
+        }
+        // ======= SHELL TOOLS =======
+        else if ([path isEqualToString:@"/shell/exec"]) {
+            NSString *command = params[@"command"];
+            if (!command) {
+                return @{@"error": @"command is required"};
+            }
+            NSString *cwd = params[@"cwd"];
+            NSTimeInterval timeout = [params[@"timeout_seconds"] doubleValue] ?: 600;
+            BOOL captureStderr = params[@"capture_stderr"] ? [params[@"capture_stderr"] boolValue] : YES;
+            return [self.shellTools executeCommand:command cwd:cwd timeoutSeconds:timeout captureStderr:captureStderr];
+        }
+        else if ([path isEqualToString:@"/shell/start_session"]) {
+            NSString *command = params[@"command"];
+            if (!command) {
+                return @{@"error": @"command is required"};
+            }
+            NSString *cwd = params[@"cwd"];
+            NSDictionary *env = params[@"env"];
+            BOOL captureStderr = params[@"capture_stderr"] ? [params[@"capture_stderr"] boolValue] : YES;
+            return [self.shellTools startSession:command cwd:cwd env:env captureStderr:captureStderr];
+        }
+        else if ([path isEqualToString:@"/shell/send_input"]) {
+            NSString *sessionId = params[@"session_id"];
+            NSString *input = params[@"input"];
+            if (!sessionId || !input) {
+                return @{@"error": @"session_id and input are required"};
+            }
+            return [self.shellTools sendInput:sessionId input:input];
+        }
+        else if ([path isEqualToString:@"/shell/stop_session"]) {
+            NSString *sessionId = params[@"session_id"];
+            if (!sessionId) {
+                return @{@"error": @"session_id is required"};
+            }
+            NSString *signal = params[@"signal"] ?: @"TERM";
+            return [self.shellTools stopSession:sessionId signal:signal];
+        }
+        else if ([path isEqualToString:@"/shell/sessions"]) {
+            return @{@"sessions": [self.shellTools getAllSessions]};
+        }
+        else if ([path isEqualToString:@"/shell/session"]) {
+            NSString *sessionId = params[@"session_id"];
+            if (!sessionId) {
+                return @{@"error": @"session_id is required"};
+            }
+            NSDictionary *session = [self.shellTools getSession:sessionId];
+            if (session) {
+                return session;
+            }
+            return @{@"error": [NSString stringWithFormat:@"Session %@ not found", sessionId]};
         }
         // Browser command proxy - forward to browser bridge server on port 3457
         else if ([path hasPrefix:@"/browser/"]) {

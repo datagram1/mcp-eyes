@@ -16,6 +16,8 @@
 		007 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 204 /* ApplicationServices.framework */; };
 		008 /* MCPServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 108 /* MCPServer.m */; };
 		009 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 205 /* Carbon.framework */; };
+		010 /* FilesystemTools.m in Sources */ = {isa = PBXBuildFile; fileRef = 110 /* FilesystemTools.m */; };
+		011 /* ShellTools.m in Sources */ = {isa = PBXBuildFile; fileRef = 112 /* ShellTools.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +35,10 @@
 		205 /* Carbon.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Carbon.framework; path = System/Library/Frameworks/Carbon.framework; sourceTree = SDKROOT; };
 		107 /* MCPServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MCPServer.h; sourceTree = "<group>"; };
 		108 /* MCPServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MCPServer.m; sourceTree = "<group>"; };
+		109 /* FilesystemTools.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FilesystemTools.h; sourceTree = "<group>"; };
+		110 /* FilesystemTools.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FilesystemTools.m; sourceTree = "<group>"; };
+		111 /* ShellTools.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ShellTools.h; sourceTree = "<group>"; };
+		112 /* ShellTools.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ShellTools.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +74,10 @@
 				102 /* AppDelegate.m */,
 				107 /* MCPServer.h */,
 				108 /* MCPServer.m */,
+				109 /* FilesystemTools.h */,
+				110 /* FilesystemTools.m */,
+				111 /* ShellTools.h */,
+				112 /* ShellTools.m */,
 				103 /* Assets.xcassets */,
 				104 /* Info.plist */,
 				105 /* MCPEyes.entitlements */,
@@ -166,6 +176,8 @@
 				001 /* main.m in Sources */,
 				002 /* AppDelegate.m in Sources */,
 				008 /* MCPServer.m in Sources */,
+				010 /* FilesystemTools.m in Sources */,
+				011 /* ShellTools.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

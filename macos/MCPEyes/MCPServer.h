@@ -1,9 +1,13 @@
 /**
  * MCP-Eyes HTTP Server
- * Handles HTTP requests for screenshots, window management, and input simulation
+ * Handles HTTP requests for screenshots, window management, input simulation,
+ * filesystem operations, and shell commands.
  */
 
 #import <Cocoa/Cocoa.h>
+
+@class FilesystemTools;
+@class ShellTools;
 
 @protocol MCPServerDelegate <NSObject>
 @optional
@@ -18,6 +22,10 @@
 @property (nonatomic, readonly) BOOL isRunning;
 @property (nonatomic, readonly) NSUInteger port;
 @property (nonatomic, strong) NSString *apiKey;
+
+// Tool instances
+@property (nonatomic, strong, readonly) FilesystemTools *filesystemTools;
+@property (nonatomic, strong, readonly) ShellTools *shellTools;
 
 - (instancetype)initWithPort:(NSUInteger)port apiKey:(NSString *)apiKey;
 - (BOOL)start;

@@ -1,0 +1,576 @@
+// ScreenControl Database Schema
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+model User {
+  id                      String    @id @default(cuid())
+  email                   String    @unique
+  emailVerified           DateTime?
+  passwordHash            String?
+  name                    String?
+  image                   String?
+
+  // Company/Billing info
+  companyName             String?
+  billingEmail            String?
+  vatNumber               String?
+
+  // Account status
+  accountStatus           AccountStatus @default(PENDING_VERIFICATION)
+
+  // Email verification
+  emailVerificationToken  String?
+  emailVerificationExpires DateTime?
+
+  // Password reset
+  passwordResetToken      String?
+  passwordResetExpires    DateTime?
+
+  // OAuth
+  oauthProvider           String?   // 'google', 'github', 'local'
+  oauthId                 String?
+
+  // Timestamps
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  lastLogin               DateTime?
+
+  // Relations
+  accounts                Account[]
+  sessions                Session[]
+  licenses                License[]
+  builds                  Build[]
+  transactions            Transaction[]
+  auditLogs               AuditLog[]
+  vouchersCreated         VoucherCode[] @relation("VoucherCreator")
+  ownedAgents             Agent[]       @relation("AgentOwner")
+  installerDownloads      InstallerDownload[]
+  activityPattern         CustomerActivityPattern?
+  aiConnections           AIConnection[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// LICENSING
+// ============================================
+
+model License {
+  id                  String        @id @default(cuid())
+  userId              String
+  licenseKey          String        @unique  // Format: SC-XXXX-XXXX-XXXX-XXXX
+  productType         ProductType   @default(AGENT)
+  maxConcurrentAgents Int           @default(1)
+
+  // Validity
+  status              LicenseStatus @default(ACTIVE)
+  validFrom           DateTime      @default(now())
+  validUntil          DateTime?
+
+  // Trial tracking
+  isTrial             Boolean       @default(true)
+  trialStarted        DateTime?
+  trialEnds           DateTime?
+
+  // Timestamps
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  // Relations
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agents              Agent[]
+  transactions        Transaction[]
+
+  @@map("licenses")
+}
+
+// ============================================
+// AGENTS (Phone-Home Tracking)
+// ============================================
+
+model Agent {
+  id                String      @id @default(cuid())
+  licenseId         String
+  agentKey          String      @unique  // Unique identifier for this agent instance
+
+  // Ownership - which customer owns this agent
+  ownerUserId       String?     // The SaaS customer who distributed the installer
+
+  // Stamped installer info
+  customerId        String?     // From stamped installer
+  licenseUuid       String?     @unique  // Issued on activation
+  installerVersion  String?     // Version of installer used
+
+  // Machine identification
+  machineId         String?     // Unique hardware ID
+  machineFingerprint String     // SHA256 hash of hardware
+  fingerprintRaw    Json?       // Raw fingerprint data for comparison
+
+  // Machine info
+  hostname          String?
+  localUsername     String?
+  osType            OSType      @default(MACOS)
+  osVersion         String?
+  agentVersion      String?
+  arch              String?
+
+  // Hardware details (for fingerprinting)
+  cpuModel          String?
+  diskSerial        String?
+  motherboardUuid   String?
+
+  // Status
+  status            AgentStatus @default(OFFLINE)
+  state             AgentState  @default(PENDING)
+  powerState        PowerState  @default(PASSIVE)
+  isScreenLocked    Boolean     @default(false)
+  currentTask       String?
+  ipAddress         String?
+
+  // Duplicate detection
+  isDuplicate       Boolean     @default(false)
+  duplicateOf       String?     // Points to original agent ID if duplicate
+
+  // Timestamps
+  firstSeenAt       DateTime    @default(now())
+  lastSeenAt        DateTime    @default(now())
+  lastActivity      DateTime    @default(now())
+  activatedAt       DateTime?
+
+  // Custom label
+  label             String?
+  groupName         String?
+  tags              String[]
+
+  // Relations
+  license           License     @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  owner             User?       @relation("AgentOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  sessions          AgentSession[]
+  auditLogs         AuditLog[]
+  fingerprintChanges FingerprintChange[]
+  commandLogs       CommandLog[]
+
+  @@unique([customerId, machineId])
+  @@index([ownerUserId])
+  @@index([customerId])
+  @@index([licenseUuid])
+  @@index([state])
+  @@index([powerState])
+  @@map("agents")
+}
+
+// Track fingerprint changes for security audit
+model FingerprintChange {
+  id              String    @id @default(cuid())
+  agentId         String
+  changeType      String    // "ip_change", "hardware_change", "duplicate_detected"
+  previousValue   String?
+  newValue        String?
+  actionTaken     String    // "allowed", "logged", "deactivated"
+  details         Json?
+
+  createdAt       DateTime  @default(now())
+
+  agent           Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([changeType])
+  @@map("fingerprint_changes")
+}
+
+// Customer activity patterns for smart power state management
+model CustomerActivityPattern {
+  id                String        @id @default(cuid())
+  userId            String        @unique
+
+  // Hourly activity counts (24 slots, 0-23)
+  hourlyActivity    Int[]         @default([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])
+
+  // Detected quiet hours
+  quietHoursStart   Int?          // Hour (0-23)
+  quietHoursEnd     Int?          // Hour (0-23)
+
+  // Schedule configuration
+  scheduleMode      ScheduleMode  @default(AUTO_DETECT)
+  timezone          String        @default("UTC")
+
+  updatedAt         DateTime      @updatedAt
+
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("customer_activity_patterns")
+}
+
+// ============================================
+// INSTALLER DOWNLOADS (tracking)
+// ============================================
+
+model InstallerDownload {
+  id                String    @id @default(cuid())
+  userId            String
+
+  // What was downloaded
+  platform          OSType
+  variant           String?   // "gui", "headless", etc.
+  version           String
+
+  // Stamp info
+  customerId        String    // The customer ID embedded in this installer
+  checksumSalt      String?   // Random salt for anti-piracy checksum
+
+  // Tracking
+  ipAddress         String?
+  userAgent         String?
+
+  downloadedAt      DateTime  @default(now())
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([customerId])
+  @@map("installer_downloads")
+}
+
+// ============================================
+// AI/LLM CONNECTIONS (tracking)
+// ============================================
+
+model AIConnection {
+  id                String    @id @default(cuid())
+  userId            String    // Which customer's AI is connecting
+
+  // Connection info
+  sessionId         String    @unique  // MCP session ID
+  clientName        String?   // e.g., "Claude", "OpenWebUI", "Cursor"
+  clientVersion     String?
+
+  // Authorization
+  isAuthorized      Boolean   @default(false)
+  authorizedAt      DateTime?
+
+  // Status
+  isActive          Boolean   @default(true)
+  lastActivityAt    DateTime  @default(now())
+
+  // Target agent (if bound to specific agent)
+  targetAgentId     String?
+
+  // Connection tracking
+  ipAddress         String?
+  userAgent         String?
+
+  createdAt         DateTime  @default(now())
+  disconnectedAt    DateTime?
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commandLogs       CommandLog[]
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([isActive])
+  @@map("ai_connections")
+}
+
+// ============================================
+// COMMAND LOGS (audit trail)
+// ============================================
+
+model CommandLog {
+  id                String    @id @default(cuid())
+  agentId           String
+  aiConnectionId    String?
+
+  // Command details
+  method            String    // e.g., "tools/call", "screenshot", "click"
+  params            Json?     // Command parameters
+  toolName          String?   // For tools/call, the specific tool
+
+  // Execution
+  status            CommandStatus @default(PENDING)
+  result            Json?     // Result or error
+  errorMessage      String?
+
+  // Timing
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+  durationMs        Int?
+
+  // Context
+  ipAddress         String?
+
+  agent             Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  aiConnection      AIConnection? @relation(fields: [aiConnectionId], references: [id], onDelete: SetNull)
+
+  @@index([agentId])
+  @@index([aiConnectionId])
+  @@index([method])
+  @@index([status])
+  @@index([startedAt])
+  @@map("command_logs")
+}
+
+model AgentSession {
+  id              String    @id @default(cuid())
+  agentId         String
+  sessionStart    DateTime  @default(now())
+  sessionEnd      DateTime?
+  durationMinutes Int?
+
+  // Connection info
+  ipAddress       String?
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("agent_sessions")
+}
+
+// ============================================
+// BUILDS (Executable Patching)
+// ============================================
+
+model Build {
+  id            String   @id @default(cuid())
+  userId        String
+  platform      Platform
+  buildHash     String   // SHA256 of the build
+  customerTag   String   // Embedded customer identifier
+
+  // Download tracking
+  downloadUrl   String?
+  downloadCount Int      @default(0)
+  checksum      String?  // SHA256 for integrity verification
+
+  // Timestamps
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime? // Download URL expiration
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("builds")
+}
+
+// ============================================
+// PAYMENTS & TRANSACTIONS
+// ============================================
+
+model Transaction {
+  id              String            @id @default(cuid())
+  userId          String
+  licenseId       String?
+
+  // Stripe
+  stripePaymentId String?
+  stripeCustomerId String?
+  stripeSubscriptionId String?
+
+  // Amount
+  amount          Int               // Amount in cents
+  currency        String            @default("USD")
+
+  // Details
+  productType     ProductType
+  status          TransactionStatus @default(PENDING)
+
+  // Voucher
+  voucherId       String?
+  discountAmount  Int?              // Discount in cents
+
+  // Timestamps
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  license         License?          @relation(fields: [licenseId], references: [id])
+  voucher         VoucherCode?      @relation(fields: [voucherId], references: [id])
+
+  @@map("transactions")
+}
+
+model VoucherCode {
+  id              String    @id @default(cuid())
+  code            String    @unique
+
+  // Discount
+  discountPercent Int?      // e.g., 20 for 20%
+  discountAmount  Int?      // Fixed amount in cents
+
+  // Usage limits
+  maxUses         Int?
+  usedCount       Int       @default(0)
+  maxUsesPerUser  Int       @default(1)
+
+  // Validity
+  validFrom       DateTime  @default(now())
+  validUntil      DateTime?
+  isActive        Boolean   @default(true)
+
+  // Creator
+  createdBy       String
+  createdAt       DateTime  @default(now())
+
+  // Relations
+  creator         User      @relation("VoucherCreator", fields: [createdBy], references: [id])
+  transactions    Transaction[]
+
+  @@map("voucher_codes")
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  agentId   String?
+
+  action    String   // e.g., 'login', 'agent_heartbeat', 'license_activated'
+  details   Json?    // Additional context
+  ipAddress String?
+  userAgent String?
+
+  timestamp DateTime @default(now())
+
+  // Relations
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agent     Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([agentId])
+  @@index([action])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum AccountStatus {
+  ACTIVE
+  PENDING_VERIFICATION
+  SUSPENDED
+  DELETED
+}
+
+enum LicenseStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  CANCELLED
+}
+
+enum AgentStatus {
+  ONLINE
+  OFFLINE
+  SUSPENDED
+}
+
+enum AgentState {
+  PENDING   // Not activated
+  ACTIVE    // Billable
+  BLOCKED   // Blocked by customer
+  EXPIRED   // License expired
+}
+
+enum PowerState {
+  ACTIVE    // 5-10s heartbeat - portal or AI actively using
+  PASSIVE   // 30-60s heartbeat - normal idle state
+  SLEEP     // 5-10min heartbeat - quiet hours
+}
+
+enum OSType {
+  WINDOWS
+  MACOS
+  LINUX
+}
+
+enum ScheduleMode {
+  ALWAYS_ACTIVE     // Never sleep
+  AUTO_DETECT       // Learn from activity patterns
+  CUSTOM            // User-defined quiet hours
+  SLEEP_OVERNIGHT   // Simple overnight sleep (11pm-7am)
+}
+
+enum ProductType {
+  AGENT
+  HUB
+  BUNDLE
+}
+
+enum Platform {
+  WINDOWS
+  MACOS
+  LINUX
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum CommandStatus {
+  PENDING     // Waiting to be sent
+  SENT        // Sent to agent
+  EXECUTING   // Agent acknowledged, running
+  COMPLETED   // Successfully completed
+  FAILED      // Failed with error
+  TIMEOUT     // Timed out
+  CANCELLED   // Cancelled before completion
+}

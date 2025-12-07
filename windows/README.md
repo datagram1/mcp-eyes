@@ -1,89 +1,153 @@
-# MCP-Eyes Windows Implementation
+# ScreenControl Windows Agent
 
-Windows tray application implementation of MCP-Eyes using C++ and Win32 API.
+Windows implementation using a hybrid architecture: C++ Windows Service + C# WinForms Tray App.
+
+## Architecture
+
+```
++----------------------------------+     +----------------------------+
+|     ScreenControlService.exe     |     |   ScreenControlTray.exe    |
+|     (C++ Windows Service)        |<--->|   (C# WinForms App)        |
++----------------------------------+     +----------------------------+
+|  - Runs as SYSTEM                |     |  - Runs in user session    |
+|  - All core functionality        |     |  - System tray icon        |
+|  - HTTP server (port 3456)       |     |  - Settings UI             |
+|  - Licensing & fingerprinting    |     |  - Service status display  |
+|  - Tools (screenshot, click...)  |     |  - Start/stop controls     |
++----------------------------------+     +----------------------------+
+           |                                        |
+           | HTTP (localhost:3456)                  |
+           +----------------------------------------+
+```
+
+### Why Hybrid?
+
+- **C++ Service**: Protects all valuable IP (licensing, fingerprinting, tools) - harder to reverse engineer
+- **C# WinForms Tray**: Easy UI development with .NET, self-contained single file - if reversed, only exposes HTTP client calls
+
+## Project Structure
+
+```
+windows/
+├── ScreenControl.sln           # Visual Studio solution
+├── ScreenControlService/       # C++ Windows Service
+│   ├── main.cpp               # Service entry point
+│   ├── service.h/cpp          # Service utilities
+│   ├── server/
+│   │   └── http_server.h/cpp  # HTTP endpoints (cpp-httplib)
+│   ├── core/
+│   │   ├── config.h/cpp       # Configuration
+│   │   └── logger.h/cpp       # Logging
+│   ├── tools/
+│   │   ├── gui_tools.h/cpp    # Screenshot, click, keyboard
+│   │   ├── ui_automation.h/cpp # Windows UI Automation
+│   │   ├── filesystem_tools.h/cpp # File operations
+│   │   └── shell_tools.h/cpp  # Command execution
+│   └── libs/
+│       ├── httplib.h          # cpp-httplib (header-only)
+│       └── json.hpp           # nlohmann/json (header-only)
+├── ScreenControlTray/          # C# WinForms Tray App
+│   ├── Program.cs             # Entry point
+│   ├── TrayApplicationContext.cs # Tray icon management
+│   ├── SettingsForm.cs        # Settings window
+│   └── ServiceClient.cs       # HTTP client to service
+└── README.md                   # This file
+```
 
 ## Building
 
 ### Prerequisites
 
 - Windows 10/11
-- Visual Studio 2019 or later (with C++ desktop development workload)
-- CMake 3.20 or later
-- Windows SDK 10.0 or later
+- Visual Studio 2022 with:
+  - C++ Desktop Development workload
+  - .NET 8.0 SDK
 
-### Build Steps
+### Build from Visual Studio
 
-1. Open a Developer Command Prompt for VS (or use Visual Studio)
+1. Open `ScreenControl.sln`
+2. Set configuration to `Release | x64`
+3. Build Solution (Ctrl+Shift+B)
 
-2. Create build directory:
+### Build from Command Line
+
 ```cmd
-mkdir build
-cd build
+# Build C++ Service
+msbuild ScreenControlService\ScreenControlService.vcxproj /p:Configuration=Release /p:Platform=x64
+
+# Build C# Tray App
+dotnet publish ScreenControlTray\ScreenControlTray.csproj -c Release -r win-x64 --self-contained
 ```
 
-3. Configure with CMake:
+## Installation
+
+### Install Service
+
 ```cmd
-cmake .. -G "Visual Studio 17 2022" -A x64
+# Run as Administrator
+ScreenControlService.exe --install
+net start ScreenControlService
 ```
 
-Or for 32-bit:
+### Uninstall Service
+
 ```cmd
-cmake .. -G "Visual Studio 17 2022" -A Win32
+# Run as Administrator
+net stop ScreenControlService
+ScreenControlService.exe --uninstall
 ```
 
-4. Build:
+### Console Mode (Development)
+
 ```cmd
-cmake --build . --config Release
+ScreenControlService.exe --console
 ```
-
-The executable will be in `build/bin/Release/MCPEyes.exe`
-
-## Features
-
-- System tray icon with context menu
-- Settings window with all configuration options
-- HTTP server for MCP protocol communication
-- Windows UI Automation for accessibility
-- Screenshot capture (full screen and window-specific)
-- Mouse and keyboard control
-- Application listing and focus
-- Start at login support
-
-## Architecture
-
-- **AppDelegate**: Main application class, handles tray icon and lifecycle
-- **SettingsWindow**: Settings dialog UI
-- **MCPServer**: HTTP server wrapper using cpp-httplib
-- **WindowsPlatform**: Windows-specific automation implementation
-
-## Configuration
-
-Settings are stored in Windows Registry:
-- Key: `HKEY_CURRENT_USER\Software\MCPEyes`
-- Values: AgentName, NetworkMode, Port, APIKey, etc.
-
-Token file is saved to: `%USERPROFILE%\.mcp-eyes-token`
 
 ## API Endpoints
 
-The server exposes the same HTTP endpoints as the macOS version:
+All endpoints match the macOS MCPEyes.app for API consistency:
 
-- `GET /health` - Health check
-- `GET /permissions` - Check permissions
-- `GET /listApplications` - List running applications
-- `POST /focusApplication` - Focus an application
-- `GET /screenshot` - Take screenshot
-- `POST /click` - Click at coordinates
-- `POST /typeText` - Type text
-- `POST /pressKey` - Press keyboard key
-- `GET /getClickableElements` - Get UI elements
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/status` | GET | Service status and version |
+| `/settings` | GET/POST | Get/set configuration |
+| `/fingerprint` | GET | Machine ID for licensing |
+| `/license/activate` | POST | Activate license |
+| `/license/deactivate` | POST | Deactivate license |
+| `/screenshot` | GET | Capture screen |
+| `/click` | POST | Mouse click |
+| `/keyboard/type` | POST | Type text |
+| `/keyboard/key` | POST | Press key |
+| `/ui/elements` | GET | Get clickable elements |
+| `/ui/windows` | GET | List windows |
+| `/fs/list` | POST | List directory |
+| `/fs/read` | POST | Read file |
+| `/fs/write` | POST | Write file |
+| `/shell/exec` | POST | Execute command |
 
-All endpoints (except `/health`) require API key authentication via `Authorization: Bearer <apiKey>` header.
+## Configuration
 
-## Notes
+Settings stored in: `%PROGRAMDATA%\ScreenControl\config.json`
 
-- Windows doesn't require explicit accessibility or screen recording permissions like macOS
-- UI Automation should work without special permissions
-- The application runs as a tray app (no console window)
-- Icons need to be created and added to the resource file
+```json
+{
+  "port": 3456,
+  "controlServerUrl": "https://control.example.com",
+  "licenseKey": "...",
+  "autoStart": true,
+  "enableLogging": true
+}
+```
 
+Logs stored in: `%PROGRAMDATA%\ScreenControl\logs\`
+
+## Dependencies
+
+Header-only libraries (included in `libs/`):
+- [cpp-httplib](https://github.com/yhirose/cpp-httplib) - HTTP server
+- [nlohmann/json](https://github.com/nlohmann/json) - JSON handling
+
+## Legacy MCPEyes
+
+The original `MCPEyes/` folder contains an older all-in-C++ tray app implementation.
+The new Service + Tray architecture supersedes it.

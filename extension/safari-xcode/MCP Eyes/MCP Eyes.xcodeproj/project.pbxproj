@@ -1,0 +1,995 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		7F1B54C52EE45EFC0082B2BA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1B54C42EE45EFC0082B2BA /* AppDelegate.swift */; };
+		7F1B54C72EE45EFC0082B2BA /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1B54C62EE45EFC0082B2BA /* SceneDelegate.swift */; };
+		7F1B54CA2EE45EFC0082B2BA /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54C82EE45EFC0082B2BA /* LaunchScreen.storyboard */; };
+		7F1B54CD2EE45EFC0082B2BA /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54CB2EE45EFC0082B2BA /* Main.storyboard */; };
+		7F1B54D62EE45EFC0082B2BA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1B54D52EE45EFC0082B2BA /* AppDelegate.swift */; };
+		7F1B54D92EE45EFC0082B2BA /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54D72EE45EFC0082B2BA /* Main.storyboard */; };
+		7F1B54E02EE45EFC0082B2BA /* MCP Eyes Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F1B54DF2EE45EFC0082B2BA /* MCP Eyes Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7F1B54EA2EE45EFC0082B2BA /* MCP Eyes Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F1B54E92EE45EFC0082B2BA /* MCP Eyes Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7F1B54EF2EE45EFC0082B2BA /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B42EE45EFB0082B2BA /* Main.html */; };
+		7F1B54F02EE45EFC0082B2BA /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B42EE45EFB0082B2BA /* Main.html */; };
+		7F1B54F12EE45EFC0082B2BA /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B62EE45EFB0082B2BA /* Icon.png */; };
+		7F1B54F22EE45EFC0082B2BA /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B62EE45EFB0082B2BA /* Icon.png */; };
+		7F1B54F32EE45EFC0082B2BA /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B72EE45EFB0082B2BA /* Style.css */; };
+		7F1B54F42EE45EFC0082B2BA /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B72EE45EFB0082B2BA /* Style.css */; };
+		7F1B54F52EE45EFC0082B2BA /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B82EE45EFB0082B2BA /* Script.js */; };
+		7F1B54F62EE45EFC0082B2BA /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54B82EE45EFB0082B2BA /* Script.js */; };
+		7F1B54F72EE45EFC0082B2BA /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1B54B92EE45EFB0082B2BA /* ViewController.swift */; };
+		7F1B54F82EE45EFC0082B2BA /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1B54B92EE45EFB0082B2BA /* ViewController.swift */; };
+		7F1B54F92EE45EFC0082B2BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54BA2EE45EFC0082B2BA /* Assets.xcassets */; };
+		7F1B54FA2EE45EFC0082B2BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B54BA2EE45EFC0082B2BA /* Assets.xcassets */; };
+		7F1B54FB2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1B54BC2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift */; };
+		7F1B54FC2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F1B54BC2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift */; };
+		7F1B55132EE45EFD0082B2BA /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B550E2EE45EFD0082B2BA /* background.js */; };
+		7F1B55142EE45EFD0082B2BA /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B550F2EE45EFD0082B2BA /* README.md */; };
+		7F1B55152EE45EFD0082B2BA /* injected.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B55102EE45EFD0082B2BA /* injected.js */; };
+		7F1B55162EE45EFD0082B2BA /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B55112EE45EFD0082B2BA /* manifest.json */; };
+		7F1B55172EE45EFD0082B2BA /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B55122EE45EFD0082B2BA /* content.js */; };
+		7F1B55182EE45EFD0082B2BA /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B550E2EE45EFD0082B2BA /* background.js */; };
+		7F1B55192EE45EFD0082B2BA /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B550F2EE45EFD0082B2BA /* README.md */; };
+		7F1B551A2EE45EFD0082B2BA /* injected.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B55102EE45EFD0082B2BA /* injected.js */; };
+		7F1B551B2EE45EFD0082B2BA /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B55112EE45EFD0082B2BA /* manifest.json */; };
+		7F1B551C2EE45EFD0082B2BA /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 7F1B55122EE45EFD0082B2BA /* content.js */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7F1B54E12EE45EFC0082B2BA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7F1B54AE2EE45EFB0082B2BA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7F1B54DE2EE45EFC0082B2BA;
+			remoteInfo = "MCP Eyes Extension (iOS)";
+		};
+		7F1B54EB2EE45EFC0082B2BA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7F1B54AE2EE45EFB0082B2BA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7F1B54E82EE45EFC0082B2BA;
+			remoteInfo = "MCP Eyes Extension (macOS)";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7F1B55022EE45EFC0082B2BA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7F1B54E02EE45EFC0082B2BA /* MCP Eyes Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B55092EE45EFC0082B2BA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7F1B54EA2EE45EFC0082B2BA /* MCP Eyes Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		7F1B54B52EE45EFB0082B2BA /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		7F1B54B62EE45EFB0082B2BA /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		7F1B54B72EE45EFB0082B2BA /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		7F1B54B82EE45EFB0082B2BA /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		7F1B54B92EE45EFB0082B2BA /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		7F1B54BA2EE45EFC0082B2BA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		7F1B54BC2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		7F1B54C12EE45EFC0082B2BA /* MCP Eyes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MCP Eyes.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F1B54C42EE45EFC0082B2BA /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		7F1B54C62EE45EFC0082B2BA /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		7F1B54C92EE45EFC0082B2BA /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		7F1B54CC2EE45EFC0082B2BA /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		7F1B54CE2EE45EFC0082B2BA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7F1B54D32EE45EFC0082B2BA /* MCP Eyes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MCP Eyes.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F1B54D52EE45EFC0082B2BA /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		7F1B54D82EE45EFC0082B2BA /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		7F1B54DA2EE45EFC0082B2BA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7F1B54DF2EE45EFC0082B2BA /* MCP Eyes Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "MCP Eyes Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F1B54E42EE45EFC0082B2BA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7F1B54E92EE45EFC0082B2BA /* MCP Eyes Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "MCP Eyes Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F1B54EE2EE45EFC0082B2BA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7F1B550E2EE45EFD0082B2BA /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = ../../../safari/background.js; sourceTree = "<group>"; };
+		7F1B550F2EE45EFD0082B2BA /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = README.md; path = ../../../safari/README.md; sourceTree = "<group>"; };
+		7F1B55102EE45EFD0082B2BA /* injected.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = injected.js; path = ../../../safari/injected.js; sourceTree = "<group>"; };
+		7F1B55112EE45EFD0082B2BA /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = ../../../safari/manifest.json; sourceTree = "<group>"; };
+		7F1B55122EE45EFD0082B2BA /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = ../../../safari/content.js; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7F1B54BE2EE45EFC0082B2BA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54D02EE45EFC0082B2BA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54DC2EE45EFC0082B2BA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54E62EE45EFC0082B2BA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		7F1B54AD2EE45EFB0082B2BA = {
+			isa = PBXGroup;
+			children = (
+				7F1B54B22EE45EFB0082B2BA /* Shared (App) */,
+				7F1B54BB2EE45EFC0082B2BA /* Shared (Extension) */,
+				7F1B54C32EE45EFC0082B2BA /* iOS (App) */,
+				7F1B54D42EE45EFC0082B2BA /* macOS (App) */,
+				7F1B54E32EE45EFC0082B2BA /* iOS (Extension) */,
+				7F1B54ED2EE45EFC0082B2BA /* macOS (Extension) */,
+				7F1B54C22EE45EFC0082B2BA /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7F1B54B22EE45EFB0082B2BA /* Shared (App) */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B54B92EE45EFB0082B2BA /* ViewController.swift */,
+				7F1B54BA2EE45EFC0082B2BA /* Assets.xcassets */,
+				7F1B54B32EE45EFB0082B2BA /* Resources */,
+			);
+			path = "Shared (App)";
+			sourceTree = "<group>";
+		};
+		7F1B54B32EE45EFB0082B2BA /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B54B42EE45EFB0082B2BA /* Main.html */,
+				7F1B54B62EE45EFB0082B2BA /* Icon.png */,
+				7F1B54B72EE45EFB0082B2BA /* Style.css */,
+				7F1B54B82EE45EFB0082B2BA /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		7F1B54BB2EE45EFC0082B2BA /* Shared (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B550D2EE45EFD0082B2BA /* Resources */,
+				7F1B54BC2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift */,
+			);
+			path = "Shared (Extension)";
+			sourceTree = "<group>";
+		};
+		7F1B54C22EE45EFC0082B2BA /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B54C12EE45EFC0082B2BA /* MCP Eyes.app */,
+				7F1B54D32EE45EFC0082B2BA /* MCP Eyes.app */,
+				7F1B54DF2EE45EFC0082B2BA /* MCP Eyes Extension.appex */,
+				7F1B54E92EE45EFC0082B2BA /* MCP Eyes Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		7F1B54C32EE45EFC0082B2BA /* iOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B54C42EE45EFC0082B2BA /* AppDelegate.swift */,
+				7F1B54C62EE45EFC0082B2BA /* SceneDelegate.swift */,
+				7F1B54C82EE45EFC0082B2BA /* LaunchScreen.storyboard */,
+				7F1B54CB2EE45EFC0082B2BA /* Main.storyboard */,
+				7F1B54CE2EE45EFC0082B2BA /* Info.plist */,
+			);
+			path = "iOS (App)";
+			sourceTree = "<group>";
+		};
+		7F1B54D42EE45EFC0082B2BA /* macOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B54D52EE45EFC0082B2BA /* AppDelegate.swift */,
+				7F1B54D72EE45EFC0082B2BA /* Main.storyboard */,
+				7F1B54DA2EE45EFC0082B2BA /* Info.plist */,
+			);
+			path = "macOS (App)";
+			sourceTree = "<group>";
+		};
+		7F1B54E32EE45EFC0082B2BA /* iOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B54E42EE45EFC0082B2BA /* Info.plist */,
+			);
+			path = "iOS (Extension)";
+			sourceTree = "<group>";
+		};
+		7F1B54ED2EE45EFC0082B2BA /* macOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B54EE2EE45EFC0082B2BA /* Info.plist */,
+			);
+			path = "macOS (Extension)";
+			sourceTree = "<group>";
+		};
+		7F1B550D2EE45EFD0082B2BA /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				7F1B550E2EE45EFD0082B2BA /* background.js */,
+				7F1B550F2EE45EFD0082B2BA /* README.md */,
+				7F1B55102EE45EFD0082B2BA /* injected.js */,
+				7F1B55112EE45EFD0082B2BA /* manifest.json */,
+				7F1B55122EE45EFD0082B2BA /* content.js */,
+			);
+			name = Resources;
+			path = "Shared (Extension)";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7F1B54C02EE45EFC0082B2BA /* MCP Eyes (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F1B55032EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes (iOS)" */;
+			buildPhases = (
+				7F1B54BD2EE45EFC0082B2BA /* Sources */,
+				7F1B54BE2EE45EFC0082B2BA /* Frameworks */,
+				7F1B54BF2EE45EFC0082B2BA /* Resources */,
+				7F1B55022EE45EFC0082B2BA /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7F1B54E22EE45EFC0082B2BA /* PBXTargetDependency */,
+			);
+			name = "MCP Eyes (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "MCP Eyes (iOS)";
+			productReference = 7F1B54C12EE45EFC0082B2BA /* MCP Eyes.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7F1B54D22EE45EFC0082B2BA /* MCP Eyes (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F1B550A2EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes (macOS)" */;
+			buildPhases = (
+				7F1B54CF2EE45EFC0082B2BA /* Sources */,
+				7F1B54D02EE45EFC0082B2BA /* Frameworks */,
+				7F1B54D12EE45EFC0082B2BA /* Resources */,
+				7F1B55092EE45EFC0082B2BA /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7F1B54EC2EE45EFC0082B2BA /* PBXTargetDependency */,
+			);
+			name = "MCP Eyes (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "MCP Eyes (macOS)";
+			productReference = 7F1B54D32EE45EFC0082B2BA /* MCP Eyes.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7F1B54DE2EE45EFC0082B2BA /* MCP Eyes Extension (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F1B54FF2EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes Extension (iOS)" */;
+			buildPhases = (
+				7F1B54DB2EE45EFC0082B2BA /* Sources */,
+				7F1B54DC2EE45EFC0082B2BA /* Frameworks */,
+				7F1B54DD2EE45EFC0082B2BA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "MCP Eyes Extension (iOS)";
+			packageProductDependencies = (
+			);
+			productName = "MCP Eyes Extension (iOS)";
+			productReference = 7F1B54DF2EE45EFC0082B2BA /* MCP Eyes Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		7F1B54E82EE45EFC0082B2BA /* MCP Eyes Extension (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F1B55062EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes Extension (macOS)" */;
+			buildPhases = (
+				7F1B54E52EE45EFC0082B2BA /* Sources */,
+				7F1B54E62EE45EFC0082B2BA /* Frameworks */,
+				7F1B54E72EE45EFC0082B2BA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "MCP Eyes Extension (macOS)";
+			packageProductDependencies = (
+			);
+			productName = "MCP Eyes Extension (macOS)";
+			productReference = 7F1B54E92EE45EFC0082B2BA /* MCP Eyes Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7F1B54AE2EE45EFB0082B2BA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
+				TargetAttributes = {
+					7F1B54C02EE45EFC0082B2BA = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					7F1B54D22EE45EFC0082B2BA = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					7F1B54DE2EE45EFC0082B2BA = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					7F1B54E82EE45EFC0082B2BA = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+				};
+			};
+			buildConfigurationList = 7F1B54B12EE45EFB0082B2BA /* Build configuration list for PBXProject "MCP Eyes" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 7F1B54AD2EE45EFB0082B2BA;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7F1B54C22EE45EFC0082B2BA /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7F1B54C02EE45EFC0082B2BA /* MCP Eyes (iOS) */,
+				7F1B54D22EE45EFC0082B2BA /* MCP Eyes (macOS) */,
+				7F1B54DE2EE45EFC0082B2BA /* MCP Eyes Extension (iOS) */,
+				7F1B54E82EE45EFC0082B2BA /* MCP Eyes Extension (macOS) */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7F1B54BF2EE45EFC0082B2BA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B54F12EE45EFC0082B2BA /* Icon.png in Resources */,
+				7F1B54CA2EE45EFC0082B2BA /* LaunchScreen.storyboard in Resources */,
+				7F1B54EF2EE45EFC0082B2BA /* Main.html in Resources */,
+				7F1B54F52EE45EFC0082B2BA /* Script.js in Resources */,
+				7F1B54F92EE45EFC0082B2BA /* Assets.xcassets in Resources */,
+				7F1B54CD2EE45EFC0082B2BA /* Main.storyboard in Resources */,
+				7F1B54F32EE45EFC0082B2BA /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54D12EE45EFC0082B2BA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B54F22EE45EFC0082B2BA /* Icon.png in Resources */,
+				7F1B54F42EE45EFC0082B2BA /* Style.css in Resources */,
+				7F1B54D92EE45EFC0082B2BA /* Main.storyboard in Resources */,
+				7F1B54F62EE45EFC0082B2BA /* Script.js in Resources */,
+				7F1B54FA2EE45EFC0082B2BA /* Assets.xcassets in Resources */,
+				7F1B54F02EE45EFC0082B2BA /* Main.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54DD2EE45EFC0082B2BA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B551B2EE45EFD0082B2BA /* manifest.json in Resources */,
+				7F1B55192EE45EFD0082B2BA /* README.md in Resources */,
+				7F1B551A2EE45EFD0082B2BA /* injected.js in Resources */,
+				7F1B55182EE45EFD0082B2BA /* background.js in Resources */,
+				7F1B551C2EE45EFD0082B2BA /* content.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54E72EE45EFC0082B2BA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B55162EE45EFD0082B2BA /* manifest.json in Resources */,
+				7F1B55142EE45EFD0082B2BA /* README.md in Resources */,
+				7F1B55152EE45EFD0082B2BA /* injected.js in Resources */,
+				7F1B55132EE45EFD0082B2BA /* background.js in Resources */,
+				7F1B55172EE45EFD0082B2BA /* content.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7F1B54BD2EE45EFC0082B2BA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B54F72EE45EFC0082B2BA /* ViewController.swift in Sources */,
+				7F1B54C52EE45EFC0082B2BA /* AppDelegate.swift in Sources */,
+				7F1B54C72EE45EFC0082B2BA /* SceneDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54CF2EE45EFC0082B2BA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B54F82EE45EFC0082B2BA /* ViewController.swift in Sources */,
+				7F1B54D62EE45EFC0082B2BA /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54DB2EE45EFC0082B2BA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B54FB2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F1B54E52EE45EFC0082B2BA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F1B54FC2EE45EFC0082B2BA /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7F1B54E22EE45EFC0082B2BA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7F1B54DE2EE45EFC0082B2BA /* MCP Eyes Extension (iOS) */;
+			targetProxy = 7F1B54E12EE45EFC0082B2BA /* PBXContainerItemProxy */;
+		};
+		7F1B54EC2EE45EFC0082B2BA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7F1B54E82EE45EFC0082B2BA /* MCP Eyes Extension (macOS) */;
+			targetProxy = 7F1B54EB2EE45EFC0082B2BA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		7F1B54B42EE45EFB0082B2BA /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				7F1B54B52EE45EFB0082B2BA /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		7F1B54C82EE45EFC0082B2BA /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				7F1B54C92EE45EFC0082B2BA /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		7F1B54CB2EE45EFC0082B2BA /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				7F1B54CC2EE45EFC0082B2BA /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+		7F1B54D72EE45EFC0082B2BA /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				7F1B54D82EE45EFC0082B2BA /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		7F1B54FD2EE45EFC0082B2BA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		7F1B54FE2EE45EFC0082B2BA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		7F1B55002EE45EFC0082B2BA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari.Extension;
+				PRODUCT_NAME = "MCP Eyes Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7F1B55012EE45EFC0082B2BA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari.Extension;
+				PRODUCT_NAME = "MCP Eyes Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		7F1B55042EE45EFC0082B2BA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari;
+				PRODUCT_NAME = "MCP Eyes";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7F1B55052EE45EFC0082B2BA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari;
+				PRODUCT_NAME = "MCP Eyes";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		7F1B55072EE45EFC0082B2BA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari.Extension;
+				PRODUCT_NAME = "MCP Eyes Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7F1B55082EE45EFC0082B2BA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari.Extension;
+				PRODUCT_NAME = "MCP Eyes Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		7F1B550B2EE45EFC0082B2BA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari;
+				PRODUCT_NAME = "MCP Eyes";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7F1B550C2EE45EFC0082B2BA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LZ7T6LSFQ5;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "MCP Eyes";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 10.14;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mcpeyes.safari;
+				PRODUCT_NAME = "MCP Eyes";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7F1B54B12EE45EFB0082B2BA /* Build configuration list for PBXProject "MCP Eyes" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F1B54FD2EE45EFC0082B2BA /* Debug */,
+				7F1B54FE2EE45EFC0082B2BA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F1B54FF2EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes Extension (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F1B55002EE45EFC0082B2BA /* Debug */,
+				7F1B55012EE45EFC0082B2BA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F1B55032EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F1B55042EE45EFC0082B2BA /* Debug */,
+				7F1B55052EE45EFC0082B2BA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F1B55062EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes Extension (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F1B55072EE45EFC0082B2BA /* Debug */,
+				7F1B55082EE45EFC0082B2BA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F1B550A2EE45EFC0082B2BA /* Build configuration list for PBXNativeTarget "MCP Eyes (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F1B550B2EE45EFC0082B2BA /* Debug */,
+				7F1B550C2EE45EFC0082B2BA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7F1B54AE2EE45EFB0082B2BA /* Project object */;
+}

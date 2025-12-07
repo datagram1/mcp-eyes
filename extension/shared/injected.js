@@ -770,6 +770,331 @@
     };
   }
 
+  // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+
+  /**
+   * Get the HTML content of the page
+   */
+  function getVisibleHtml(options = {}) {
+    const {
+      selector,
+      removeScripts = true,
+      removeStyles = false,
+      cleanHtml = false,
+      maxLength = 50000
+    } = options;
+
+    try {
+      let container = document;
+      if (selector) {
+        const el = document.querySelector(selector);
+        if (!el) {
+          return { error: `Selector not found: ${selector}` };
+        }
+        container = el;
+      }
+
+      // Clone the content to avoid modifying the page
+      let html = container === document
+        ? document.documentElement.outerHTML
+        : container.outerHTML;
+
+      // Remove scripts if requested
+      if (removeScripts) {
+        html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+      }
+
+      // Remove styles if requested
+      if (removeStyles) {
+        html = html.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+      }
+
+      // Clean HTML if requested
+      if (cleanHtml) {
+        // Remove comments
+        html = html.replace(/<!--[\s\S]*?-->/g, '');
+        // Remove excessive whitespace
+        html = html.replace(/\s+/g, ' ');
+        // Remove empty attributes
+        html = html.replace(/\s+(?:class|id|style)=["']\s*["']/gi, '');
+      }
+
+      // Truncate if needed
+      const truncated = html.length > maxLength;
+      if (truncated) {
+        html = html.substring(0, maxLength) + '\n<!-- ... truncated ... -->';
+      }
+
+      return {
+        html,
+        length: html.length,
+        truncated,
+        selector: selector || 'document',
+        url: window.location.href
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Hover over an element
+   */
+  function hoverElement(selector) {
+    try {
+      const el = document.querySelector(selector);
+      if (!el) {
+        return { error: `Element not found: ${selector}` };
+      }
+
+      // Scroll into view first
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // Dispatch mouse events to simulate hover
+      const rect = el.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      const mouseEnterEvent = new MouseEvent('mouseenter', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: centerX,
+        clientY: centerY
+      });
+
+      const mouseOverEvent = new MouseEvent('mouseover', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: centerX,
+        clientY: centerY
+      });
+
+      const mouseMoveEvent = new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: centerX,
+        clientY: centerY
+      });
+
+      el.dispatchEvent(mouseEnterEvent);
+      el.dispatchEvent(mouseOverEvent);
+      el.dispatchEvent(mouseMoveEvent);
+
+      return {
+        success: true,
+        selector,
+        tagName: el.tagName.toLowerCase(),
+        text: el.textContent?.trim().substring(0, 100) || ''
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Drag an element to a target
+   */
+  function dragElement(sourceSelector, targetSelector) {
+    try {
+      const source = document.querySelector(sourceSelector);
+      const target = document.querySelector(targetSelector);
+
+      if (!source) {
+        return { error: `Source element not found: ${sourceSelector}` };
+      }
+      if (!target) {
+        return { error: `Target element not found: ${targetSelector}` };
+      }
+
+      const sourceRect = source.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+
+      const sourceCenterX = sourceRect.left + sourceRect.width / 2;
+      const sourceCenterY = sourceRect.top + sourceRect.height / 2;
+      const targetCenterX = targetRect.left + targetRect.width / 2;
+      const targetCenterY = targetRect.top + targetRect.height / 2;
+
+      // Create and dispatch drag events
+      const dataTransfer = new DataTransfer();
+
+      // Mouse down on source
+      source.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true, cancelable: true, view: window,
+        clientX: sourceCenterX, clientY: sourceCenterY
+      }));
+
+      // Drag start
+      source.dispatchEvent(new DragEvent('dragstart', {
+        bubbles: true, cancelable: true,
+        clientX: sourceCenterX, clientY: sourceCenterY,
+        dataTransfer
+      }));
+
+      // Drag over target
+      target.dispatchEvent(new DragEvent('dragover', {
+        bubbles: true, cancelable: true,
+        clientX: targetCenterX, clientY: targetCenterY,
+        dataTransfer
+      }));
+
+      // Drop on target
+      target.dispatchEvent(new DragEvent('drop', {
+        bubbles: true, cancelable: true,
+        clientX: targetCenterX, clientY: targetCenterY,
+        dataTransfer
+      }));
+
+      // Drag end
+      source.dispatchEvent(new DragEvent('dragend', {
+        bubbles: true, cancelable: true,
+        clientX: targetCenterX, clientY: targetCenterY,
+        dataTransfer
+      }));
+
+      // Mouse up
+      target.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true, cancelable: true, view: window,
+        clientX: targetCenterX, clientY: targetCenterY
+      }));
+
+      return {
+        success: true,
+        source: sourceSelector,
+        target: targetSelector
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Press a keyboard key
+   */
+  function pressKey(key, selector) {
+    try {
+      let targetElement = document.activeElement || document.body;
+
+      // If selector provided, focus that element first
+      if (selector) {
+        const el = document.querySelector(selector);
+        if (!el) {
+          return { error: `Element not found: ${selector}` };
+        }
+        el.focus();
+        targetElement = el;
+      }
+
+      // Parse key combination (e.g., "Ctrl+a", "Shift+Tab")
+      let keyName = key;
+      let ctrlKey = false;
+      let shiftKey = false;
+      let altKey = false;
+      let metaKey = false;
+
+      if (key.includes('+')) {
+        const parts = key.split('+');
+        keyName = parts.pop();
+        for (const modifier of parts) {
+          const mod = modifier.toLowerCase();
+          if (mod === 'ctrl' || mod === 'control') ctrlKey = true;
+          if (mod === 'shift') shiftKey = true;
+          if (mod === 'alt') altKey = true;
+          if (mod === 'meta' || mod === 'cmd' || mod === 'command') metaKey = true;
+        }
+      }
+
+      // Map common key names to key codes
+      const keyMap = {
+        'enter': { key: 'Enter', keyCode: 13 },
+        'tab': { key: 'Tab', keyCode: 9 },
+        'escape': { key: 'Escape', keyCode: 27 },
+        'esc': { key: 'Escape', keyCode: 27 },
+        'backspace': { key: 'Backspace', keyCode: 8 },
+        'delete': { key: 'Delete', keyCode: 46 },
+        'arrowup': { key: 'ArrowUp', keyCode: 38 },
+        'arrowdown': { key: 'ArrowDown', keyCode: 40 },
+        'arrowleft': { key: 'ArrowLeft', keyCode: 37 },
+        'arrowright': { key: 'ArrowRight', keyCode: 39 },
+        'home': { key: 'Home', keyCode: 36 },
+        'end': { key: 'End', keyCode: 35 },
+        'pageup': { key: 'PageUp', keyCode: 33 },
+        'pagedown': { key: 'PageDown', keyCode: 34 },
+        'space': { key: ' ', keyCode: 32 },
+        ' ': { key: ' ', keyCode: 32 }
+      };
+
+      const keyInfo = keyMap[keyName.toLowerCase()] || {
+        key: keyName,
+        keyCode: keyName.length === 1 ? keyName.charCodeAt(0) : 0
+      };
+
+      const eventOptions = {
+        key: keyInfo.key,
+        keyCode: keyInfo.keyCode,
+        code: keyInfo.key.length === 1 ? `Key${keyInfo.key.toUpperCase()}` : keyInfo.key,
+        which: keyInfo.keyCode,
+        bubbles: true,
+        cancelable: true,
+        ctrlKey,
+        shiftKey,
+        altKey,
+        metaKey
+      };
+
+      // Dispatch keydown
+      targetElement.dispatchEvent(new KeyboardEvent('keydown', eventOptions));
+
+      // Dispatch keypress (for printable characters)
+      if (keyInfo.key.length === 1) {
+        targetElement.dispatchEvent(new KeyboardEvent('keypress', eventOptions));
+      }
+
+      // Dispatch keyup
+      targetElement.dispatchEvent(new KeyboardEvent('keyup', eventOptions));
+
+      return {
+        success: true,
+        key,
+        selector: selector || 'activeElement',
+        targetTag: targetElement.tagName.toLowerCase()
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
+  /**
+   * Crop a screenshot to a specific element (returns element bounds for external cropping)
+   */
+  function cropScreenshotToElement(screenshot, selector) {
+    try {
+      const el = document.querySelector(selector);
+      if (!el) {
+        return { error: `Element not found: ${selector}` };
+      }
+
+      const rect = el.getBoundingClientRect();
+
+      // Return the bounds for the background script to do the actual cropping
+      return {
+        bounds: {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height)
+        },
+        selector,
+        // Note: actual cropping would need to be done with canvas in background script
+        note: 'Element bounds returned - cropping requires canvas API'
+      };
+    } catch (error) {
+      return { error: error.message };
+    }
+  }
+
   /**
    * Wait for a selector to appear in the DOM
    */
@@ -2993,6 +3318,26 @@
           break;
         case 'answerQuestions':
           response = answerQuestions(payload.answers, payload.defaultAnswer || null);
+          break;
+
+        // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
+        case 'hover':
+          response = hoverElement(payload.selector);
+          break;
+        case 'drag':
+          response = dragElement(payload.sourceSelector, payload.targetSelector);
+          break;
+        case 'pressKey':
+          response = pressKey(payload.key, payload.selector);
+          break;
+        case 'getVisibleHtml':
+          response = getVisibleHtml(payload);
+          break;
+        case 'uploadFile':
+          response = { error: 'File upload requires native file system access - use native click on file input then interact with OS file picker' };
+          break;
+        case 'cropScreenshot':
+          response = cropScreenshotToElement(payload.screenshot, payload.selector);
           break;
 
         default:

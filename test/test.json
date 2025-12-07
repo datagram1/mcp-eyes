@@ -1,0 +1,9 @@
+JSON test data
+{
+  "name": "test",
+  "value": 123,
+  "array": [1, 2, 3],
+  "nested": {
+    "key": "value"
+  }
+}

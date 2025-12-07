@@ -62,8 +62,8 @@ const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
 const util_1 = require("util");
 const tool_registry_1 = require("./tool-registry");
-const filesystem_tools_1 = require("./filesystem-tools");
-const shell_tools_1 = require("./shell-tools");
+// NOTE: FilesystemTools and ShellTools are no longer imported here.
+// The proxy now relays these to the MCPEyes.app HTTP server which has native implementations.
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 const TOKEN_FILE = path_1.default.join(process.env.HOME || '/tmp', '.mcp-eyes-token');
 const BROWSER_BRIDGE_PORT = parseInt(process.env.BROWSER_BRIDGE_PORT || '3457', 10);
@@ -126,17 +126,14 @@ class MCPProxyServer {
     server;
     config = null;
     toolRegistry;
-    filesystemTools;
-    shellTools;
+    // NOTE: filesystemTools and shellTools removed - now proxied to MCPEyes.app HTTP server
     constructor() {
         this.server = new index_js_1.Server({
             name: 'mcp-eyes-proxy',
             version: '1.1.15',
         });
-        // Initialize tool registry and tools
+        // Initialize tool registry (tools are now proxied to MCPEyes.app)
         this.toolRegistry = new tool_registry_1.ToolRegistry();
-        this.filesystemTools = new filesystem_tools_1.FilesystemTools();
-        this.shellTools = new shell_tools_1.ShellTools();
         // Register all tools
         this.registerAllTools();
         this.setupToolHandlers();
@@ -1487,16 +1484,35 @@ browser_openDropdownNative({
         this.toolRegistry.registerTool({
             id: 'browser_getVisibleText',
             name: 'browser_getVisibleText',
-            description: 'Read the visible text content of the current page as plain text.',
+            description: 'Read the visible text content of the current page as plain text. Supports pagination for long pages.',
             category: 'browser',
             enabled: true,
             inputSchema: {
                 type: 'object',
                 properties: {
-                    maxLength: { type: 'number', description: 'Maximum text length to return (default: 100000)' },
+                    slice: { type: 'number', description: 'Which slice to return (0-indexed, default: 0). Use this to get additional content from long pages.' },
+                    sliceSize: { type: 'number', description: 'Characters per slice (default: 15000)' },
                     tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
                     browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
                 },
+            }
+        });
+        this.toolRegistry.registerTool({
+            id: 'browser_searchVisibleText',
+            name: 'browser_searchVisibleText',
+            description: 'Search for keywords in the visible text of the current page. Returns matching snippets with context.',
+            category: 'browser',
+            enabled: true,
+            inputSchema: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'Search query (case-insensitive). Can be a word, phrase, or simple pattern.' },
+                    contextChars: { type: 'number', description: 'Characters of context around each match (default: 100)' },
+                    maxMatches: { type: 'number', description: 'Maximum matches to return (default: 10)' },
+                    tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
+                    browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
+                },
+                required: ['query'],
             }
         });
         this.toolRegistry.registerTool({
@@ -1628,13 +1644,15 @@ browser_openDropdownNative({
         this.toolRegistry.registerTool({
             id: 'browser_navigate',
             name: 'browser_navigate',
-            description: 'Navigate to a URL in the browser. Opens the URL in the active tab or a specified tab.',
+            description: 'Navigate to a URL in the browser. Set includeVisibleText: true to get page content summary (recommended for understanding pages).',
             category: 'browser',
             enabled: true,
             inputSchema: {
                 type: 'object',
                 properties: {
                     url: { type: 'string', description: 'URL to navigate to' },
+                    includeVisibleText: { type: 'boolean', description: 'Return visible text content after navigation (default: true for better LLM understanding)' },
+                    maxTextLength: { type: 'number', description: 'Max chars of visible text to return (default: 8000)' },
                     tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
                     browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
                     waitUntil: { type: 'string', enum: ['load', 'domcontentloaded', 'networkidle'], description: 'Wait condition (optional)' },
@@ -1690,7 +1708,7 @@ browser_openDropdownNative({
         this.toolRegistry.registerTool({
             id: 'browser_get_visible_html',
             name: 'browser_get_visible_html',
-            description: 'Get the HTML content of the current page.',
+            description: 'Get the HTML content of the current page. Supports pagination for long pages.',
             category: 'browser',
             enabled: true,
             inputSchema: {
@@ -1699,8 +1717,9 @@ browser_openDropdownNative({
                     selector: { type: 'string', description: 'CSS selector to limit HTML to a specific container (optional)' },
                     removeScripts: { type: 'boolean', description: 'Remove all script tags (default: true)' },
                     removeStyles: { type: 'boolean', description: 'Remove all style tags (default: false)' },
-                    cleanHtml: { type: 'boolean', description: 'Perform comprehensive HTML cleaning (default: false)' },
-                    maxLength: { type: 'number', description: 'Maximum characters to return (default: 50000)' },
+                    cleanHtml: { type: 'boolean', description: 'Perform comprehensive HTML cleaning (default: true)' },
+                    slice: { type: 'number', description: 'Which slice to return (0-indexed, default: 0). Use this to get additional content from long pages.' },
+                    sliceSize: { type: 'number', description: 'Characters per slice (default: 15000)' },
                     tabId: { type: 'number', description: 'Optional tab ID (defaults to active tab)' },
                     browser: { type: 'string', enum: ['firefox', 'chrome', 'safari', 'edge'], description: 'Target browser (optional)' },
                 },
@@ -2564,32 +2583,39 @@ Important:
                 // ========== NEW BROWSER TOOLS ==========
                 {
                     name: 'browser_getVisibleText',
-                    description: `🌐 MCP-EYES BROWSER: Read the visible text content of the current page (or a specific section) as plain text.
+                    description: `🌐 MCP-EYES BROWSER: Read the visible text content of the current page as plain text with PAGINATION support for long pages.
+
+**Pagination:** For long pages, content is split into slices (default 15,000 chars each). The response tells you:
+- Current slice number and total slices available
+- Whether more content is available (hasMore: true)
+- To get more content, call again with slice: 1, slice: 2, etc.
+
+**Example for long page:**
+First call: browser_getVisibleText() → "Slice 1 of 3 (hasMore: true)..."
+Second call: browser_getVisibleText({slice: 1}) → "Slice 2 of 3 (hasMore: true)..."
+Third call: browser_getVisibleText({slice: 2}) → "Slice 3 of 3 (hasMore: false)..."
 
 When to use:
 • To understand page content and structure
-• To locate specific sections, headings, or labels before interacting with nearby elements
+• To locate specific sections, headings, or labels
 • To extract data, descriptions, or instructions
-
-Typical workflow:
-• Call with no selector to read the main page text, then decide what to do next.
-• Or call with a selector (e.g. a container or section) to read just that part.
-• Combine with browser_getInteractiveElements to:
-  – Read context using browser_getVisibleText
-  – Then find relevant buttons/links nearby using browser_getInteractiveElements
+• To search through long pages slice by slice
 
 Typical next tools: browser_getInteractiveElements (to find clickable elements near the text you read).
 
 Important:
 • This returns plain text only. It does not tell you what is clickable.
-• For discovering clickable elements (buttons, links, inputs), use browser_getInteractiveElements instead.
-• If the DOM is blocked or stripped (e.g., reCAPTCHA, heavy anti-bot pages), fall back to screenshot_app + getClickableElements + click/typeText to keep going.`,
+• For discovering clickable elements (buttons, links, inputs), use browser_getInteractiveElements instead.`,
                     inputSchema: {
                         type: 'object',
                         properties: {
-                            maxLength: {
+                            slice: {
                                 type: 'number',
-                                description: 'Maximum text length to return (default: 100000)',
+                                description: 'Which slice to return (0-indexed, default: 0). Use this to get additional content from long pages.',
+                            },
+                            sliceSize: {
+                                type: 'number',
+                                description: 'Characters per slice (default: 15000). Increase for more content per request.',
                             },
                             tabId: {
                                 type: 'number',
@@ -2601,6 +2627,72 @@ Important:
                                 description: 'Target browser (optional, uses default if not specified)',
                             },
                         },
+                    },
+                },
+                {
+                    name: 'browser_searchVisibleText',
+                    description: `🌐 MCP-EYES BROWSER: Search for keywords in the visible text AND identify what UI control contains each match (button, link, input, dropdown, etc.).
+
+**Much faster than reading slices** when you're looking for specific content on a long page.
+
+**Example:**
+browser_searchVisibleText({query: "apply"})
+→ Returns matches with context AND tells you what control type contains each match:
+
+1. [pos 12,450] ...ready to [Apply] for this position?...
+   🎯 Control: BUTTON | selector: button.apply-btn
+
+2. [pos 28,100] ...please [Apply] the changes below...
+   📄 Plain text (not in interactive control)
+
+🎮 Interactive elements matching "apply":
+  1. [BUTTON] "Apply Now" → selector: button.apply-btn
+  2. [LINK] "Apply Here" → selector: a.apply-link
+
+**Control types detected:**
+• BUTTON, LINK, SUBMIT BUTTON
+• TEXT INPUT, EMAIL INPUT, PASSWORD INPUT
+• CHECKBOX, RADIO BUTTON
+• DROPDOWN/SELECT, TEXT AREA
+• HEADING, PARAGRAPH, LABEL, LIST ITEM
+• And more...
+
+**Use cases:**
+• Find buttons/links by their text
+• Locate form fields by label
+• Search for specific controls to interact with
+• Know immediately if text is clickable or just content
+
+**Workflow:**
+1. browser_navigate(url) → See first 8K chars
+2. browser_searchVisibleText({query: "submit"}) → Find the submit button with its selector
+3. browser_clickElement(selector) → Click it directly!`,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            query: {
+                                type: 'string',
+                                description: 'Search query (case-insensitive). Can be a word, phrase, or simple pattern.',
+                            },
+                            contextChars: {
+                                type: 'number',
+                                description: 'Characters of context around each match (default: 100)',
+                            },
+                            maxMatches: {
+                                type: 'number',
+                                description: 'Maximum matches to return (default: 10)',
+                            },
+                            tabId: {
+                                type: 'number',
+                                description: 'Optional tab ID (defaults to active tab)',
+                            },
+                            browser: {
+                                type: 'string',
+                                enum: ['firefox', 'chrome', 'safari', 'edge'],
+                                description: 'Target browser (optional, uses default if not specified)',
+                            },
+                        },
+                        required: ['query'],
                     },
                 },
                 {
@@ -4103,9 +4195,10 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                                 }],
                         };
                     // ========== NEW BROWSER TOOL HANDLERS ==========
-                    case 'browser_getVisibleText':
+                    case 'browser_getVisibleText': {
+                        // Get ALL text from the page (request large maxLength)
                         result = await this.browserProxyCall('/browser/getVisibleText', 'POST', {
-                            maxLength: args?.maxLength,
+                            maxLength: 500000, // Get all text, we'll slice it locally
                             tabId: args?.tabId,
                             browser: args?.browser,
                         });
@@ -4115,12 +4208,193 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                                 isError: true,
                             };
                         }
+                        // Implement local pagination/slicing
+                        const sliceSize = Number(args?.sliceSize) || 15000;
+                        const sliceIndex = Number(args?.slice) || 0;
+                        const fullText = result.text || '';
+                        const totalLength = fullText.length;
+                        const totalSlices = Math.ceil(totalLength / sliceSize) || 1;
+                        const startIdx = sliceIndex * sliceSize;
+                        const endIdx = Math.min(startIdx + sliceSize, totalLength);
+                        const sliceText = fullText.slice(startIdx, endIdx);
+                        const hasMore = endIdx < totalLength;
+                        // Build pagination info
+                        const paginationInfo = totalSlices > 1
+                            ? `\n📄 Slice ${sliceIndex + 1} of ${totalSlices} (${totalLength.toLocaleString()} total chars)${hasMore ? ` | Get more: browser_getVisibleText({slice: ${sliceIndex + 1}})` : ' | End of content'}`
+                            : '';
                         return {
                             content: [{
                                     type: 'text',
-                                    text: `Page: ${result.title}\nURL: ${result.url}\nLength: ${result.length} chars${result.truncated ? ' (truncated)' : ''}\n\n${result.text}`,
+                                    text: `Page: ${result.title}\nURL: ${result.url}${paginationInfo}\n\n${sliceText}`,
                                 }],
                         };
+                    }
+                    case 'browser_searchVisibleText': {
+                        // Get ALL text from the page
+                        result = await this.browserProxyCall('/browser/getVisibleText', 'POST', {
+                            maxLength: 500000, // Get all text for searching
+                            tabId: args?.tabId,
+                            browser: args?.browser,
+                        });
+                        if (result.error) {
+                            return {
+                                content: [{ type: 'text', text: `Error: ${result.error}` }],
+                                isError: true,
+                            };
+                        }
+                        // Also get interactive elements to identify control types
+                        let interactiveElements = [];
+                        try {
+                            const elementsResult = await this.browserProxyCall('/browser/getInteractiveElements', 'POST', {
+                                tabId: args?.tabId,
+                                browser: args?.browser,
+                            });
+                            interactiveElements = elementsResult.elements || elementsResult || [];
+                        }
+                        catch (e) {
+                            // Continue without element info if this fails
+                        }
+                        const searchText = result.text || '';
+                        const searchQuery = String(args?.query || '');
+                        const contextChars = Number(args?.contextChars) || 100;
+                        const maxMatches = Number(args?.maxMatches) || 10;
+                        if (!searchQuery) {
+                            return {
+                                content: [{ type: 'text', text: 'Error: query parameter is required' }],
+                                isError: true,
+                            };
+                        }
+                        // Helper to find matching control for a search term
+                        const findMatchingControl = (query) => {
+                            const lowerQ = query.toLowerCase();
+                            for (const el of interactiveElements) {
+                                const elText = (el.text || el.label || el.placeholder || el.value || '').toLowerCase();
+                                const elAriaLabel = (el.ariaLabel || el['aria-label'] || '').toLowerCase();
+                                if (elText.includes(lowerQ) || elAriaLabel.includes(lowerQ)) {
+                                    // Map element types to user-friendly names
+                                    let controlType = el.type || el.tagName || 'element';
+                                    const tagName = (el.tagName || '').toLowerCase();
+                                    const inputType = (el.inputType || el.type || '').toLowerCase();
+                                    // Determine control type
+                                    if (tagName === 'button' || el.role === 'button')
+                                        controlType = 'BUTTON';
+                                    else if (tagName === 'a' || el.role === 'link')
+                                        controlType = 'LINK';
+                                    else if (tagName === 'input') {
+                                        if (inputType === 'text')
+                                            controlType = 'TEXT INPUT';
+                                        else if (inputType === 'email')
+                                            controlType = 'EMAIL INPUT';
+                                        else if (inputType === 'password')
+                                            controlType = 'PASSWORD INPUT';
+                                        else if (inputType === 'checkbox')
+                                            controlType = 'CHECKBOX';
+                                        else if (inputType === 'radio')
+                                            controlType = 'RADIO BUTTON';
+                                        else if (inputType === 'submit')
+                                            controlType = 'SUBMIT BUTTON';
+                                        else if (inputType === 'file')
+                                            controlType = 'FILE INPUT';
+                                        else
+                                            controlType = `INPUT (${inputType})`;
+                                    }
+                                    else if (tagName === 'select')
+                                        controlType = 'DROPDOWN/SELECT';
+                                    else if (tagName === 'textarea')
+                                        controlType = 'TEXT AREA';
+                                    else if (tagName === 'label')
+                                        controlType = 'LABEL';
+                                    else if (tagName === 'h1' || tagName === 'h2' || tagName === 'h3' || tagName === 'h4' || tagName === 'h5' || tagName === 'h6')
+                                        controlType = 'HEADING';
+                                    else if (tagName === 'p')
+                                        controlType = 'PARAGRAPH';
+                                    else if (tagName === 'span')
+                                        controlType = 'SPAN TEXT';
+                                    else if (tagName === 'div')
+                                        controlType = 'DIV CONTAINER';
+                                    else if (tagName === 'li')
+                                        controlType = 'LIST ITEM';
+                                    else if (el.role)
+                                        controlType = el.role.toUpperCase();
+                                    return {
+                                        type: controlType,
+                                        selector: el.selector || el.selectors?.primary || '',
+                                        label: el.text || el.label || el.placeholder || '',
+                                    };
+                                }
+                            }
+                            return null;
+                        };
+                        // Case-insensitive search in visible text
+                        const lowerText = searchText.toLowerCase();
+                        const lowerQuery = searchQuery.toLowerCase();
+                        const matches = [];
+                        let searchPos = 0;
+                        while (matches.length < maxMatches) {
+                            const foundPos = lowerText.indexOf(lowerQuery, searchPos);
+                            if (foundPos === -1)
+                                break;
+                            // Extract context around match
+                            const contextStart = Math.max(0, foundPos - contextChars);
+                            const contextEnd = Math.min(searchText.length, foundPos + searchQuery.length + contextChars);
+                            const beforeText = searchText.slice(contextStart, foundPos);
+                            const matchText = searchText.slice(foundPos, foundPos + searchQuery.length);
+                            const afterText = searchText.slice(foundPos + searchQuery.length, contextEnd);
+                            // Find if this match is in an interactive control
+                            const control = findMatchingControl(matchText);
+                            matches.push({
+                                position: foundPos,
+                                context: `${contextStart > 0 ? '...' : ''}${beforeText}[${matchText}]${afterText}${contextEnd < searchText.length ? '...' : ''}`,
+                                control,
+                            });
+                            searchPos = foundPos + 1;
+                        }
+                        // Count total matches (beyond maxMatches limit)
+                        let totalMatches = matches.length;
+                        while (lowerText.indexOf(lowerQuery, searchPos) !== -1) {
+                            totalMatches++;
+                            searchPos = lowerText.indexOf(lowerQuery, searchPos) + 1;
+                        }
+                        // Format output with control info
+                        const matchList = matches.map((m, i) => {
+                            const controlInfo = m.control
+                                ? `\n   🎯 Control: ${m.control.type}${m.control.selector ? ` | selector: ${m.control.selector}` : ''}`
+                                : '\n   📄 Plain text (not in interactive control)';
+                            return `${i + 1}. [pos ${m.position.toLocaleString()}] ${m.context}${controlInfo}`;
+                        }).join('\n\n');
+                        // Also list any interactive elements that match the query directly
+                        const matchingControls = interactiveElements.filter((el) => {
+                            const elText = (el.text || el.label || el.placeholder || el.value || '').toLowerCase();
+                            return elText.includes(lowerQuery);
+                        }).slice(0, 5);
+                        const controlsSummary = matchingControls.length > 0
+                            ? `\n\n🎮 Interactive elements matching "${searchQuery}":\n` + matchingControls.map((el, i) => {
+                                const tagName = (el.tagName || '').toLowerCase();
+                                let type = el.type || tagName || 'element';
+                                if (tagName === 'button' || el.role === 'button')
+                                    type = 'BUTTON';
+                                else if (tagName === 'a')
+                                    type = 'LINK';
+                                else if (tagName === 'input')
+                                    type = `INPUT (${el.inputType || 'text'})`;
+                                else if (tagName === 'select')
+                                    type = 'DROPDOWN';
+                                return `  ${i + 1}. [${type}] "${el.text || el.label || el.placeholder || '(no text)'}" → selector: ${el.selector || el.selectors?.primary || 'N/A'}`;
+                            }).join('\n')
+                            : '';
+                        return {
+                            content: [{
+                                    type: 'text',
+                                    text: `🔍 Search: "${searchQuery}"
+Page: ${result.title}
+URL: ${result.url}
+Page length: ${searchText.length.toLocaleString()} chars
+Matches found: ${totalMatches}${totalMatches > maxMatches ? ` (showing first ${maxMatches})` : ''}
+
+${matches.length > 0 ? matchList : 'No matches found.'}${controlsSummary}${totalMatches > maxMatches ? `\n\n💡 Increase maxMatches to see more results.` : ''}`,
+                                }],
+                        };
+                    }
                     case 'browser_waitForSelector':
                         result = await this.browserProxyCall('/browser/waitForSelector', 'POST', {
                             selector: args?.selector,
@@ -4263,19 +4537,42 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                                 }],
                         };
                     // ========== ENHANCED BROWSER TOOLS ==========
-                    case 'browser_inspectCurrentPage':
+                    case 'browser_inspectCurrentPage': {
                         result = await this.browserProxyCall('/browser/inspectCurrentPage', 'POST', {
                             tabId: args?.tabId,
                             browser: args?.browser,
-                            includeScreenshot: args?.includeScreenshot !== false,
+                            includeScreenshot: args?.includeScreenshot === true, // Default to false to reduce response size
                             includeOCR: args?.includeOCR || false,
                         });
+                        // Format a concise, LLM-friendly summary instead of raw JSON
+                        const pageInfo = result.pageInfo || {};
+                        const elements = result.elements?.elements || [];
+                        const summary = result.elements?.summary || {};
+                        // Build concise element list (limit to 30 most relevant)
+                        const maxElements = 30;
+                        const relevantElements = elements.slice(0, maxElements);
+                        const elementList = relevantElements.map((el, i) => {
+                            const label = el.label || el.text || el.placeholder || '';
+                            const selector = el.selector || el.selectors?.primary || '';
+                            return `  ${i + 1}. [${el.type}] ${label ? `"${label}" ` : ''}${selector ? `selector: ${selector}` : ''}`;
+                        }).join('\n');
+                        const output = `Page: ${pageInfo.title || 'Untitled'}
+URL: ${pageInfo.url || 'unknown'}
+Viewport: ${pageInfo.viewport?.width || '?'}x${pageInfo.viewport?.height || '?'}
+
+Summary: ${summary.total || elements.length} elements (${summary.inputs || 0} inputs, ${summary.buttons || 0} buttons, ${summary.links || 0} links)
+
+Interactive Elements${elements.length > maxElements ? ` (showing first ${maxElements} of ${elements.length})` : ''}:
+${elementList || '  (none found)'}
+
+${args?.includeScreenshot === true && result.screenshot ? '\n[Screenshot included]' : 'Tip: Set includeScreenshot: true to see the page'}`;
                         return {
                             content: [{
                                     type: 'text',
-                                    text: JSON.stringify(result, null, 2),
+                                    text: output,
                                 }],
                         };
+                    }
                     case 'browser_getUIElements':
                         result = await this.browserProxyCall('/browser/getUIElements', 'POST', {
                             tabId: args?.tabId,
@@ -4948,7 +5245,7 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                         }
                     }
                     // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
-                    case 'browser_navigate':
+                    case 'browser_navigate': {
                         result = await this.browserProxyCall('/browser/navigate', 'POST', {
                             url: args?.url,
                             tabId: args?.tabId,
@@ -4962,12 +5259,41 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                                 isError: true,
                             };
                         }
+                        // By default, include visible text for better LLM understanding
+                        const includeText = args?.includeVisibleText !== false;
+                        let visibleText = '';
+                        if (includeText) {
+                            try {
+                                // Get ALL text from page, then slice locally
+                                const textResult = await this.browserProxyCall('/browser/getVisibleText', 'POST', {
+                                    maxLength: 500000, // Get all text
+                                    tabId: args?.tabId,
+                                    browser: args?.browser,
+                                });
+                                if (textResult.text) {
+                                    const navSliceSize = Number(args?.maxTextLength) || 8000;
+                                    const navFullText = textResult.text;
+                                    const navTotalLength = navFullText.length;
+                                    const navTotalSlices = Math.ceil(navTotalLength / navSliceSize) || 1;
+                                    const navFirstSlice = navFullText.slice(0, navSliceSize);
+                                    // Build pagination hint if page is long
+                                    const navPaginationHint = navTotalSlices > 1
+                                        ? `\n📄 Showing first ${navSliceSize.toLocaleString()} of ${navTotalLength.toLocaleString()} chars (${navTotalSlices} slices available)\n💡 Get more: browser_getVisibleText({slice: 1}) or browser_searchVisibleText({query: "keyword"})`
+                                        : '';
+                                    visibleText = `\n\n--- Page Content ---${navPaginationHint}\n${navFirstSlice}`;
+                                }
+                            }
+                            catch (e) {
+                                // Ignore text extraction errors, just return navigation success
+                            }
+                        }
                         return {
                             content: [{
                                     type: 'text',
-                                    text: `✓ Navigated to ${args?.url}${result.title ? `\nPage title: "${result.title}"` : ''}`,
+                                    text: `✓ Navigated to ${args?.url}${result.title ? `\nPage title: "${result.title}"` : ''}${visibleText}`,
                                 }],
                         };
+                    }
                     case 'browser_screenshot':
                         result = await this.browserProxyCall('/browser/screenshot', 'POST', {
                             selector: args?.selector,
@@ -5031,13 +5357,14 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                                     text: `✓ Navigated forward${result.url ? ` to ${result.url}` : ''}`,
                                 }],
                         };
-                    case 'browser_get_visible_html':
+                    case 'browser_get_visible_html': {
+                        // Get ALL HTML from the page (request large maxLength)
                         result = await this.browserProxyCall('/browser/getVisibleHtml', 'POST', {
                             selector: args?.selector,
                             removeScripts: args?.removeScripts !== false,
                             removeStyles: args?.removeStyles || false,
-                            cleanHtml: args?.cleanHtml || false,
-                            maxLength: args?.maxLength || 50000,
+                            cleanHtml: args?.cleanHtml !== false, // Default to clean HTML
+                            maxLength: 500000, // Get all HTML, we'll slice it locally
                             tabId: args?.tabId,
                             browser: args?.browser,
                         });
@@ -5047,12 +5374,27 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                                 isError: true,
                             };
                         }
+                        // Implement local pagination/slicing
+                        const htmlSliceSize = Number(args?.sliceSize) || 15000;
+                        const htmlSliceIndex = Number(args?.slice) || 0;
+                        const fullHtml = result.html || result.content || '';
+                        const htmlTotalLength = fullHtml.length;
+                        const htmlTotalSlices = Math.ceil(htmlTotalLength / htmlSliceSize) || 1;
+                        const htmlStartIdx = htmlSliceIndex * htmlSliceSize;
+                        const htmlEndIdx = Math.min(htmlStartIdx + htmlSliceSize, htmlTotalLength);
+                        const htmlSliceText = fullHtml.slice(htmlStartIdx, htmlEndIdx);
+                        const htmlHasMore = htmlEndIdx < htmlTotalLength;
+                        // Build pagination info
+                        const htmlPaginationInfo = htmlTotalSlices > 1
+                            ? `<!-- 📄 Slice ${htmlSliceIndex + 1} of ${htmlTotalSlices} (${htmlTotalLength.toLocaleString()} total chars)${htmlHasMore ? ` | Get more: browser_get_visible_html({slice: ${htmlSliceIndex + 1}})` : ' | End of content'} -->\n`
+                            : '';
                         return {
                             content: [{
                                     type: 'text',
-                                    text: result.html || result.content || JSON.stringify(result),
+                                    text: htmlPaginationInfo + htmlSliceText,
                                 }],
                         };
+                    }
                     case 'browser_hover':
                         result = await this.browserProxyCall('/browser/hover', 'POST', {
                             selector: args?.selector,
@@ -5182,7 +5524,7 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
         });
     }
     /**
-     * Handle filesystem tool calls
+     * Handle filesystem tool calls - proxies to MCPEyes.app HTTP server
      */
     async handleFilesystemTool(name, args) {
         // Check if tool is enabled
@@ -5193,19 +5535,38 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
             };
         }
         try {
-            let result;
+            // Map tool names to HTTP endpoints
+            const endpointMap = {
+                'fs_list': '/fs/list',
+                'fs_read': '/fs/read',
+                'fs_read_range': '/fs/read_range',
+                'fs_write': '/fs/write',
+                'fs_delete': '/fs/delete',
+                'fs_move': '/fs/move',
+                'fs_search': '/fs/search',
+                'fs_grep': '/fs/grep',
+                'fs_patch': '/fs/patch',
+            };
+            const endpoint = endpointMap[name];
+            if (!endpoint) {
+                throw new Error(`Unknown filesystem tool: ${name}`);
+            }
+            // Proxy to MCPEyes.app HTTP server
+            const result = await this.proxyCall(endpoint, 'POST', args);
+            if (result.error) {
+                throw new Error(result.error);
+            }
+            // Format response based on tool type
             switch (name) {
                 case 'fs_list':
-                    result = await this.filesystemTools.listDirectory(args);
                     return {
                         content: [{
                                 type: 'text',
-                                text: `Found ${result.entries.length} entries:\n\n` +
-                                    result.entries.map((entry) => `${entry.type === 'directory' ? '📁' : '📄'} ${path_1.default.basename(entry.path)}${entry.size ? ` (${entry.size} bytes)` : ''}`).join('\n'),
+                                text: `Found ${result.entries?.length || 0} entries:\n\n` +
+                                    (result.entries || []).map((entry) => `${entry.type === 'directory' ? '📁' : '📄'} ${path_1.default.basename(entry.path)}${entry.size ? ` (${entry.size} bytes)` : ''}`).join('\n'),
                             }],
                     };
                 case 'fs_read':
-                    result = await this.filesystemTools.readFile(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5213,7 +5574,6 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'fs_read_range':
-                    result = await this.filesystemTools.readFileRange(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5221,7 +5581,6 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'fs_write':
-                    result = await this.filesystemTools.writeFile(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5229,7 +5588,6 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'fs_delete':
-                    result = await this.filesystemTools.deletePath(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5237,7 +5595,6 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'fs_move':
-                    result = await this.filesystemTools.movePath(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5245,25 +5602,22 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'fs_search':
-                    result = await this.filesystemTools.searchFiles(args);
                     return {
                         content: [{
                                 type: 'text',
-                                text: `Found ${result.matches.length} matches:\n\n` +
-                                    result.matches.map((match) => `${match.type === 'directory' ? '📁' : '📄'} ${match.path}`).join('\n'),
+                                text: `Found ${result.matches?.length || 0} matches:\n\n` +
+                                    (result.matches || []).map((match) => `${match.type === 'directory' ? '📁' : '📄'} ${match.path}`).join('\n'),
                             }],
                     };
                 case 'fs_grep':
-                    result = await this.filesystemTools.grepFiles(args);
                     return {
                         content: [{
                                 type: 'text',
-                                text: `Found ${result.matches.length} matches:\n\n` +
-                                    result.matches.map((match) => `${path_1.default.basename(match.path)}:${match.line}: ${match.text.trim()}`).join('\n'),
+                                text: `Found ${result.matches?.length || 0} matches:\n\n` +
+                                    (result.matches || []).map((match) => `${path_1.default.basename(match.path)}:${match.line}: ${match.text?.trim() || ''}`).join('\n'),
                             }],
                     };
                 case 'fs_patch':
-                    result = await this.filesystemTools.patchFile(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5271,7 +5625,9 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 default:
-                    throw new Error(`Unknown filesystem tool: ${name}`);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+                    };
             }
         }
         catch (error) {
@@ -5285,7 +5641,7 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
         }
     }
     /**
-     * Handle shell tool calls
+     * Handle shell tool calls - proxies to MCPEyes.app HTTP server
      */
     async handleShellTool(name, args) {
         // Check if tool is enabled
@@ -5296,10 +5652,25 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
             };
         }
         try {
-            let result;
+            // Map tool names to HTTP endpoints
+            const endpointMap = {
+                'shell_exec': '/shell/exec',
+                'shell_start_session': '/shell/start_session',
+                'shell_send_input': '/shell/send_input',
+                'shell_stop_session': '/shell/stop_session',
+            };
+            const endpoint = endpointMap[name];
+            if (!endpoint) {
+                throw new Error(`Unknown shell tool: ${name}`);
+            }
+            // Proxy to MCPEyes.app HTTP server
+            const result = await this.proxyCall(endpoint, 'POST', args);
+            if (result.error) {
+                throw new Error(result.error);
+            }
+            // Format response based on tool type
             switch (name) {
                 case 'shell_exec':
-                    result = await this.shellTools.executeCommand(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5307,7 +5678,6 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'shell_start_session':
-                    result = this.shellTools.startSession(args);
                     return {
                         content: [{
                                 type: 'text',
@@ -5315,7 +5685,6 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'shell_send_input':
-                    result = this.shellTools.sendInput(args.session_id, args.input);
                     return {
                         content: [{
                                 type: 'text',
@@ -5323,7 +5692,6 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 case 'shell_stop_session':
-                    result = this.shellTools.stopSession(args.session_id, args.signal);
                     return {
                         content: [{
                                 type: 'text',
@@ -5331,7 +5699,9 @@ browser_save_as_pdf({ outputPath: "/tmp", filename: "report.pdf", format: "A4" }
                             }],
                     };
                 default:
-                    throw new Error(`Unknown shell tool: ${name}`);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+                    };
             }
         }
         catch (error) {
