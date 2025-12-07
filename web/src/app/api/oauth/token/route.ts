@@ -18,6 +18,7 @@ import {
   isTokenExpired,
   TOKEN_CONFIG,
 } from '@/lib/oauth';
+import { RateLimiters, getClientIp, rateLimitExceeded, rateLimitHeaders } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,13 @@ interface TokenRequestBody {
 }
 
 export async function POST(request: NextRequest) {
+  // Check rate limit (60 requests per minute per IP)
+  const clientIp = getClientIp(request);
+  const rateLimit = RateLimiters.oauthToken(clientIp);
+  if (!rateLimit.success) {
+    return rateLimitExceeded(rateLimit);
+  }
+
   try {
     const contentType = request.headers.get('content-type') || '';
     let body: TokenRequestBody;

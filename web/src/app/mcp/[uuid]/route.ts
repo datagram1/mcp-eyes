@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { hashToken, isTokenExpired, validateTokenAudience } from '@/lib/oauth';
+import { RateLimiters, getClientIp, rateLimitExceeded } from '@/lib/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = 'force-dynamic';
@@ -139,8 +140,15 @@ async function validateRequest(request: NextRequest, endpointUuid: string) {
 /**
  * Handle POST requests (Streamable HTTP JSON-RPC)
  */
-export async function POST(request: NextRequest, context: RouteParams): Promise<NextResponse> {
+export async function POST(request: NextRequest, context: RouteParams): Promise<Response> {
   const { uuid } = await context.params;
+  const clientIp = getClientIp(request);
+
+  // Rate limit unauthenticated requests by IP (before validation)
+  const unauthRateLimit = RateLimiters.mcpUnauthenticated(clientIp);
+  if (!unauthRateLimit.success) {
+    return rateLimitExceeded(unauthRateLimit);
+  }
 
   // Validate the endpoint exists
   const connection = await prisma.mcpConnection.findUnique({
@@ -159,11 +167,17 @@ export async function POST(request: NextRequest, context: RouteParams): Promise<
   if ('error' in validation) {
     return NextResponse.json(
       { error: validation.error },
-      { 
+      {
         status: validation.status,
         headers: validation.headers,
       }
     );
+  }
+
+  // Rate limit authenticated requests by connection (100 requests/minute)
+  const connRateLimit = RateLimiters.mcpRequest(validation.connectionId);
+  if (!connRateLimit.success) {
+    return rateLimitExceeded(connRateLimit);
   }
 
   // Parse JSON-RPC request
@@ -201,13 +215,13 @@ export async function POST(request: NextRequest, context: RouteParams): Promise<
     });
   } catch (error: any) {
     success = false;
-    errorCode = error.code || -32603;
-    errorMessage = error.message || 'Internal error';
+    const code = error.code || -32603;
+    const message = error.message || 'Internal error';
 
     // Log request
-    await logRequest(validation.connectionId, method, params, false, Date.now() - startTime, request, errorCode, errorMessage);
+    await logRequest(validation.connectionId, method, params, false, Date.now() - startTime, request, code, message);
 
-    return jsonRpcError(id, errorCode, errorMessage);
+    return jsonRpcError(id, code, message);
   }
 }
 
@@ -401,6 +415,13 @@ function jsonRpcError(id: string | number | null, code: number, message: string)
  */
 export async function GET(request: NextRequest, context: RouteParams): Promise<Response> {
   const { uuid } = await context.params;
+  const clientIp = getClientIp(request);
+
+  // Rate limit unauthenticated requests by IP
+  const unauthRateLimit = RateLimiters.mcpUnauthenticated(clientIp);
+  if (!unauthRateLimit.success) {
+    return rateLimitExceeded(unauthRateLimit);
+  }
 
   // Validate the endpoint exists
   const connection = await prisma.mcpConnection.findUnique({
@@ -419,11 +440,17 @@ export async function GET(request: NextRequest, context: RouteParams): Promise<R
   if ('error' in validation) {
     return NextResponse.json(
       { error: validation.error },
-      { 
+      {
         status: validation.status,
         headers: validation.headers,
       }
     );
+  }
+
+  // Rate limit authenticated requests by connection
+  const connRateLimit = RateLimiters.mcpRequest(validation.connectionId);
+  if (!connRateLimit.success) {
+    return rateLimitExceeded(connRateLimit);
   }
 
   // Create SSE stream
@@ -437,17 +464,13 @@ export async function GET(request: NextRequest, context: RouteParams): Promise<R
         jsonrpc: '2.0',
         method: 'notifications/initialized',
         params: {},
-      }) + '
-
-';
+      }) + '\n\n';
       controller.enqueue(encoder.encode(event));
 
       // Keep connection alive
       const pingInterval = setInterval(() => {
         try {
-          const ping = ': ping
-
-';
+          const ping = ': ping\n\n';
           controller.enqueue(encoder.encode(ping));
         } catch {
           clearInterval(pingInterval);

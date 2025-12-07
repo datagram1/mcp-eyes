@@ -20,8 +20,10 @@ import {
   isValidCodeChallenge,
   parseScopes,
   validateScopes,
-  generateAuthorizationCode,
 } from '@/lib/oauth';
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.NEXTAUTH_SECRET || 'fallback-secret-change-me';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,13 +86,15 @@ export async function GET(request: NextRequest) {
 
   // 3. Parse and validate scopes
   const requestedScopes = params.scope ? parseScopes(params.scope) : [];
-  const { valid: validScopes, invalid: invalidScopes } = validateScopes(requestedScopes);
-  if (invalidScopes.length > 0) {
-    return redirectError(params.redirect_uri, 'invalid_scope', 'Unknown scope(s): ' + invalidScopes.join(', '), params.state);
+  const scopeValidation = validateScopes(requestedScopes);
+  if (scopeValidation.invalidScopes.length > 0) {
+    return redirectError(params.redirect_uri, 'invalid_scope', 'Unknown scope(s): ' + scopeValidation.invalidScopes.join(', '), params.state);
   }
 
   // Use default scopes if none specified
-  const scopes = validScopes.length > 0 ? validScopes : ['mcp:tools', 'mcp:resources', 'mcp:agents:read'];
+  const scopes: string[] = scopeValidation.scopes.length > 0
+    ? scopeValidation.scopes
+    : ['mcp:tools', 'mcp:resources', 'mcp:agents:read'];
 
   // 4. Check user authentication
   const session = await getServerSession();
@@ -133,36 +137,27 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // For this simple implementation, auto-approve (can be replaced with consent screen)
-  // In production, you'd redirect to a consent page here
+  // 6. Create a signed JWT containing the authorization request for consent page
+  const pendingRequest = {
+    clientId: params.client_id,
+    clientDbId: client.id,
+    userId: user.id,
+    redirectUri: params.redirect_uri,
+    scope: scopes,
+    codeChallenge: params.code_challenge,
+    codeChallengeMethod: params.code_challenge_method,
+    resource: params.resource || `${APP_URL}/mcp`,
+    state: params.state,
+  };
 
-  // 6. Generate authorization code
-  const authCode = generateAuthorizationCode();
+  // Sign with 10 minute expiry
+  const requestId = jwt.sign(pendingRequest, JWT_SECRET, { expiresIn: '10m' });
 
-  // 7. Store authorization code
-  await prisma.oAuthAuthorizationCode.create({
-    data: {
-      code: authCode.hash,
-      codeChallenge: params.code_challenge,
-      codeChallengeMethod: params.code_challenge_method,
-      redirectUri: params.redirect_uri,
-      scope: scopes,
-      resource: params.resource || APP_URL + '/mcp',
-      state: params.state,
-      clientId: client.id,
-      userId: user.id,
-      expiresAt: authCode.expiresAt,
-    },
-  });
+  // 7. Redirect to consent page
+  const consentUrl = new URL('/oauth/consent', APP_URL);
+  consentUrl.searchParams.set('request_id', requestId);
 
-  // 8. Redirect back to client with authorization code
-  const redirectUrl = new URL(params.redirect_uri);
-  redirectUrl.searchParams.set('code', authCode.token);
-  if (params.state) {
-    redirectUrl.searchParams.set('state', params.state);
-  }
-
-  return NextResponse.redirect(redirectUrl);
+  return NextResponse.redirect(consentUrl);
 }
 
 function errorResponse(error: string, description: string): NextResponse {

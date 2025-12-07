@@ -9,17 +9,22 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { registerClient, type ClientRegistrationRequest } from '@/lib/oauth';
+import { RateLimiters, getClientIp, rateLimitExceeded, rateLimitHeaders } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Get client IP for rate limiting and tracking
+  const ipAddress = getClientIp(request);
+
+  // Check rate limit (10 registrations per hour per IP)
+  const rateLimit = RateLimiters.oauthRegister(ipAddress);
+  if (!rateLimit.success) {
+    return rateLimitExceeded(rateLimit);
+  }
+
   try {
     const body = await request.json() as ClientRegistrationRequest;
-
-    // Get client context for tracking
-    const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0] ||
-      request.headers.get('x-real-ip') ||
-      '127.0.0.1';
     const userAgent = request.headers.get('user-agent') || undefined;
 
     // Register the client
@@ -30,12 +35,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result, { status: 400 });
     }
 
-    // Return successful registration
+    // Return successful registration with rate limit headers
     return NextResponse.json(result, {
       status: 201,
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store',
+        ...rateLimitHeaders(rateLimit),
       },
     });
   } catch (error) {

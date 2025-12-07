@@ -334,114 +334,114 @@ model User {
 
 ## Implementation Tasks
 
-### Phase 1: Database & Schema Updates
+### Phase 1: Database & Schema Updates ✅
 
-- [ ] 1.1 Create Prisma migration for new OAuth tables
-  - [ ] 1.1.1 Add `OAuthClient` model
-  - [ ] 1.1.2 Add `OAuthAuthorizationCode` model
-  - [ ] 1.1.3 Add `OAuthAccessToken` model
-  - [ ] 1.1.4 Add `McpConnection` model
-  - [ ] 1.1.5 Add `McpRequestLog` model
-  - [ ] 1.1.6 Add `McpConnectionStatus` enum
-  - [ ] 1.1.7 Update `User` model with new relations
+- [x] 1.1 Create Prisma migration for new OAuth tables
+  - [x] 1.1.1 Add `OAuthClient` model
+  - [x] 1.1.2 Add `OAuthAuthorizationCode` model
+  - [x] 1.1.3 Add `OAuthAccessToken` model
+  - [x] 1.1.4 Add `McpConnection` model
+  - [x] 1.1.5 Add `McpRequestLog` model
+  - [x] 1.1.6 Add `McpConnectionStatus` enum
+  - [x] 1.1.7 Update `User` model with new relations
 
-- [ ] 1.2 Create database migration
-  - [ ] 1.2.1 Run `npx prisma migrate dev --name add_oauth_mcp`
-  - [ ] 1.2.2 Generate Prisma client `npx prisma generate`
+- [x] 1.2 Create database migration
+  - [x] 1.2.1 Run `npx prisma migrate dev --name add_oauth_mcp`
+  - [x] 1.2.2 Generate Prisma client `npx prisma generate`
 
-### Phase 2: OAuth Core Library
+### Phase 2: OAuth Core Library ✅
 
-- [ ] 2.1 Create OAuth utility library `src/lib/oauth/`
-  - [ ] 2.1.1 `src/lib/oauth/index.ts` - exports
-  - [ ] 2.1.2 `src/lib/oauth/pkce.ts` - PKCE code challenge verification
-  - [ ] 2.1.3 `src/lib/oauth/tokens.ts` - Token generation, hashing, validation
-  - [ ] 2.1.4 `src/lib/oauth/scopes.ts` - Scope definitions and validation
-  - [ ] 2.1.5 `src/lib/oauth/client-registration.ts` - DCR logic
+- [x] 2.1 Create OAuth utility library `src/lib/oauth/`
+  - [x] 2.1.1 `src/lib/oauth/index.ts` - exports
+  - [x] 2.1.2 `src/lib/oauth/pkce.ts` - PKCE code challenge verification
+  - [x] 2.1.3 `src/lib/oauth/tokens.ts` - Token generation, hashing, validation
+  - [x] 2.1.4 `src/lib/oauth/scopes.ts` - Scope definitions and validation
+  - [x] 2.1.5 `src/lib/oauth/client-registration.ts` - DCR logic
 
-- [ ] 2.2 Token utilities
-  - [ ] 2.2.1 Generate secure random tokens (access, refresh, auth codes)
-  - [ ] 2.2.2 SHA256 hashing for storage
-  - [ ] 2.2.3 Token expiry calculation
-  - [ ] 2.2.4 Token validation with audience check
+- [x] 2.2 Token utilities
+  - [x] 2.2.1 Generate secure random tokens (access, refresh, auth codes)
+  - [x] 2.2.2 SHA256 hashing for storage
+  - [x] 2.2.3 Token expiry calculation
+  - [x] 2.2.4 Token validation with audience check
 
-- [ ] 2.3 PKCE utilities
-  - [ ] 2.3.1 Verify S256 code challenge against code verifier
-  - [ ] 2.3.2 Reject plain method (only S256 allowed per OAuth 2.1)
+- [x] 2.3 PKCE utilities
+  - [x] 2.3.1 Verify S256 code challenge against code verifier
+  - [x] 2.3.2 Reject plain method (only S256 allowed per OAuth 2.1)
 
-### Phase 3: Well-Known Endpoints
+### Phase 3: Well-Known Endpoints ✅
 
-- [ ] 3.1 OAuth Authorization Server Metadata (RFC 8414)
-  - [ ] 3.1.1 Create `src/app/.well-known/oauth-authorization-server/route.ts`
-  - [ ] 3.1.2 Return issuer, endpoints, supported features
-  - [ ] 3.1.3 Include `registration_endpoint` for DCR
+- [x] 3.1 OAuth Authorization Server Metadata (RFC 8414)
+  - [x] 3.1.1 Create `src/app/.well-known/oauth-authorization-server/route.ts`
+  - [x] 3.1.2 Return issuer, endpoints, supported features
+  - [x] 3.1.3 Include `registration_endpoint` for DCR
 
-- [ ] 3.2 Protected Resource Metadata (RFC 9728)
-  - [ ] 3.2.1 Create `src/app/.well-known/oauth-protected-resource/[uuid]/route.ts`
-  - [ ] 3.2.2 Validate UUID exists and is active
-  - [ ] 3.2.3 Return resource URL and authorization_servers
+- [x] 3.2 Protected Resource Metadata (RFC 9728)
+  - [x] 3.2.1 Create `src/app/.well-known/oauth-protected-resource/[uuid]/route.ts`
+  - [x] 3.2.2 Validate UUID exists and is active
+  - [x] 3.2.3 Return resource URL and authorization_servers
 
-### Phase 4: OAuth Endpoints
+### Phase 4: OAuth Endpoints ✅
 
-- [ ] 4.1 Dynamic Client Registration (RFC 7591)
-  - [ ] 4.1.1 Create `src/app/api/oauth/register/route.ts`
-  - [ ] 4.1.2 Validate client_name, redirect_uris
-  - [ ] 4.1.3 Generate client_id (UUID)
-  - [ ] 4.1.4 Store in OAuthClient table
-  - [ ] 4.1.5 Return client credentials
+- [x] 4.1 Dynamic Client Registration (RFC 7591)
+  - [x] 4.1.1 Create `src/app/api/oauth/register/route.ts`
+  - [x] 4.1.2 Validate client_name, redirect_uris
+  - [x] 4.1.3 Generate client_id (UUID)
+  - [x] 4.1.4 Store in OAuthClient table
+  - [x] 4.1.5 Return client credentials
 
-- [ ] 4.2 Authorization Endpoint
-  - [ ] 4.2.1 Create `src/app/api/oauth/authorize/route.ts`
-  - [ ] 4.2.2 Validate all required parameters (client_id, redirect_uri, response_type, code_challenge, resource)
-  - [ ] 4.2.3 Verify client exists and redirect_uri matches
-  - [ ] 4.2.4 Check user session (redirect to login if not authenticated)
-  - [ ] 4.2.5 Show consent screen (user approves scopes)
-  - [ ] 4.2.6 Generate authorization code
-  - [ ] 4.2.7 Store code with PKCE challenge
-  - [ ] 4.2.8 Redirect to client with code and state
+- [x] 4.2 Authorization Endpoint
+  - [x] 4.2.1 Create `src/app/api/oauth/authorize/route.ts`
+  - [x] 4.2.2 Validate all required parameters (client_id, redirect_uri, response_type, code_challenge, resource)
+  - [x] 4.2.3 Verify client exists and redirect_uri matches
+  - [x] 4.2.4 Check user session (redirect to login if not authenticated)
+  - [x] 4.2.5 Show consent screen (user approves scopes)
+  - [x] 4.2.6 Generate authorization code
+  - [x] 4.2.7 Store code with PKCE challenge
+  - [x] 4.2.8 Redirect to client with code and state
 
-- [ ] 4.3 Token Endpoint
-  - [ ] 4.3.1 Create `src/app/api/oauth/token/route.ts`
-  - [ ] 4.3.2 Handle `grant_type=authorization_code`
-    - [ ] Validate code exists and not expired/used
-    - [ ] Verify PKCE code_verifier against stored challenge
-    - [ ] Verify redirect_uri matches
-    - [ ] Generate access_token and refresh_token
-    - [ ] Mark code as used
-    - [ ] Store tokens
-    - [ ] Return token response
-  - [ ] 4.3.3 Handle `grant_type=refresh_token`
-    - [ ] Validate refresh_token exists and not expired/revoked
-    - [ ] Generate new access_token
-    - [ ] Rotate refresh_token (issue new one, invalidate old)
-    - [ ] Return token response
+- [x] 4.3 Token Endpoint
+  - [x] 4.3.1 Create `src/app/api/oauth/token/route.ts`
+  - [x] 4.3.2 Handle `grant_type=authorization_code`
+    - [x] Validate code exists and not expired/used
+    - [x] Verify PKCE code_verifier against stored challenge
+    - [x] Verify redirect_uri matches
+    - [x] Generate access_token and refresh_token
+    - [x] Mark code as used
+    - [x] Store tokens
+    - [x] Return token response
+  - [x] 4.3.3 Handle `grant_type=refresh_token`
+    - [x] Validate refresh_token exists and not expired/revoked
+    - [x] Generate new access_token
+    - [x] Rotate refresh_token (issue new one, invalidate old)
+    - [x] Return token response
 
-- [ ] 4.4 Token Revocation Endpoint
-  - [ ] 4.4.1 Create `src/app/api/oauth/revoke/route.ts`
-  - [ ] 4.4.2 Accept token and token_type_hint
-  - [ ] 4.4.3 Mark token as revoked
+- [x] 4.4 Token Revocation Endpoint
+  - [x] 4.4.1 Create `src/app/api/oauth/revoke/route.ts`
+  - [x] 4.4.2 Accept token and token_type_hint
+  - [x] 4.4.3 Mark token as revoked
 
-### Phase 5: MCP Tenant Endpoints
+### Phase 5: MCP Tenant Endpoints ✅
 
-- [ ] 5.1 Per-tenant MCP endpoint
-  - [ ] 5.1.1 Create `src/app/mcp/[uuid]/route.ts`
-  - [ ] 5.1.2 Validate Bearer token from Authorization header
-  - [ ] 5.1.3 Verify token audience matches this endpoint
-  - [ ] 5.1.4 Extract user from token
-  - [ ] 5.1.5 Handle POST (Streamable HTTP JSON-RPC)
-  - [ ] 5.1.6 Handle GET (SSE stream)
-  - [ ] 5.1.7 Return 401 with WWW-Authenticate header if unauthorized
+- [x] 5.1 Per-tenant MCP endpoint
+  - [x] 5.1.1 Create `src/app/mcp/[uuid]/route.ts`
+  - [x] 5.1.2 Validate Bearer token from Authorization header
+  - [x] 5.1.3 Verify token audience matches this endpoint
+  - [x] 5.1.4 Extract user from token
+  - [x] 5.1.5 Handle POST (Streamable HTTP JSON-RPC)
+  - [x] 5.1.6 Handle GET (SSE stream)
+  - [x] 5.1.7 Return 401 with WWW-Authenticate header if unauthorized
 
-- [ ] 5.2 MCP request handling
-  - [ ] 5.2.1 `initialize` - Return capabilities
-  - [ ] 5.2.2 `tools/list` - List user's available agent tools
-  - [ ] 5.2.3 `tools/call` - Forward to agent, return result
-  - [ ] 5.2.4 `resources/list` - List available resources
-  - [ ] 5.2.5 `prompts/list` - List available prompts
+- [x] 5.2 MCP request handling
+  - [x] 5.2.1 `initialize` - Return capabilities
+  - [x] 5.2.2 `tools/list` - List user's available agent tools
+  - [x] 5.2.3 `tools/call` - Forward to agent, return result
+  - [x] 5.2.4 `resources/list` - List available resources
+  - [x] 5.2.5 `prompts/list` - List available prompts
 
-- [ ] 5.3 Session management
-  - [ ] 5.3.1 Generate Mcp-Session-Id header
-  - [ ] 5.3.2 Track sessions for resumption
-  - [ ] 5.3.3 Handle Last-Event-ID for SSE resumption
+- [x] 5.3 Session management
+  - [x] 5.3.1 Generate Mcp-Session-Id header
+  - [x] 5.3.2 Track sessions for resumption
+  - [x] 5.3.3 Handle Last-Event-ID for SSE resumption
 
 ### Phase 6: Dashboard UI - Connection Management
 
@@ -484,28 +484,28 @@ model User {
   - [ ] 7.1.5 "Allow" and "Deny" buttons
   - [ ] 7.1.6 Handle form submission
 
-### Phase 8: Security & Validation
+### Phase 8: Security & Validation ✅
 
-- [ ] 8.1 Token security
-  - [ ] 8.1.1 Tokens never stored in plain text (always hashed)
-  - [ ] 8.1.2 Short access token lifetime (1 hour)
-  - [ ] 8.1.3 Refresh token rotation on use
-  - [ ] 8.1.4 Audience validation on every request
+- [x] 8.1 Token security
+  - [x] 8.1.1 Tokens never stored in plain text (always hashed)
+  - [x] 8.1.2 Short access token lifetime (1 hour)
+  - [x] 8.1.3 Refresh token rotation on use
+  - [x] 8.1.4 Audience validation on every request
 
-- [ ] 8.2 PKCE enforcement
-  - [ ] 8.2.1 Require code_challenge on authorize
-  - [ ] 8.2.2 Require code_verifier on token exchange
-  - [ ] 8.2.3 Only allow S256 method
+- [x] 8.2 PKCE enforcement
+  - [x] 8.2.1 Require code_challenge on authorize
+  - [x] 8.2.2 Require code_verifier on token exchange
+  - [x] 8.2.3 Only allow S256 method
 
-- [ ] 8.3 Redirect URI validation
-  - [ ] 8.3.1 Exact match only (no wildcards)
-  - [ ] 8.3.2 HTTPS required (except localhost)
-  - [ ] 8.3.3 No fragments allowed
+- [x] 8.3 Redirect URI validation
+  - [x] 8.3.1 Exact match only (no wildcards)
+  - [x] 8.3.2 HTTPS required (except localhost)
+  - [x] 8.3.3 No fragments allowed
 
-- [ ] 8.4 Rate limiting
-  - [ ] 8.4.1 Rate limit /api/oauth/register
-  - [ ] 8.4.2 Rate limit /api/oauth/token
-  - [ ] 8.4.3 Rate limit MCP endpoints per connection
+- [x] 8.4 Rate limiting
+  - [x] 8.4.1 Rate limit /api/oauth/register (10/hour per IP)
+  - [x] 8.4.2 Rate limit /api/oauth/token (60/min per IP)
+  - [x] 8.4.3 Rate limit MCP endpoints (100/min per connection, 20/min unauthenticated)
 
 ### Phase 9: Documentation
 
