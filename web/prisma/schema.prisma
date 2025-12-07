@@ -534,6 +534,7 @@ model OAuthClient {
   // Relations
   tokens              OAuthAccessToken[]
   authCodes           OAuthAuthorizationCode[]
+  mcpConnection       McpConnection?
 
   @@index([clientId])
   @@map("oauth_clients")
@@ -633,7 +634,11 @@ model McpConnection {
 
   // Which client is using this (populated after first auth)
   clientName          String?             // "Claude", "Cursor", etc.
-  connectedClientId   String?             // OAuth client ID
+  connectedClientId   String?             // OAuth client ID (legacy field)
+
+  // OAuth client for this connection (auto-created with connection)
+  oauthClientId       String?   @unique
+  oauthClient         OAuthClient? @relation(fields: [oauthClientId], references: [id])
 
   // Status
   status              McpConnectionStatus @default(ACTIVE)

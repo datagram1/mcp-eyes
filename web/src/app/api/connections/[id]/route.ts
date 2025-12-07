@@ -2,6 +2,7 @@
  * Connection Detail API
  *
  * GET    /api/connections/[id] - Get connection details
+ * POST   /api/connections/[id] - Regenerate OAuth credentials
  * PATCH  /api/connections/[id] - Update connection (name, description, status)
  * DELETE /api/connections/[id] - Revoke connection
  */
@@ -9,6 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
+import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +61,14 @@ export async function GET(
             requestLogs: true,
           },
         },
+        // Include OAuth client info
+        oauthClient: {
+          select: {
+            clientId: true,
+            clientName: true,
+            createdAt: true,
+          },
+        },
         // Include recent request logs
         requestLogs: {
           orderBy: { createdAt: 'desc' },
@@ -82,7 +93,7 @@ export async function GET(
       );
     }
 
-    // Build the MCP endpoint URL
+    // Build the MCP endpoint URL and OAuth endpoints
     const APP_URL = process.env.APP_URL || 'https://screencontrol.knws.co.uk';
     const mcpUrl = `${APP_URL}/mcp/${connection.endpointUuid}`;
 
@@ -90,10 +101,174 @@ export async function GET(
       connection: {
         ...connection,
         mcpUrl,
+        // Include OAuth endpoints for reference
+        oauthEndpoints: {
+          authorization: `${APP_URL}/api/oauth/authorize`,
+          token: `${APP_URL}/api/oauth/token`,
+          discovery: `${APP_URL}/.well-known/oauth-authorization-server`,
+        },
       },
     });
   } catch (error) {
     console.error('Error getting connection:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/connections/[id]
+ * Regenerate OAuth credentials for a connection
+ * This revokes all existing tokens and creates new credentials
+ */
+export async function POST(
+  request: NextRequest,
+  context: RouteParams
+): Promise<NextResponse> {
+  try {
+    const session = await getServerSession();
+    if (!session?.user?.email) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    });
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    const { id } = await context.params;
+    const body = await request.json().catch(() => ({}));
+
+    // Check for regenerate action
+    if (body.action !== 'regenerate') {
+      return NextResponse.json(
+        { error: 'Invalid action. Use { "action": "regenerate" }' },
+        { status: 400 }
+      );
+    }
+
+    // Find the connection with its OAuth client
+    const connection = await prisma.mcpConnection.findFirst({
+      where: {
+        id,
+        userId: user.id,
+      },
+      include: {
+        oauthClient: true,
+      },
+    });
+
+    if (!connection) {
+      return NextResponse.json(
+        { error: 'Connection not found' },
+        { status: 404 }
+      );
+    }
+
+    if (connection.status === 'REVOKED') {
+      return NextResponse.json(
+        { error: 'Cannot regenerate credentials for a revoked connection' },
+        { status: 400 }
+      );
+    }
+
+    // Generate new OAuth credentials
+    const newClientId = uuidv4();
+    const newClientSecret = crypto.randomBytes(32).toString('hex');
+    const newClientSecretHash = crypto.createHash('sha256').update(newClientSecret).digest('hex');
+
+    // Claude's redirect URIs
+    const redirectUris = [
+      'https://claude.ai/oauth/callback',
+      'https://claude.ai/api/oauth/callback',
+    ];
+
+    // Perform the regeneration in a transaction
+    await prisma.$transaction(async (tx) => {
+      // If there's an existing OAuth client, revoke all its tokens and delete it
+      if (connection.oauthClient) {
+        // Revoke all access tokens
+        await tx.oAuthAccessToken.updateMany({
+          where: { clientId: connection.oauthClient.id },
+          data: {
+            revokedAt: new Date(),
+            revokedReason: 'credentials_regenerated',
+          },
+        });
+
+        // Delete authorization codes
+        await tx.oAuthAuthorizationCode.deleteMany({
+          where: { clientId: connection.oauthClient.id },
+        });
+
+        // Delete the old OAuth client
+        await tx.oAuthClient.delete({
+          where: { id: connection.oauthClient.id },
+        });
+      }
+
+      // Create new OAuth client
+      const newOAuthClient = await tx.oAuthClient.create({
+        data: {
+          clientId: newClientId,
+          clientSecretHash: newClientSecretHash,
+          clientName: connection.name,
+          clientUri: 'https://claude.ai',
+          redirectUris,
+          grantTypes: ['authorization_code', 'refresh_token'],
+          responseTypes: ['code'],
+          tokenEndpointAuth: 'client_secret_post',
+          contacts: [],
+          registeredByIp: `user:${user.id}`,
+          registeredByAgent: 'MCP Connection Regenerate',
+        },
+      });
+
+      // Link the new OAuth client to the connection
+      await tx.mcpConnection.update({
+        where: { id: connection.id },
+        data: {
+          oauthClientId: newOAuthClient.id,
+        },
+      });
+    });
+
+    // Build the MCP endpoint URL
+    const APP_URL = process.env.APP_URL || 'https://screencontrol.knws.co.uk';
+    const mcpUrl = `${APP_URL}/mcp/${connection.endpointUuid}`;
+
+    return NextResponse.json({
+      success: true,
+      message: 'OAuth credentials regenerated. All previous connections have been revoked.',
+      connection: {
+        id: connection.id,
+        name: connection.name,
+        mcpUrl,
+        oauth: {
+          clientId: newClientId,
+          clientSecret: newClientSecret,
+        },
+        oauthEndpoints: {
+          authorization: `${APP_URL}/api/oauth/authorize`,
+          token: `${APP_URL}/api/oauth/token`,
+          discovery: `${APP_URL}/.well-known/oauth-authorization-server`,
+        },
+      },
+      warning: 'Save the new client_secret now - it cannot be retrieved later!',
+    });
+  } catch (error) {
+    console.error('Error regenerating OAuth credentials:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

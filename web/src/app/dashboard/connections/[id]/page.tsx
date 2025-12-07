@@ -18,6 +18,18 @@ interface RequestLog {
   createdAt: string;
 }
 
+interface OAuthClient {
+  clientId: string;
+  clientName: string;
+  createdAt: string;
+}
+
+interface OAuthEndpoints {
+  authorization: string;
+  token: string;
+  discovery: string;
+}
+
 interface Connection {
   id: string;
   endpointUuid: string;
@@ -32,6 +44,8 @@ interface Connection {
   updatedAt: string;
   revokedAt: string | null;
   mcpUrl: string;
+  oauthClient: OAuthClient | null;
+  oauthEndpoints: OAuthEndpoints;
   _count: {
     tokens: number;
     requestLogs: number;
@@ -98,6 +112,9 @@ export default function ConnectionDetailPage() {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [downloadStats, setDownloadStats] = useState<{ total: number; byPlatform: Record<string, number> } | null>(null);
   const [showInstructions, setShowInstructions] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [newOAuthSecret, setNewOAuthSecret] = useState<string | null>(null);
 
   const fetchConnection = useCallback(async () => {
     try {
@@ -221,6 +238,42 @@ export default function ConnectionDetailPage() {
     await navigator.clipboard.writeText(connection.mcpUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copyToClipboard = async (text: string, field: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleRegenerateOAuth = async () => {
+    if (!connection) return;
+    if (!confirm('Regenerate OAuth credentials? This will disconnect all currently connected clients (like Claude). They will need to be reconnected with the new credentials.')) {
+      return;
+    }
+
+    setRegenerating(true);
+    setNewOAuthSecret(null);
+    try {
+      const res = await fetch(`/api/connections/${connectionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'regenerate' }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to regenerate credentials');
+      }
+
+      const data = await res.json();
+      setNewOAuthSecret(data.connection.oauth.clientSecret);
+      await fetchConnection();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate');
+    } finally {
+      setRegenerating(false);
+    }
   };
 
   const handleDownload = async (platform: string) => {
@@ -435,6 +488,147 @@ export default function ConnectionDetailPage() {
           Use this URL in your Claude config or other MCP clients
         </p>
       </div>
+
+      {/* Claude Integration / OAuth Credentials */}
+      {connection.status !== 'REVOKED' && connection.oauthClient && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Connect to Claude</h2>
+              <p className="text-slate-400 text-sm mt-1">Use these credentials to connect Claude or other AI clients</p>
+            </div>
+            <button
+              onClick={handleRegenerateOAuth}
+              disabled={regenerating}
+              className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 rounded-lg transition flex items-center gap-2"
+            >
+              {regenerating ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Regenerating...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Regenerate Credentials
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* New Secret Warning */}
+          {newOAuthSecret && (
+            <div className="mb-4 p-4 bg-amber-500/20 border border-amber-500/50 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div>
+                  <p className="text-amber-200 font-medium">New credentials generated!</p>
+                  <p className="text-amber-300/80 text-sm mt-1">Save the client secret below - it cannot be retrieved later. Previous connections have been revoked.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Credentials Table */}
+          <div className="bg-slate-900 rounded-lg overflow-hidden">
+            <table className="w-full">
+              <tbody className="divide-y divide-slate-700">
+                <tr>
+                  <td className="px-4 py-3 text-slate-400 text-sm font-medium w-48">MCP Server URL</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <code className="text-slate-200 font-mono text-sm break-all flex-1">{connection.mcpUrl}</code>
+                      <button
+                        onClick={() => copyToClipboard(connection.mcpUrl, 'mcpUrl')}
+                        className={`px-2 py-1 text-xs rounded transition flex-shrink-0 ${
+                          copiedField === 'mcpUrl' ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                      >
+                        {copiedField === 'mcpUrl' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-4 py-3 text-slate-400 text-sm font-medium">OAuth Client ID</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <code className="text-slate-200 font-mono text-sm flex-1">{connection.oauthClient.clientId}</code>
+                      <button
+                        onClick={() => copyToClipboard(connection.oauthClient!.clientId, 'clientId')}
+                        className={`px-2 py-1 text-xs rounded transition flex-shrink-0 ${
+                          copiedField === 'clientId' ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                      >
+                        {copiedField === 'clientId' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr className={newOAuthSecret ? 'bg-amber-500/10' : ''}>
+                  <td className="px-4 py-3 text-slate-400 text-sm font-medium">OAuth Client Secret</td>
+                  <td className="px-4 py-3">
+                    {newOAuthSecret ? (
+                      <div className="flex items-center gap-2">
+                        <code className="text-amber-200 font-mono text-sm break-all flex-1">{newOAuthSecret}</code>
+                        <button
+                          onClick={() => copyToClipboard(newOAuthSecret, 'clientSecret')}
+                          className={`px-2 py-1 text-xs rounded transition flex-shrink-0 ${
+                            copiedField === 'clientSecret' ? 'bg-green-600 text-white' : 'bg-amber-600 text-white hover:bg-amber-500'
+                          }`}
+                        >
+                          {copiedField === 'clientSecret' ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-slate-500 text-sm italic">Hidden - click &quot;Regenerate Credentials&quot; to get a new one</span>
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* OAuth Endpoints */}
+          <div className="mt-4 p-4 bg-slate-900 rounded-lg">
+            <h3 className="text-sm font-medium text-slate-300 mb-3">OAuth Endpoints (for reference)</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 w-28">Authorization:</span>
+                <code className="text-slate-400 font-mono text-xs">{connection.oauthEndpoints.authorization}</code>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 w-28">Token:</span>
+                <code className="text-slate-400 font-mono text-xs">{connection.oauthEndpoints.token}</code>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 w-28">Discovery:</span>
+                <code className="text-slate-400 font-mono text-xs">{connection.oauthEndpoints.discovery}</code>
+              </div>
+            </div>
+          </div>
+
+          {/* Claude Instructions */}
+          <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <h3 className="text-blue-300 font-medium mb-2">How to connect Claude</h3>
+            <ol className="list-decimal list-inside space-y-1.5 text-blue-200/80 text-sm">
+              <li>Go to <strong>Settings → Connectors</strong> in Claude</li>
+              <li>Click <strong>&quot;Add custom connector&quot;</strong></li>
+              <li>Enter your <strong>MCP Server URL</strong> from above</li>
+              <li>Click <strong>&quot;Advanced settings&quot;</strong></li>
+              <li>Enter the <strong>OAuth Client ID</strong> and <strong>Client Secret</strong></li>
+              <li>Click <strong>&quot;Add&quot;</strong> to finish</li>
+            </ol>
+            <p className="text-blue-300/60 text-xs mt-3">
+              The token endpoint supports both PKCE (for Claude Code) and client_secret_post (for Claude.ai).
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Stats & Actions Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">

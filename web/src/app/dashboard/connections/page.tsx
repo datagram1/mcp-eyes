@@ -39,8 +39,13 @@ export default function ConnectionsPage() {
   const [newConnectionDesc, setNewConnectionDesc] = useState('');
   const [creating, setCreating] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [createdConnection, setCreatedConnection] = useState<{ name: string; mcpUrl: string } | null>(null);
+  const [createdConnection, setCreatedConnection] = useState<{
+    name: string;
+    mcpUrl: string;
+    oauth?: { clientId: string; clientSecret: string };
+  } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const fetchConnections = useCallback(async () => {
     try {
@@ -87,13 +92,15 @@ export default function ConnectionsPage() {
       const data = await res.json();
       const mcpUrl = `${window.location.origin}/mcp/${data.connection.endpointUuid}`;
 
-      // Close create modal and show success screen with MCP URL
+      // Close create modal and show success screen with MCP URL and OAuth credentials
       setShowCreateModal(false);
       setCreatedConnection({
         name: newConnectionName,
         mcpUrl,
+        oauth: data.connection.oauth,
       });
       setCopied(false);
+      setCopiedField(null);
       setNewConnectionName('');
       setNewConnectionDesc('');
       fetchConnections();
@@ -403,39 +410,88 @@ export default function ConnectionsPage() {
               </div>
             </div>
 
-            {/* MCP URL */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Your MCP Endpoint URL
-              </label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 bg-slate-900 border border-slate-700 text-blue-400 rounded-lg px-4 py-3 font-mono text-sm break-all">
-                  {createdConnection.mcpUrl}
-                </code>
-                <button
-                  onClick={async () => {
-                    await copyToClipboard(createdConnection.mcpUrl);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  }}
-                  className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition flex items-center gap-2"
-                >
-                  {copied ? (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      Copy
-                    </>
-                  )}
-                </button>
+            {/* Connection Credentials */}
+            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <div className="flex items-start gap-3 mb-4">
+                <svg className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div>
+                  <p className="text-amber-200 font-medium">Save these credentials!</p>
+                  <p className="text-amber-300/80 text-sm">The client secret cannot be retrieved later. Save it now.</p>
+                </div>
+              </div>
+
+              {/* Credentials Table */}
+              <div className="bg-slate-900 rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <tbody className="divide-y divide-slate-700">
+                    <tr>
+                      <td className="px-4 py-3 text-slate-400 text-sm font-medium w-40">MCP Server URL</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <code className="text-blue-400 font-mono text-sm break-all flex-1">{createdConnection.mcpUrl}</code>
+                          <button
+                            onClick={async () => {
+                              await copyToClipboard(createdConnection.mcpUrl);
+                              setCopiedField('mcpUrl');
+                              setTimeout(() => setCopiedField(null), 2000);
+                            }}
+                            className={`px-2 py-1 text-xs rounded transition flex-shrink-0 ${
+                              copiedField === 'mcpUrl' ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                            }`}
+                          >
+                            {copiedField === 'mcpUrl' ? 'Copied!' : 'Copy'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {createdConnection.oauth && (
+                      <>
+                        <tr>
+                          <td className="px-4 py-3 text-slate-400 text-sm font-medium">OAuth Client ID</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <code className="text-slate-200 font-mono text-sm flex-1">{createdConnection.oauth.clientId}</code>
+                              <button
+                                onClick={async () => {
+                                  await copyToClipboard(createdConnection.oauth!.clientId);
+                                  setCopiedField('clientId');
+                                  setTimeout(() => setCopiedField(null), 2000);
+                                }}
+                                className={`px-2 py-1 text-xs rounded transition flex-shrink-0 ${
+                                  copiedField === 'clientId' ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                                }`}
+                              >
+                                {copiedField === 'clientId' ? 'Copied!' : 'Copy'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr className="bg-amber-500/5">
+                          <td className="px-4 py-3 text-slate-400 text-sm font-medium">OAuth Client Secret</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <code className="text-amber-200 font-mono text-sm break-all flex-1">{createdConnection.oauth.clientSecret}</code>
+                              <button
+                                onClick={async () => {
+                                  await copyToClipboard(createdConnection.oauth!.clientSecret);
+                                  setCopiedField('clientSecret');
+                                  setTimeout(() => setCopiedField(null), 2000);
+                                }}
+                                className={`px-2 py-1 text-xs rounded transition flex-shrink-0 ${
+                                  copiedField === 'clientSecret' ? 'bg-green-600 text-white' : 'bg-amber-600 text-white hover:bg-amber-500'
+                                }`}
+                              >
+                                {copiedField === 'clientSecret' ? 'Copied!' : 'Copy'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      </>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 

@@ -2,12 +2,14 @@
  * Connections API
  *
  * GET  /api/connections - List user's MCP connections
- * POST /api/connections - Create a new connection
+ * POST /api/connections - Create a new connection (auto-creates OAuth client)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
+import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,33 +145,73 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create connection
-    const connection = await prisma.mcpConnection.create({
-      data: {
-        userId: user.id,
-        name: name.trim(),
-        description: description?.trim() || null,
-        status: 'ACTIVE',
-      },
-      select: {
-        id: true,
-        endpointUuid: true,
-        name: true,
-        description: true,
-        status: true,
-        createdAt: true,
-      },
+    // Generate OAuth client credentials
+    const oauthClientId = uuidv4();
+    const oauthClientSecret = crypto.randomBytes(32).toString('hex');
+    const oauthClientSecretHash = crypto.createHash('sha256').update(oauthClientSecret).digest('hex');
+
+    // Claude's redirect URIs
+    const redirectUris = [
+      'https://claude.ai/oauth/callback',
+      'https://claude.ai/api/oauth/callback',
+    ];
+
+    // Create OAuth client and connection in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the OAuth client first
+      const oauthClient = await tx.oAuthClient.create({
+        data: {
+          clientId: oauthClientId,
+          clientSecretHash: oauthClientSecretHash,
+          clientName: name.trim(),
+          clientUri: 'https://claude.ai',
+          redirectUris,
+          grantTypes: ['authorization_code', 'refresh_token'],
+          responseTypes: ['code'],
+          tokenEndpointAuth: 'client_secret_post',
+          contacts: [],
+          registeredByIp: `user:${user.id}`,
+          registeredByAgent: 'MCP Connection Auto-Create',
+        },
+      });
+
+      // Create the connection linked to the OAuth client
+      const connection = await tx.mcpConnection.create({
+        data: {
+          userId: user.id,
+          name: name.trim(),
+          description: description?.trim() || null,
+          status: 'ACTIVE',
+          oauthClientId: oauthClient.id,
+        },
+        select: {
+          id: true,
+          endpointUuid: true,
+          name: true,
+          description: true,
+          status: true,
+          createdAt: true,
+        },
+      });
+
+      return { connection, oauthClient };
     });
 
     // Build the MCP endpoint URL
     const APP_URL = process.env.APP_URL || 'https://screencontrol.knws.co.uk';
-    const mcpUrl = `${APP_URL}/mcp/${connection.endpointUuid}`;
+    const mcpUrl = `${APP_URL}/mcp/${result.connection.endpointUuid}`;
 
     return NextResponse.json({
       connection: {
-        ...connection,
+        ...result.connection,
         mcpUrl,
+        // Include OAuth credentials (secret only shown on creation!)
+        oauth: {
+          clientId: oauthClientId,
+          clientSecret: oauthClientSecret,
+        },
       },
+      warning: 'Save the OAuth client_secret now - it cannot be retrieved later!',
     }, { status: 201 });
   } catch (error) {
     console.error('Error creating connection:', error);
