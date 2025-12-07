@@ -72,6 +72,7 @@ export default function AgentDetailPage({ params }: PageProps) {
   const [editMode, setEditMode] = useState(false);
   const [label, setLabel] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showResetSecretModal, setShowResetSecretModal] = useState(false);
 
   const fetchAgent = async () => {
     try {
@@ -141,6 +142,23 @@ export default function AgentDetailPage({ params }: PageProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
       setShowDeleteModal(false);
+    }
+  };
+
+  const handleResetSecret = async () => {
+    try {
+      setActionLoading('RESET_SECRET');
+      const res = await fetch(`/api/agents/${id}/reset-secret`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to reset secret');
+      setShowResetSecretModal(false);
+      // Show success message
+      setError(null);
+      alert('Agent secret reset successfully. The agent can now re-register with a new API key.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset secret failed');
+    } finally {
+      setActionLoading(null);
+      setShowResetSecretModal(false);
     }
   };
 
@@ -229,13 +247,6 @@ export default function AgentDetailPage({ params }: PageProps) {
             </p>
           </div>
         </div>
-
-        <button
-          onClick={() => setShowDeleteModal(true)}
-          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-        >
-          Delete Agent
-        </button>
       </div>
 
       {/* Status Badges */}
@@ -299,6 +310,27 @@ export default function AgentDetailPage({ params }: PageProps) {
               {actionLoading === 'PENDING' ? 'Unblocking...' : 'Unblock Agent'}
             </button>
           )}
+
+          {/* Separator */}
+          <div className="w-px h-8 bg-slate-600 mx-2"></div>
+
+          {/* Reset Secret Button */}
+          <button
+            onClick={() => setShowResetSecretModal(true)}
+            disabled={actionLoading !== null}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+          >
+            {actionLoading === 'RESET_SECRET' ? 'Resetting...' : 'Reset Secret'}
+          </button>
+
+          {/* Delete Button */}
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            disabled={actionLoading !== null}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+          >
+            Delete Agent
+          </button>
         </div>
       </div>
 
@@ -420,6 +452,34 @@ export default function AgentDetailPage({ params }: PageProps) {
               Hash: <code className="text-slate-300">{agent.machineFingerprint}</code>
             </p>
           )}
+        </div>
+      )}
+
+      {/* Reset Secret Confirmation Modal */}
+      {showResetSecretModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-bold text-white mb-4">Reset Agent Secret?</h3>
+            <p className="text-slate-300 mb-6">
+              This will clear the stored API key for <strong>{agent.label || agent.hostname}</strong>.
+              The agent will be able to re-register with a new API key on its next connection.
+              Use this if the agent&apos;s API key has changed (e.g., after reinstallation).
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowResetSecretModal(false)}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetSecret}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+              >
+                Reset Secret
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
