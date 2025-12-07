@@ -13,7 +13,8 @@
     "test:coverage": "jest --coverage",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "seed:dev": "tsx prisma/seed-dev.ts"
   },
   "dependencies": {
     "@next-auth/prisma-adapter": "^1.0.7",

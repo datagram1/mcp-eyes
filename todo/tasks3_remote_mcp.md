@@ -466,23 +466,23 @@ model User {
   - [ ] 6.3.4 Revoke connection (with confirmation)
   - [ ] 6.3.5 View request logs
 
-- [ ] 6.4 API routes for connection management
-  - [ ] 6.4.1 `GET /api/connections` - List user's connections
-  - [ ] 6.4.2 `POST /api/connections` - Create new connection
-  - [ ] 6.4.3 `GET /api/connections/[id]` - Get connection details
-  - [ ] 6.4.4 `PATCH /api/connections/[id]` - Update (pause/resume)
-  - [ ] 6.4.5 `DELETE /api/connections/[id]` - Revoke connection
-  - [ ] 6.4.6 `GET /api/connections/[id]/logs` - Get request logs
+- [x] 6.4 API routes for connection management ✅
+  - [x] 6.4.1 `GET /api/connections` - List user's connections
+  - [x] 6.4.2 `POST /api/connections` - Create new connection
+  - [x] 6.4.3 `GET /api/connections/[id]` - Get connection details
+  - [x] 6.4.4 `PATCH /api/connections/[id]` - Update (pause/resume)
+  - [x] 6.4.5 `DELETE /api/connections/[id]` - Revoke connection
+  - [x] 6.4.6 `GET /api/connections/[id]/logs` - Get request logs
 
-### Phase 7: Consent Screen
+### Phase 7: Consent Screen ✅
 
-- [ ] 7.1 Create OAuth consent page
-  - [ ] 7.1.1 Create `src/app/oauth/consent/page.tsx`
-  - [ ] 7.1.2 Show client name and logo
-  - [ ] 7.1.3 Show requested scopes with descriptions
-  - [ ] 7.1.4 Show which agents will be accessible
-  - [ ] 7.1.5 "Allow" and "Deny" buttons
-  - [ ] 7.1.6 Handle form submission
+- [x] 7.1 Create OAuth consent page
+  - [x] 7.1.1 Create `src/app/oauth/consent/page.tsx`
+  - [x] 7.1.2 Show client name and logo
+  - [x] 7.1.3 Show requested scopes with descriptions
+  - [x] 7.1.4 Show which agents will be accessible
+  - [x] 7.1.5 "Allow" and "Deny" buttons
+  - [x] 7.1.6 Handle form submission
 
 ### Phase 8: Security & Validation ✅
 
@@ -507,54 +507,27 @@ model User {
   - [x] 8.4.2 Rate limit /api/oauth/token (60/min per IP)
   - [x] 8.4.3 Rate limit MCP endpoints (100/min per connection, 20/min unauthenticated)
 
-### Phase 9: Documentation
+### Phase 9: Documentation ✅
 
-- [ ] 9.1 Update README.md
-  - [ ] 9.1.1 Add Remote MCP section
-  - [ ] 9.1.2 Document authentication flow
-  - [ ] 9.1.3 Document endpoint structure
-  - [ ] 9.1.4 Add architecture diagram
+- [x] 9.1 Update README.md
+  - [x] 9.1.1 Add Remote MCP section
+  - [x] 9.1.2 Document authentication flow
+  - [x] 9.1.3 Document endpoint structure
+  - [x] 9.1.4 Add architecture diagram
 
-- [ ] 9.2 User documentation
-  - [ ] 9.2.1 How to connect Claude.ai
-  - [ ] 9.2.2 How to connect Claude Code
-  - [ ] 9.2.3 How to connect Cursor
-  - [ ] 9.2.4 Troubleshooting guide
+- [x] 9.2 User documentation
+  - [x] 9.2.1 How to connect Claude.ai
+  - [x] 9.2.2 How to connect Claude Code
+  - [x] 9.2.3 How to connect Cursor
+  - [x] 9.2.4 Troubleshooting guide
 
-### Phase 10: Testing
+### Phase 10: Testing → MOVED to tasks4_agent_distribution.md (Part F)
 
-- [ ] 10.1 Unit tests
-  - [ ] 10.1.1 PKCE verification tests
-  - [ ] 10.1.2 Token generation/validation tests
-  - [ ] 10.1.3 Scope validation tests
+See [tasks4_agent_distribution.md Part F](/todo/tasks4_agent_distribution.md#part-f-testing-from-tasks3-phase-10)
 
-- [ ] 10.2 Integration tests
-  - [ ] 10.2.1 Full OAuth flow test
-  - [ ] 10.2.2 Token refresh flow test
-  - [ ] 10.2.3 MCP request with valid token
-  - [ ] 10.2.4 MCP request with invalid/expired token
+### Phase 11: Deployment → MOVED to tasks4_agent_distribution.md (Part G)
 
-- [ ] 10.3 Manual testing with MCP Inspector
-  - [ ] 10.3.1 Test auth discovery
-  - [ ] 10.3.2 Test DCR
-  - [ ] 10.3.3 Test authorization flow
-  - [ ] 10.3.4 Test MCP tools
-
-### Phase 11: Deployment
-
-- [ ] 11.1 Deploy to production
-  - [ ] 11.1.1 Commit all changes to git
-  - [ ] 11.1.2 Push to GitHub
-  - [ ] 11.1.3 SSH to 192.168.10.10
-  - [ ] 11.1.4 Pull changes: `cd /var/www/html/screencontrol && git pull`
-  - [ ] 11.1.5 Run migration: `cd web && npx prisma migrate deploy`
-  - [ ] 11.1.6 Rebuild: `npm run build`
-  - [ ] 11.1.7 Restart service: `sudo systemctl restart screencontrol`
-
-- [ ] 11.2 Verify deployment
-  - [ ] 11.2.1 Test /.well-known/oauth-authorization-server
-  - [ ] 11.2.2 Test connection creation in dashboard
-  - [ ] 11.2.3 Test with Claude.ai connector
+See [tasks4_agent_distribution.md Part G](/todo/tasks4_agent_distribution.md#part-g-deployment-from-tasks3-phase-11)
 
 ---
 

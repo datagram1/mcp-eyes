@@ -54,6 +54,30 @@ interface LogsResponse {
   };
 }
 
+interface Download {
+  id: string;
+  platform: 'MACOS' | 'WINDOWS' | 'LINUX';
+  variant: string | null;
+  version: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  downloadedAt: string;
+}
+
+interface DownloadsResponse {
+  downloads: Download[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+  stats: {
+    total: number;
+    byPlatform: Record<string, number>;
+  };
+}
+
 export default function ConnectionDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -71,6 +95,9 @@ export default function ConnectionDetailPage() {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloads, setDownloads] = useState<Download[]>([]);
+  const [downloadStats, setDownloadStats] = useState<{ total: number; byPlatform: Record<string, number> } | null>(null);
+  const [showInstructions, setShowInstructions] = useState<string | null>(null);
 
   const fetchConnection = useCallback(async () => {
     try {
@@ -109,15 +136,27 @@ export default function ConnectionDetailPage() {
     }
   }, [connectionId]);
 
+  const fetchDownloads = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/connections/${connectionId}/downloads?limit=10`);
+      if (!res.ok) return;
+      const data: DownloadsResponse = await res.json();
+      setDownloads(data.downloads);
+      setDownloadStats(data.stats);
+    } catch (err) {
+      console.error('Failed to fetch downloads:', err);
+    }
+  }, [connectionId]);
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       await fetchConnection();
-      await fetchLogs();
+      await Promise.all([fetchLogs(), fetchDownloads()]);
       setLoading(false);
     };
     load();
-  }, [fetchConnection, fetchLogs]);
+  }, [fetchConnection, fetchLogs, fetchDownloads]);
 
   const handleSave = async () => {
     if (!editName.trim()) return;
@@ -542,6 +581,138 @@ export default function ConnectionDetailPage() {
               This ID will be embedded in the downloaded agent to connect it to this MCP endpoint.
             </p>
           </div>
+
+          {/* Installation Instructions */}
+          <div className="mt-6 border-t border-slate-700 pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Installation Instructions</h3>
+              <div className="flex gap-2">
+                {['macos', 'windows', 'linux'].map((platform) => (
+                  <button
+                    key={platform}
+                    onClick={() => setShowInstructions(showInstructions === platform ? null : platform)}
+                    className={`px-3 py-1.5 text-sm rounded-lg transition ${
+                      showInstructions === platform
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {platform === 'macos' ? 'macOS' : platform === 'windows' ? 'Windows' : 'Linux'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {showInstructions === 'macos' && (
+              <div className="bg-slate-900 rounded-lg p-4 text-sm">
+                <ol className="list-decimal list-inside space-y-2 text-slate-300">
+                  <li>Download the macOS agent above</li>
+                  <li>Open the downloaded <code className="text-blue-400">.dmg</code> file</li>
+                  <li>Drag <span className="text-white font-medium">ScreenControl.app</span> to your Applications folder</li>
+                  <li>Open ScreenControl from Applications</li>
+                  <li>Grant Accessibility permissions when prompted (System Settings &rarr; Privacy &amp; Security &rarr; Accessibility)</li>
+                  <li>Grant Screen Recording permissions when prompted</li>
+                  <li>The agent will automatically connect to this MCP endpoint</li>
+                </ol>
+                <div className="mt-4 p-3 bg-slate-800 rounded-lg">
+                  <p className="text-slate-400 text-xs">
+                    <span className="text-amber-400 font-medium">Note:</span> You may need to right-click the app and select &quot;Open&quot; the first time to bypass Gatekeeper.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {showInstructions === 'windows' && (
+              <div className="bg-slate-900 rounded-lg p-4 text-sm">
+                <ol className="list-decimal list-inside space-y-2 text-slate-300">
+                  <li>Download the Windows agent above</li>
+                  <li>Run the <code className="text-blue-400">ScreenControl-Setup.exe</code> installer</li>
+                  <li>Follow the installation wizard</li>
+                  <li>Launch ScreenControl from the Start Menu or system tray</li>
+                  <li>Allow Windows Firewall access if prompted</li>
+                  <li>The agent will automatically connect to this MCP endpoint</li>
+                </ol>
+                <div className="mt-4 p-3 bg-slate-800 rounded-lg">
+                  <p className="text-slate-400 text-xs">
+                    <span className="text-amber-400 font-medium">Note:</span> Windows may show a SmartScreen warning. Click &quot;More info&quot; then &quot;Run anyway&quot; to proceed.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {showInstructions === 'linux' && (
+              <div className="bg-slate-900 rounded-lg p-4 text-sm">
+                <h4 className="text-white font-medium mb-2">GUI Desktop (X11/Wayland)</h4>
+                <ol className="list-decimal list-inside space-y-2 text-slate-300 mb-4">
+                  <li>Download the Linux GUI agent above</li>
+                  <li>Extract: <code className="text-blue-400">tar xzf ScreenControl-linux-gui.tar.gz</code></li>
+                  <li>Make executable: <code className="text-blue-400">chmod +x screencontrol</code></li>
+                  <li>Run: <code className="text-blue-400">./screencontrol</code></li>
+                </ol>
+                <h4 className="text-white font-medium mb-2">Headless Server</h4>
+                <ol className="list-decimal list-inside space-y-2 text-slate-300">
+                  <li>Download the Linux Headless agent above</li>
+                  <li>Extract: <code className="text-blue-400">tar xzf ScreenControl-linux-headless.tar.gz</code></li>
+                  <li>Make executable: <code className="text-blue-400">chmod +x screencontrol-headless</code></li>
+                  <li>Run: <code className="text-blue-400">./screencontrol-headless</code></li>
+                  <li>Optional: Install as systemd service for auto-start</li>
+                </ol>
+                <div className="mt-4 p-3 bg-slate-800 rounded-lg">
+                  <p className="text-slate-400 text-xs">
+                    <span className="text-amber-400 font-medium">Systemd Service:</span> Copy the included <code className="text-blue-400">screencontrol.service</code> to <code className="text-blue-400">/etc/systemd/system/</code> and run <code className="text-blue-400">systemctl enable --now screencontrol</code>
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Download History */}
+      {downloadStats && downloadStats.total > 0 && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">Download History</h2>
+            <div className="flex gap-3 text-sm">
+              {downloadStats.byPlatform.MACOS && (
+                <span className="text-slate-400">macOS: <span className="text-white">{downloadStats.byPlatform.MACOS}</span></span>
+              )}
+              {downloadStats.byPlatform.WINDOWS && (
+                <span className="text-slate-400">Windows: <span className="text-white">{downloadStats.byPlatform.WINDOWS}</span></span>
+              )}
+              {downloadStats.byPlatform.LINUX && (
+                <span className="text-slate-400">Linux: <span className="text-white">{downloadStats.byPlatform.LINUX}</span></span>
+              )}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {downloads.map((download) => (
+              <div key={download.id} className="flex items-center justify-between p-3 bg-slate-900 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">
+                    {download.platform === 'MACOS' ? '🍎' : download.platform === 'WINDOWS' ? '🪟' : '🐧'}
+                  </span>
+                  <div>
+                    <p className="text-white text-sm">
+                      {download.platform} {download.variant && `(${download.variant})`}
+                    </p>
+                    <p className="text-slate-500 text-xs">v{download.version}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-slate-400 text-sm">{formatRelativeTime(download.downloadedAt)}</p>
+                  {download.ipAddress && (
+                    <p className="text-slate-500 text-xs font-mono">{download.ipAddress}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {downloadStats.total > downloads.length && (
+            <p className="text-center text-slate-500 text-sm mt-3">
+              Showing {downloads.length} of {downloadStats.total} downloads
+            </p>
+          )}
         </div>
       )}
 

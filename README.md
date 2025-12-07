@@ -1115,6 +1115,166 @@ The agent will automatically:
 3. Accept and execute commands from the control server
 4. Send responses back through the WebSocket connection
 
+## Remote MCP (OAuth 2.1 for AI Tools)
+
+ScreenControl supports the MCP Authorization specification, allowing external AI tools like Claude.ai, Claude Code, and Cursor to securely connect and control your agents via OAuth 2.1.
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  AI CLIENT (Claude.ai / Claude Code / Cursor)                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+       │
+       │ 1. User adds MCP URL: https://screencontrol.knws.co.uk/mcp/{uuid}
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  DISCOVERY                                                                   │
+│  GET /.well-known/oauth-protected-resource/{uuid}                           │
+│  GET /.well-known/oauth-authorization-server                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  AUTHORIZATION                                                               │
+│  • Dynamic Client Registration (POST /api/oauth/register)                   │
+│  • User Login & Consent Screen                                              │
+│  • Authorization Code with PKCE (S256)                                      │
+│  • Token Exchange (POST /api/oauth/token)                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  MCP COMMUNICATION                                                           │
+│  POST /mcp/{uuid}  (JSON-RPC with Bearer token)                             │
+│  GET /mcp/{uuid}   (SSE stream with Bearer token)                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Connecting Claude.ai
+
+1. **Create a Connection** in the ScreenControl dashboard:
+   - Go to Dashboard → Connections → Add Connection
+   - Give it a name (e.g., "My Claude.ai")
+   - Copy the MCP URL: `https://screencontrol.knws.co.uk/mcp/{your-uuid}`
+
+2. **Add to Claude.ai**:
+   - Go to Claude.ai Settings → Integrations → MCP Servers
+   - Click "Add MCP Server"
+   - Paste your MCP URL
+   - Complete the OAuth authorization flow
+
+3. **Authorize Access**:
+   - You'll be redirected to ScreenControl login
+   - Review the requested permissions (scopes)
+   - Click "Allow" to grant access
+
+4. **Start Using**:
+   - Claude.ai can now use your ScreenControl tools
+   - Available tools: screenshot, click, type, list agents, etc.
+
+### Connecting Claude Code / Claude Desktop
+
+Add to your MCP client configuration (`~/.config/claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "screencontrol": {
+      "url": "https://screencontrol.knws.co.uk/mcp/{your-uuid}",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+On first connection, Claude Code will:
+1. Discover the OAuth server metadata
+2. Register as a client (Dynamic Client Registration)
+3. Open a browser for you to authorize
+4. Store tokens for future sessions
+
+### Connecting Cursor
+
+Similar to Claude Code, add to Cursor's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "screencontrol": {
+      "url": "https://screencontrol.knws.co.uk/mcp/{your-uuid}",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+### OAuth Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/.well-known/oauth-authorization-server` | GET | OAuth server metadata (RFC 8414) |
+| `/.well-known/oauth-protected-resource/{uuid}` | GET | Resource metadata (RFC 9728) |
+| `/api/oauth/register` | POST | Dynamic Client Registration (RFC 7591) |
+| `/api/oauth/authorize` | GET | Authorization endpoint |
+| `/api/oauth/token` | POST | Token exchange |
+| `/api/oauth/revoke` | POST | Token revocation |
+| `/mcp/{uuid}` | POST/GET | MCP endpoint (requires Bearer token) |
+
+### Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `mcp:tools` | Access to list and call tools on agents |
+| `mcp:resources` | Access to list and read resources |
+| `mcp:prompts` | Access to list and use prompts |
+| `mcp:agents:read` | Read agent status and metadata |
+| `mcp:agents:write` | Modify agent settings |
+
+**Default scopes**: `mcp:tools mcp:resources mcp:agents:read`
+
+### Security Features
+
+- **OAuth 2.1 with PKCE**: S256 code challenge required (no plain method)
+- **Token Hashing**: Tokens stored as SHA256 hashes, never in plain text
+- **Short-lived Tokens**: Access tokens expire in 1 hour
+- **Refresh Token Rotation**: New refresh token issued on each refresh
+- **Audience Validation**: Tokens are bound to specific MCP endpoints
+- **Rate Limiting**:
+  - Registration: 10/hour per IP
+  - Token endpoint: 60/minute per IP
+  - MCP requests: 100/minute per connection
+
+### Managing Connections
+
+In the ScreenControl dashboard, you can:
+- **View** all your MCP connections
+- **Create** new connections with unique UUIDs
+- **Pause** connections temporarily
+- **Revoke** connections permanently
+- **View** request logs and usage statistics
+
+### Troubleshooting
+
+**"Invalid token" or 401 errors**:
+- Token may have expired - the AI client should automatically refresh
+- Connection may have been revoked - check Dashboard → Connections
+- Verify you're using the correct MCP URL
+
+**"Insufficient scope" errors**:
+- The token doesn't have permission for the requested operation
+- Re-authorize with the required scopes
+
+**Rate limit errors (429)**:
+- Wait for the `Retry-After` header duration
+- Check `X-RateLimit-Reset` header for reset time
+
+**Connection not working after authorization**:
+- Ensure your agents are online and connected
+- Check the connection status in the dashboard
+- Verify the connection is not paused or revoked
+
 ## Configuration Examples
 
 ### With LM Studio (Local LLM)
@@ -1354,6 +1514,51 @@ npm run test:startup   # Server startup tests
 - **Filesystem Tools**: 21 tests covering all 9 fs_* operations
 - **Shell Tools**: 20 tests for command execution and session management
 - **Tool Registry**: 17 tests for profile and configuration management
+
+### Agent Test Server (Debug Builds)
+
+Debug builds of the native agents (macOS, Windows, Linux) include an embedded **Test Server** that enables fully automated end-to-end testing without manual interaction.
+
+**Key Features:**
+- **Localhost Only**: Binds exclusively to `127.0.0.1:3456` for security
+- **Debug Only**: Completely absent from release/production builds
+- **Full UI Control**: Set fields, click buttons, read logs programmatically
+- **CI/CD Ready**: Perfect for automated testing pipelines
+
+**Quick Test:**
+```bash
+# Check if test server is running (debug builds only)
+curl http://localhost:3456/ping
+# {"pong":true,"version":"1.0.0","debug":true,"port":3456}
+
+# Configure and connect
+curl -X POST http://localhost:3456 \
+  -H "Content-Type: application/json" \
+  -d '{"method":"setField","params":{"field":"serverUrl","value":"ws://localhost:3000/ws"}}'
+
+curl -X POST http://localhost:3456 \
+  -H "Content-Type: application/json" \
+  -d '{"method":"clickButton","params":{"button":"connect"}}'
+
+# Check connection state
+curl -X POST http://localhost:3456 \
+  -H "Content-Type: application/json" \
+  -d '{"method":"getState"}'
+```
+
+**Available Methods:**
+| Method | Description |
+|--------|-------------|
+| `ping` | Health check |
+| `getState` | Get connection status |
+| `getFields` | Get all UI field values |
+| `setField` | Set a field value |
+| `clickButton` | Click connect/disconnect/save |
+| `getLogs` | Get debug log entries |
+| `restart` | Restart the agent |
+| `quit` | Quit the agent |
+
+For complete documentation, test scripts, and CI/CD examples, see [docs/AGENT_TEST_SERVER.md](docs/AGENT_TEST_SERVER.md).
 
 ### Tool Registry (New in v1.1.16)
 

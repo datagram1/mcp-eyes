@@ -188,6 +188,9 @@ model Agent {
   isDuplicate       Boolean     @default(false)
   duplicateOf       String?     // Points to original agent ID if duplicate
 
+  // Debug/Testing
+  isMock            Boolean     @default(false)  // True for mock agents created in debug mode
+
   // Timestamps
   firstSeenAt       DateTime    @default(now())
   lastSeenAt        DateTime    @default(now())

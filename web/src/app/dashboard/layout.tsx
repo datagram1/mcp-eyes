@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { authOptions } from '@/lib/auth-options';
 import { prisma } from '@/lib/prisma';
+import { isDebugMode } from '@/lib/debug';
 
 export default async function DashboardLayout({
   children,
@@ -58,6 +59,11 @@ export default async function DashboardLayout({
               <Link href="/dashboard/settings" className="text-slate-300 hover:text-white transition">
                 Settings
               </Link>
+              {isDebugMode() && (
+                <Link href="/dashboard/debug" className="text-orange-400 hover:text-orange-300 transition">
+                  Debug
+                </Link>
+              )}
             </div>
 
             {/* User Menu */}

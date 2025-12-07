@@ -19,6 +19,7 @@
 		010 /* FilesystemTools.m in Sources */ = {isa = PBXBuildFile; fileRef = 110 /* FilesystemTools.m */; };
 		011 /* ShellTools.m in Sources */ = {isa = PBXBuildFile; fileRef = 112 /* ShellTools.m */; };
 		012 /* debug-config.json in Resources */ = {isa = PBXBuildFile; fileRef = 113 /* debug-config.json */; };
+		013 /* TestServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 115 /* TestServer.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,8 @@
 		111 /* ShellTools.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ShellTools.h; sourceTree = "<group>"; };
 		112 /* ShellTools.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ShellTools.m; sourceTree = "<group>"; };
 		113 /* debug-config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "debug-config.json"; sourceTree = "<group>"; };
+		114 /* TestServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TestServer.h; sourceTree = "<group>"; };
+		115 /* TestServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TestServer.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,6 +83,8 @@
 				110 /* FilesystemTools.m */,
 				111 /* ShellTools.h */,
 				112 /* ShellTools.m */,
+				114 /* TestServer.h */,
+				115 /* TestServer.m */,
 				103 /* Assets.xcassets */,
 				104 /* Info.plist */,
 				105 /* ScreenControl.entitlements */,
@@ -182,6 +187,7 @@
 				008 /* MCPServer.m in Sources */,
 				010 /* FilesystemTools.m in Sources */,
 				011 /* ShellTools.m in Sources */,
+				013 /* TestServer.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

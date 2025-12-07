@@ -1,10 +1,14 @@
 /**
- * MCP-Eyes App Delegate
- * Menu bar app with status icon, native settings window, and HTTP server
+ * ScreenControl App Delegate
+ * Menu bar app with status icon, native settings window, and MCP server
  */
 
 #import <Cocoa/Cocoa.h>
 #import "MCPServer.h"
+
+#ifdef DEBUG
+@class TestServer;
+#endif
 
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, MCPServerDelegate>
 
@@ -61,8 +65,20 @@
 @property (strong, nonatomic) NSTextField *debugLicenseStatusLabel;
 @property (strong, nonatomic) NSTextField *debugAgentIdLabel;
 @property (strong, nonatomic) NSTextView *debugLogView;
+@property (strong, nonatomic) NSTextView *debugLogTextView;  // Alias for test server
 @property (strong, nonatomic) NSURLSessionWebSocketTask *debugWebSocketTask;
 @property (strong, nonatomic) NSTimer *debugHeartbeatTimer;
 @property (assign, nonatomic) BOOL debugIsConnected;
+@property (strong, nonatomic) NSButton *debugConnectOnStartupCheckbox;
+
+#ifdef DEBUG
+// Test server for automated testing (DEBUG builds only)
+@property (strong, nonatomic) TestServer *testServer;
+#endif
+
+// Debug action methods (exposed for TestServer)
+- (IBAction)debugConnectClicked:(id)sender;
+- (IBAction)debugDisconnectClicked:(id)sender;
+- (IBAction)debugSaveSettingsClicked:(id)sender;
 
 @end

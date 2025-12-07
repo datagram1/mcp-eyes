@@ -69,14 +69,9 @@ function LoginForm() {
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label htmlFor="password" className="block text-sm font-medium text-slate-300">
-              Password
-            </label>
-            <Link href="/auth/forgot-password" className="text-sm text-blue-400 hover:text-blue-300">
-              Forgot password?
-            </Link>
-          </div>
+          <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-1">
+            Password
+          </label>
           <input
             id="password"
             type="password"
@@ -105,6 +100,12 @@ function LoginForm() {
             'Sign in'
           )}
         </button>
+
+        <div className="text-center">
+          <Link href="/auth/forgot-password" className="text-sm text-blue-400 hover:text-blue-300">
+            Forgot password?
+          </Link>
+        </div>
       </form>
 
       {/* OAuth Buttons */}

@@ -1,11 +1,11 @@
 {
-  "serverUrl": "wss://screencontrol.knws.co.uk/ws",
-  "serverHttpUrl": "https://screencontrol.knws.co.uk",
-  "endpointUuid": "",
-  "customerId": "",
+  "serverUrl": "ws://localhost:3000/ws",
+  "serverHttpUrl": "http://localhost:3000",
+  "endpointUuid": "cmivv9aar000310vcfp9lg0qj",
+  "customerId": "cmivqj7nk000054pkib1rkjdb",
   "developerEmail": "richard.brown@knws.co.uk",
   "connectOnStartup": false,
   "autoFillDebugSettings": true,
   "environment": "development",
-  "notes": "This debug config is bundled with development builds. Set endpointUuid from your MCP connection in the web dashboard."
+  "notes": "Dev Testing connection for richard.brown@knws.co.uk"
 }

@@ -21,11 +21,15 @@ Currently implemented:
 - ✅ Download UI on connection detail page (Part D.5)
 - ✅ Navigation enhancements with agent badges (Part E)
 - ✅ Initial test suite (Part F) - 159 tests passing
+- ✅ macOS Agent WebSocket Integration (Part D.9) - full bidirectional communication working
+- ✅ macOS Agent TestServer (Part D.12.2) - remote agent control via HTTP API
+- ✅ agentRegistry globalThis singleton pattern (fixes Next.js module isolation)
+- ✅ Command execution from server to agent via `/api/agents/[id]` POST
 
 **Next up (Build Phase):**
-- Agent renaming (D.7: MCPEyes → ScreenControl)
-- Debug build menu (D.8: manual config for testing)
-- Agent WebSocket client implementation (D.9-D.11)
+- Agent renaming (D.7: MCPEyes → ScreenControl) - partially complete
+- Debug build menu (D.8: manual config for testing) - macOS complete
+- Windows/Linux Agent WebSocket client implementation (D.10-D.11)
 - Control server agent integration (Part I)
 
 **Later (Features Phase):**
@@ -37,6 +41,55 @@ Currently implemented:
 **Final steps (after all features complete):**
 - Expand test suite (F.5: tests for all new features)
 - Production deployment (Part G: MUST be last)
+
+---
+
+## Part D.0: Developer Test Environment Setup
+
+> **PREREQUISITE**: Before testing agents, you need database records for your developer account.
+
+### D.0.1 Developer Account & MCP Connection
+
+The Debug tab in the macOS agent needs an `endpointUuid` from an MCP connection. This requires:
+
+1. A user account (richard.brown@knws.co.uk)
+2. An MCP connection linked to that user
+3. The connection's `endpointUuid` to paste into the Debug tab
+
+**Tasks:**
+- [x] D.0.1.1 Create seed script: `web/prisma/seed-dev.ts`
+- [x] D.0.1.2 Seed script creates developer user if not exists
+- [x] D.0.1.3 Seed script creates "Dev Testing" MCP connection for that user
+- [x] D.0.1.4 Seed script outputs the `endpointUuid` to console
+- [x] D.0.1.5 Add `npm run seed:dev` script to package.json
+- [x] D.0.1.6 Document: Copy endpointUuid into macOS Debug tab → "Endpoint UUID" field
+
+**Seed Script Output Example:**
+```
+✓ Developer user: richard.brown@knws.co.uk (created/found)
+✓ MCP Connection: "Dev Testing"
+✓ Endpoint UUID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+Paste this UUID into the macOS agent's Debug tab to test.
+```
+
+### D.0.2 Alternative: Manual Setup via Dashboard
+
+If the dashboard is already deployed:
+- [ ] D.0.2.1 Sign up / sign in as developer
+- [ ] D.0.2.2 Go to Connections → Add Connection
+- [ ] D.0.2.3 Create "Dev Testing" connection
+- [ ] D.0.2.4 Copy the endpoint UUID from connection detail page
+
+### D.0.3 Prisma Studio (Quick Check)
+
+For quick database inspection:
+```bash
+cd web
+npx prisma studio
+```
+- View Users, McpConnections tables
+- Copy `endpointUuid` directly from database
 
 ---
 
@@ -56,14 +109,14 @@ The control-server library is fully integrated with Next.js via custom server.
   - Uses `agentRegistry` singleton
   - Server-side ping every 15 seconds
 - [x] A.1.3 `package.json` has scripts for custom server
-- [ ] A.1.4 Test agent can connect via `wss://screencontrol.knws.co.uk/ws`
+- [x] A.1.4 Test agent can connect via `ws://localhost:3000/ws` (tested with macOS agent)
 
 ### A.2 Agent Registration Flow ✅ COMPLETE
 
 **Implemented in**: `websocket-handler.ts`, `agent-registry.ts`
 
 - [x] A.2.1 Registration flow implemented end-to-end
-- [ ] A.2.2 Test with macOS agent (ScreenControl.app)
+- [x] A.2.2 Test with macOS agent (ScreenControl.app) - verified via TestServer remote control
 - [x] A.2.3 Agent record created/updated in database on connect
 
 ### A.3 Heartbeat & License Checking ✅ COMPLETE
@@ -277,8 +330,8 @@ Added to connection detail page.
 - [x] D.5.1 Download section on connection detail page
 - [x] D.5.2 Platform icons (macOS, Windows, Linux)
 - [x] D.5.3 Download button for each platform
-- [ ] D.5.4 Show download history
-- [ ] D.5.5 Installation instructions per platform
+- [x] D.5.4 Show download history
+- [x] D.5.5 Installation instructions per platform
 
 ### D.6 Agent-Side PatchData Reading
 
@@ -290,17 +343,17 @@ Agents need to read embedded configuration on startup.
 - [ ] D.6.4 Windows: Same for ScreenControl.exe
 - [ ] D.6.5 Linux: Same for ELF binary
 
-### D.7 Agent Renaming
+### D.7 Agent Renaming ✅ COMPLETE (macOS)
 
 **Rename all agents from "MCPEyes" to "ScreenControl" for consistent branding.**
 
-#### D.7.0 macOS Agent Rename
-- [ ] D.7.0.1 Rename `MCPEyes.app` → `ScreenControl.app`
-- [ ] D.7.0.2 Update Xcode project name and bundle identifier
-- [ ] D.7.0.3 Update Info.plist: CFBundleName, CFBundleDisplayName
-- [ ] D.7.0.4 Update code references from "MCPEyes" to "ScreenControl"
-- [ ] D.7.0.5 Update menu bar title and about dialog
-- [ ] D.7.0.6 Update app icon (if needed for rebrand)
+#### D.7.0 macOS Agent Rename ✅ COMPLETE
+- [x] D.7.0.1 Rename `MCPEyes.app` → `ScreenControl.app`
+- [x] D.7.0.2 Update Xcode project name and bundle identifier
+- [x] D.7.0.3 Update Info.plist: CFBundleName, CFBundleDisplayName
+- [x] D.7.0.4 Update code references from "MCPEyes" to "ScreenControl"
+- [x] D.7.0.5 Update menu bar title and about dialog
+- [x] D.7.0.6 Update app icon (if needed for rebrand)
 
 #### D.7.0 Windows Agent Rename
 - [ ] D.7.0.7 Service: `ScreenControlService.exe` (already named correctly)
@@ -322,32 +375,14 @@ Agents need to read embedded configuration on startup.
 
 **IMPORTANT**: Debug menu should be visible on ALL platforms during testing phase. Only hide behind `#ifdef DEBUG` or feature flag when ready for production release.
 
-#### D.8.1 macOS Debug Menu (ScreenControl.app)
+#### D.8.1 macOS Debug Menu (ScreenControl.app) ✅ COMPLETE
 
-- [ ] D.8.1.1 Add "Debug Settings" or "Developer" menu item (visible during testing)
-- [ ] D.8.1.2 Create settings window with fields:
-  ```
-  ┌─────────────────────────────────────────────────┐
-  │  Debug Connection Settings                       │
-  ├─────────────────────────────────────────────────┤
-  │  Control Server URL:                            │
-  │  [ https://screencontrol.knws.co.uk           ] │
-  │                                                 │
-  │  MCP Endpoint UUID:                             │
-  │  [ xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx       ] │
-  │                                                 │
-  │  Customer ID (optional):                        │
-  │  [ xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx       ] │
-  │                                                 │
-  │  [x] Connect on startup                         │
-  │  [ ] Use localhost (127.0.0.1:3000)            │
-  │                                                 │
-  │         [ Save & Connect ]  [ Cancel ]          │
-  └─────────────────────────────────────────────────┘
-  ```
-- [ ] D.8.1.3 Save settings to `~/Library/Application Support/ScreenControl/debug-config.json`
-- [ ] D.8.1.4 On startup, load debug config if no PatchData found in binary
-- [ ] D.8.1.5 Show connection status in menu bar (connected/disconnected/error)
+- [x] D.8.1.1 Add "Debug Settings" or "Developer" menu item (visible during testing)
+- [x] D.8.1.2 Create settings window with fields:
+  - Server URL, Endpoint UUID, Customer ID, Connect on startup toggle
+- [x] D.8.1.3 Save settings to `~/Library/Application Support/ScreenControl/debug-config.json`
+- [x] D.8.1.4 On startup, load debug config (bundled or user-saved)
+- [x] D.8.1.5 Show connection status in menu bar (connected/disconnected/error)
 - [ ] D.8.1.6 Add "Copy MCP URL" button to copy `https://server/mcp/{uuid}` to clipboard
 - [ ] D.8.1.7 Add feature flag for hiding debug menu in production (disabled during testing)
 
@@ -386,26 +421,26 @@ Agents need to read embedded configuration on startup.
 
 **IMPORTANT**: Debug mode should be accessible during testing phase. Hide behind admin role or feature flag for production.
 
-##### D.8.5.1 Debug Page
+##### D.8.5.1 Debug Page ✅ COMPLETE
 
-**Create**: `web/src/app/dashboard/debug/page.tsx`
+**Created**: `web/src/app/dashboard/debug/page.tsx`
 
-- [ ] D.8.5.1.1 Create debug dashboard page (only visible during testing or to admin users)
-- [ ] D.8.5.1.2 Add link in sidebar (conditionally shown based on debug mode)
+- [x] D.8.5.1.1 Create debug dashboard page (only visible during testing or to admin users)
+- [x] D.8.5.1.2 Add link in sidebar (conditionally shown based on debug mode)
 
-##### D.8.5.2 Mock Agent Management
+##### D.8.5.2 Mock Agent Management ✅ COMPLETE
 
-- [ ] D.8.5.2.1 "Create Mock Agent" button to create test agents in database
+- [x] D.8.5.2.1 "Create Mock Agent" button to create test agents in database
   - Pre-fill with test data (hostname, fingerprint, etc.)
   - Select OS type (macOS, Windows, Linux)
   - Select initial state (PENDING, ACTIVE, BLOCKED, EXPIRED)
-- [ ] D.8.5.2.2 "Simulate Agent Online" - mark agent as online without real WebSocket
-- [ ] D.8.5.2.3 "Simulate Agent Offline" - mark agent as offline
-- [ ] D.8.5.2.4 "Delete All Mock Agents" - cleanup test data
+- [x] D.8.5.2.2 "Simulate Agent Online" - mark agent as online without real WebSocket
+- [x] D.8.5.2.3 "Simulate Agent Offline" - mark agent as offline
+- [x] D.8.5.2.4 "Delete All Mock Agents" - cleanup test data
 
-##### D.8.5.3 License State Testing
+##### D.8.5.3 License State Testing ✅ COMPLETE
 
-- [ ] D.8.5.3.1 Manual state change buttons for any agent:
+- [x] D.8.5.3.1 Manual state change buttons for any agent:
   ```
   ┌─────────────────────────────────────────────────────┐
   │  Agent: test-mac-001                                │
@@ -454,14 +489,14 @@ DEBUG_MODE=true  # Enable debug features (disable in production)
 
 ---
 
-### D.9 macOS Agent WebSocket Integration (ScreenControl.app)
+### D.9 macOS Agent WebSocket Integration (ScreenControl.app) ✅ COMPLETE
 
-**Current state**: ScreenControl.app (formerly MCPEyes.app) only does HTTP connection tests. Needs full WebSocket support.
+**Current state**: ScreenControl.app fully implements WebSocket connection to control server.
 
 **Tasks:**
-- [ ] D.9.1 Add `NSURLSessionWebSocketTask` client to ScreenControl.app
-- [ ] D.9.2 Connect to `wss://screencontrol.knws.co.uk/ws` on startup
-- [ ] D.9.3 Send registration message on connect:
+- [x] D.9.1 Add `NSURLSessionWebSocketTask` client to ScreenControl.app
+- [x] D.9.2 Connect to `wss://screencontrol.knws.co.uk/ws` on startup
+- [x] D.9.3 Send registration message on connect:
   ```json
   {
     "type": "register",
@@ -475,8 +510,8 @@ DEBUG_MODE=true  # Enable debug features (disable in production)
     "customerId": "<from-patchdata-or-settings>"
   }
   ```
-- [ ] D.9.4 Handle `registered` response and store `licenseUuid`
-- [ ] D.9.5 Implement heartbeat loop (every 30s when ACTIVE):
+- [x] D.9.4 Handle `registered` response and store `licenseUuid`
+- [x] D.9.5 Implement heartbeat loop (every 30s when ACTIVE):
   ```json
   {
     "type": "heartbeat",
@@ -485,11 +520,11 @@ DEBUG_MODE=true  # Enable debug features (disable in production)
     "currentTask": null
   }
   ```
-- [ ] D.9.6 Handle `heartbeat_ack` response (license status, power config)
-- [ ] D.9.7 Implement reconnection logic with exponential backoff
-- [ ] D.9.8 Handle incoming `request` messages (commands from control server)
-- [ ] D.9.9 Send `response` messages with command results
-- [ ] D.9.10 Update menu bar status based on connection state
+- [x] D.9.6 Handle `heartbeat_ack` response (license status, power config)
+- [x] D.9.7 Implement reconnection logic with exponential backoff
+- [x] D.9.8 Handle incoming `request` messages (commands from control server)
+- [x] D.9.9 Send `response` messages with command results
+- [x] D.9.10 Update menu bar status based on connection state
 
 ### D.10 Windows Agent WebSocket Integration (ScreenControl.exe)
 
@@ -500,6 +535,305 @@ DEBUG_MODE=true  # Enable debug features (disable in production)
 
 - [ ] D.11.1 Add WebSocket client (libwebsockets or beast)
 - [ ] D.11.2 Same protocol as macOS (D.9.2 - D.9.10)
+
+---
+
+### D.12 Agent Remote Testing Infrastructure
+
+**Problem**: Manual testing of agent functionality is slow and error-prone. We need automated testing capabilities to verify agent behavior across all platforms.
+
+**Solution**: Add a local test server port (3456 or 3457) to each agent that accepts commands to control and inspect the agent's state. This allows automated testing without touching production WebSocket connections.
+
+#### D.12.1 Test Server Protocol
+
+The test server listens on `localhost:3456` (primary) and `localhost:3457` (fallback) and accepts JSON-RPC style commands over HTTP POST.
+
+**Port Strategy:**
+- Port 3456: Primary test server port
+- Port 3457: Fallback if 3456 is in use (allows running 2 agents for cross-platform testing)
+
+**Core Commands:**
+```json
+// Health check - verify agent is responsive
+{ "method": "ping" }
+-> { "pong": true, "version": "1.0.0", "platform": "macos", "uptime": 3600 }
+
+// Get current agent state
+{ "method": "getState" }
+-> { "connected": true, "endpoint": "...", "status": "ACTIVE", "powerState": "PASSIVE", ... }
+
+// Get all config field values
+{ "method": "getFields" }
+-> { "serverUrl": "...", "endpointUuid": "...", "customerId": "...", "connectOnStartup": true }
+
+// Set debug field values
+{ "method": "setField", "params": { "field": "serverUrl", "value": "wss://..." } }
+
+// Click a button / trigger action
+{ "method": "clickButton", "params": { "button": "connect" } }
+{ "method": "clickButton", "params": { "button": "disconnect" } }
+```
+
+**Lifecycle Commands:**
+```json
+// Restart the agent (quit + relaunch)
+{ "method": "restart" }
+
+// Quit the agent gracefully
+{ "method": "quit" }
+
+// Force quit (for hung agents)
+{ "method": "forceQuit" }
+```
+
+**Debugging Commands:**
+```json
+// Get recent logs (configurable limit)
+{ "method": "getLogs", "params": { "limit": 100, "level": "debug" } }
+-> { "logs": [ { "time": "...", "level": "info", "message": "..." }, ... ] }
+
+// Stream logs in real-time (WebSocket upgrade)
+{ "method": "streamLogs" }
+-> WebSocket connection for real-time log streaming
+
+// Get current memory/CPU usage
+{ "method": "getMetrics" }
+-> { "memoryMB": 45, "cpuPercent": 2.5, "connections": 1, "uptime": 3600 }
+
+// Get screenshot (visual debugging)
+{ "method": "getScreenshot", "params": { "format": "png" } }
+-> { "screenshot": "<base64-encoded-image>" }
+
+// Get stack trace (for debugging hangs)
+{ "method": "getStackTrace" }
+-> { "threads": [ { "name": "main", "stack": "..." }, ... ] }
+```
+
+**Simulation Commands:**
+```json
+// Simulate WebSocket disconnect
+{ "method": "simulateDisconnect" }
+
+// Simulate reconnection
+{ "method": "simulateReconnect" }
+
+// Simulate network latency
+{ "method": "simulateLatency", "params": { "ms": 500 } }
+
+// Simulate error condition
+{ "method": "simulateError", "params": { "type": "auth_failure" } }
+```
+
+**Remote Update Commands:**
+```json
+// Update agent binary (for CI/CD)
+{ "method": "updateBinary", "params": { "url": "https://...", "checksum": "sha256:..." } }
+-> { "status": "downloading" } / { "status": "installing" } / { "status": "restarting" }
+
+// Get current version info
+{ "method": "getVersion" }
+-> { "version": "1.0.0", "buildDate": "2024-01-15", "gitCommit": "abc123" }
+```
+
+#### D.12.2 macOS Test Server Implementation ✅ CORE COMPLETE
+
+- [x] D.12.2.1 Add `TestServer` class in `TestServer.h/m`
+- [x] D.12.2.2 Start HTTP server on localhost:3457 on app launch (uses native BSD sockets, DEBUG builds only)
+- [x] D.12.2.3 Implement `getState` - return connection status, settings
+- [x] D.12.2.4 Implement `setField` - programmatically fill text fields
+- [x] D.12.2.5 Implement `clickButton` - trigger button actions (connect/disconnect/saveSettings)
+- [x] D.12.2.6 Implement `getFields` - return all current field values
+- [x] D.12.2.7 Implement `getLogs` - return recent log entries from debug log view
+- [x] D.12.2.8 Implement `restart` - quit and relaunch app via NSWorkspace
+- [x] D.12.2.9 Implement `quit` - graceful shutdown via NSApplication terminate
+- [x] D.12.2.10 Implement `ping` - health check with version/platform info
+- [x] D.12.2.11 Only bind to localhost (127.0.0.1) for security
+- [ ] D.12.2.12 Add `--test-port=NNNN` command line argument to override port
+- [ ] D.12.2.13 Implement `getMetrics` - memory/CPU via mach_task_info
+- [ ] D.12.2.14 Implement `getScreenshot` - capture via CGWindowListCreateImage
+- [ ] D.12.2.15 Implement `updateBinary` - download and replace app bundle
+- [ ] D.12.2.16 Implement `getVersion` - return app version, build date, git commit
+- [ ] D.12.2.17 Implement WebSocket endpoint for `streamLogs` real-time log streaming
+
+#### D.12.3 Windows Test Server Implementation
+
+- [ ] D.12.3.1 Add `TestServer` class in C# (ScreenControlTray project)
+- [ ] D.12.3.2 Start HTTP server on localhost:3456 on app launch (use HttpListener)
+- [ ] D.12.3.3 Implement `getState` - return connection status, settings
+- [ ] D.12.3.4 Implement `setField` - programmatically fill text fields
+- [ ] D.12.3.5 Implement `clickButton` - trigger button actions (connect/disconnect)
+- [ ] D.12.3.6 Implement `getFields` - return all current field values
+- [ ] D.12.3.7 Implement `getLogs` - return recent log entries from Event Log or file
+- [ ] D.12.3.8 Implement `restart` - quit and relaunch app via Process.Start
+- [ ] D.12.3.9 Implement `quit` - graceful shutdown via Application.Exit
+- [ ] D.12.3.10 Implement `ping` - health check with version info
+- [ ] D.12.3.11 Only bind to localhost (127.0.0.1) for security
+- [ ] D.12.3.12 Add `--test-port=NNNN` command line argument to override port
+- [ ] D.12.3.13 Implement `getServiceStatus` - Windows service state via ServiceController
+- [ ] D.12.3.14 Implement `getScreenshot` - capture via Graphics.CopyFromScreen
+- [ ] D.12.3.15 Implement `getMetrics` - memory/CPU via PerformanceCounter
+- [ ] D.12.3.16 Implement `updateBinary` - download and replace exe, schedule restart
+- [ ] D.12.3.17 Implement `getVersion` - return assembly version, build date
+- [ ] D.12.3.18 Implement WebSocket endpoint for `streamLogs` real-time log streaming
+
+#### D.12.4 Linux Test Server Implementation
+
+- [ ] D.12.4.1 Add `TestServer` class in C++ (screencontrol project) using cpp-httplib
+- [ ] D.12.4.2 Start HTTP server on localhost:3456 on startup
+- [ ] D.12.4.3 Implement `getState` - return connection status, settings
+- [ ] D.12.4.4 Implement `setField` - programmatically set config values
+- [ ] D.12.4.5 Implement `clickButton` - trigger actions (connect/disconnect)
+- [ ] D.12.4.6 Implement `getFields` - return all current config values
+- [ ] D.12.4.7 Implement `getLogs` - return recent log entries from journald (sd_journal) or file
+- [ ] D.12.4.8 Implement `restart` - quit and relaunch via fork/exec
+- [ ] D.12.4.9 Implement `quit` - graceful shutdown via signal
+- [ ] D.12.4.10 Implement `ping` - health check with version info
+- [ ] D.12.4.11 Only bind to localhost (127.0.0.1) for security
+- [ ] D.12.4.12 Add `--test-port=NNNN` command line argument to override port
+- [ ] D.12.4.13 Support both GUI and headless modes with same test interface
+- [ ] D.12.4.14 Implement `getScreenshot` - capture via X11 XGetImage or Wayland
+- [ ] D.12.4.15 Implement `getMetrics` - read from /proc/self/status
+- [ ] D.12.4.16 Implement `updateBinary` - download, replace binary, restart
+- [ ] D.12.4.17 Implement `getVersion` - return version from embedded string
+- [ ] D.12.4.18 Implement WebSocket endpoint for `streamLogs` (use websocketpp)
+
+#### D.12.5 Test Runner (Node.js)
+
+Create a test runner in `test/agent-tests/` that can control agents remotely:
+
+- [ ] D.12.5.1 Create `test/agent-tests/client.ts` - TestClient class for agent control
+- [ ] D.12.5.2 Create `test/agent-tests/runner.ts` - test runner CLI
+- [ ] D.12.5.3 Create test cases:
+  - [ ] D.12.5.3.1 `connection.test.ts` - verify connect/disconnect flow
+  - [ ] D.12.5.3.2 `heartbeat.test.ts` - verify heartbeat sends correctly
+  - [ ] D.12.5.3.3 `reconnection.test.ts` - verify reconnection after disconnect
+  - [ ] D.12.5.3.4 `config.test.ts` - verify debug config loading
+  - [ ] D.12.5.3.5 `commands.test.ts` - verify MCP command handling
+- [ ] D.12.5.4 Add `npm run test:agent` script
+- [ ] D.12.5.5 Support targeting specific platforms: `npm run test:agent -- --platform=macos`
+
+#### D.12.6 CI Integration
+
+- [ ] D.12.6.1 Add GitHub Actions workflow for agent testing
+- [ ] D.12.6.2 Run macOS tests on macOS runner
+- [ ] D.12.6.3 Run Windows tests on Windows runner
+- [ ] D.12.6.4 Run Linux tests on Linux runner
+
+#### D.12.7 Test Server Security
+
+**Important**: The test server should ONLY be available in debug builds or when explicitly enabled.
+
+- [ ] D.12.7.1 Only enable test server when `DEBUG` build flag is set
+- [ ] D.12.7.2 Bind ONLY to 127.0.0.1 (never 0.0.0.0)
+- [ ] D.12.7.3 Add `--enable-test-server` command line flag for production builds
+- [ ] D.12.7.4 Log warning when test server is enabled
+- [ ] D.12.7.5 Consider token-based auth for additional security
+
+#### D.12.8 Continuous Deployment & Automated Testing Workflow
+
+**Goal**: Enable fully automated build → deploy → test → fix → redeploy cycles without manual intervention.
+
+##### D.12.8.1 Test Infrastructure Setup
+
+**Each test machine has:**
+- Agent running with test server enabled (port 3456)
+- SSH access for deployment (or use `updateBinary` remote command)
+- Network access to control server and build artifacts
+
+**Environment:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      CI/CD Server                                │
+│  (GitHub Actions / Jenkins / Local)                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐                 │
+│   │  macOS   │    │ Windows  │    │  Linux   │                 │
+│   │  Agent   │    │  Agent   │    │  Agent   │                 │
+│   │ :3456    │    │ :3456    │    │ :3456    │                 │
+│   └────┬─────┘    └────┬─────┘    └────┬─────┘                 │
+│        │               │               │                        │
+│        └───────────────┼───────────────┘                        │
+│                        │                                         │
+│                 Control Server                                   │
+│              (screencontrol.knws.co.uk)                         │
+│                        │                                         │
+│                   Web Dashboard                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+##### D.12.8.2 Automated Test Flow
+
+```
+1. Build Phase:
+   - CI builds agent for all platforms (macOS, Windows, Linux)
+   - Generate checksums for each binary
+   - Upload to artifact storage
+
+2. Deploy Phase (per platform):
+   - Connect to agent's test server (localhost:3456 via SSH tunnel)
+   - Call `getVersion` to check current version
+   - Call `updateBinary` with new binary URL and checksum
+   - Wait for agent to restart
+   - Call `ping` to verify agent is back online
+
+3. Test Phase:
+   - Run connection tests (connect/disconnect/reconnect)
+   - Run heartbeat tests (verify server receives heartbeats)
+   - Run command tests (execute MCP tools, verify results)
+   - Run stress tests (rapid connect/disconnect, many commands)
+   - Capture screenshots for visual verification
+
+4. Analyze Phase:
+   - Call `getLogs` to retrieve all logs
+   - Call `getMetrics` to get performance data
+   - Compare results against expected baselines
+   - Generate test report
+
+5. Fix & Retry Phase (if tests fail):
+   - Analyze failure logs
+   - If fixable automatically: apply fix, rebuild, go to step 1
+   - If requires manual intervention: alert developer with full logs
+```
+
+##### D.12.8.3 Implementation Tasks
+
+- [ ] D.12.8.3.1 Create `scripts/deploy-agent.ts` - deploy new binary to test machine
+- [ ] D.12.8.3.2 Create `scripts/test-agent.ts` - run full test suite against agent
+- [ ] D.12.8.3.3 Create `scripts/collect-logs.ts` - gather logs from all platforms
+- [ ] D.12.8.3.4 Create `scripts/generate-report.ts` - create HTML test report
+- [ ] D.12.8.3.5 Create `scripts/ci-pipeline.ts` - orchestrate full CI/CD flow
+- [ ] D.12.8.3.6 Add GitHub Actions workflow for automated testing
+- [ ] D.12.8.3.7 Set up SSH tunnels for remote agent access (or VPN)
+- [ ] D.12.8.3.8 Create artifact storage for test builds (S3, GCS, or local)
+
+##### D.12.8.4 Test Machine Requirements
+
+**macOS Test Machine:**
+- [ ] D.12.8.4.1 macOS VM or physical machine with Accessibility permissions pre-granted
+- [ ] D.12.8.4.2 ScreenControl.app installed with `--enable-test-server`
+- [ ] D.12.8.4.3 SSH enabled for remote deployment
+- [ ] D.12.8.4.4 Auto-login configured for GUI testing
+
+**Windows Test Machine:**
+- [ ] D.12.8.4.5 Windows VM with UAC configured for automation
+- [ ] D.12.8.4.6 ScreenControl.exe installed with `--enable-test-server`
+- [ ] D.12.8.4.7 OpenSSH or WinRM enabled for remote deployment
+- [ ] D.12.8.4.8 Auto-login configured for GUI testing
+
+**Linux Test Machine:**
+- [ ] D.12.8.4.9 Linux VM with X11/Wayland for GUI testing
+- [ ] D.12.8.4.10 screencontrol installed with `--enable-test-server`
+- [ ] D.12.8.4.11 SSH enabled for remote deployment
+- [ ] D.12.8.4.12 Headless variant tested separately (no display required)
+
+##### D.12.8.5 Monitoring Dashboard
+
+- [ ] D.12.8.5.1 Create real-time test status dashboard
+- [ ] D.12.8.5.2 Show each platform's test status (passing/failing)
+- [ ] D.12.8.5.3 Display live log stream from all agents
+- [ ] D.12.8.5.4 Alert on test failures (Slack, email, etc.)
+- [ ] D.12.8.5.5 Historical test results graph
 
 ---
 
@@ -880,6 +1214,7 @@ WS_PORT=3001
 - **Part F: Initial Testing** - 159 tests passing (PKCE, tokens, scopes, rate limiting, OAuth flow, WebSocket protocol)
 
 ### 🚧 NEXT UP (Build Phase)
+0. **D.0: Developer Test Environment** (create user + MCP connection + get endpointUuid)
 1. **D.7: Agent Renaming** (MCPEyes → ScreenControl branding)
 2. **D.8: Debug Build Menu** (manual stamping for testing - CRITICAL for development)
    - D.8.1-D.8.4: Agent debug menus (macOS, Windows, Linux)

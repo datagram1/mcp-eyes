@@ -10,6 +10,10 @@
 #import <IOKit/IOKitLib.h>
 #import <signal.h>
 
+#ifdef DEBUG
+#import "TestServer.h"
+#endif
+
 // Settings keys for UserDefaults
 static NSString * const kAgentNameKey = @"AgentName";
 static NSString * const kNetworkModeKey = @"NetworkMode";
@@ -124,10 +128,25 @@ extern "C" {
                                                       selector:@selector(updateStatus)
                                                       userInfo:nil
                                                        repeats:YES];
+
+#ifdef DEBUG
+    // Start test server for automated testing (DEBUG builds only)
+    self.testServer = [[TestServer alloc] initWithAppDelegate:self];
+    if ([self.testServer startOnPort:3456]) {
+        NSLog(@"[ScreenControl] Test server started - agent is now remotely controllable via localhost:3456");
+    } else {
+        NSLog(@"[ScreenControl] WARNING: Failed to start test server");
+    }
+#endif
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
     self.isAppTerminating = YES;
+
+#ifdef DEBUG
+    [self.testServer stop];
+#endif
+
     [self stopBrowserBridge];
     [self stopAgent];
     [self.statusTimer invalidate];
@@ -731,7 +750,23 @@ extern "C" {
     self.debugDisconnectButton.action = @selector(debugDisconnect:);
     self.debugDisconnectButton.enabled = NO;
     [connectionBox addSubview:self.debugDisconnectButton];
-    boxY -= rowHeight + 10;
+
+    // Save Settings button
+    NSButton *saveSettingsButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 220, boxY, 100, 32)];
+    saveSettingsButton.title = @"Save";
+    saveSettingsButton.bezelStyle = NSBezelStyleRounded;
+    saveSettingsButton.target = self;
+    saveSettingsButton.action = @selector(debugSaveSettingsClicked:);
+    [connectionBox addSubview:saveSettingsButton];
+    boxY -= rowHeight + 5;
+
+    // Connect on startup checkbox
+    self.debugConnectOnStartupCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
+    self.debugConnectOnStartupCheckbox.title = @"Connect automatically on app startup";
+    [self.debugConnectOnStartupCheckbox setButtonType:NSButtonTypeSwitch];
+    self.debugConnectOnStartupCheckbox.state = [[NSUserDefaults standardUserDefaults] boolForKey:@"debugConnectOnStartup"] ? NSControlStateValueOn : NSControlStateValueOff;
+    [connectionBox addSubview:self.debugConnectOnStartupCheckbox];
+    boxY -= rowHeight + 5;
 
     // Connection status
     self.debugConnectionStatusLabel = [self createLabel:@"Status: Not connected"
@@ -773,6 +808,7 @@ extern "C" {
     logScrollView.borderType = NSBezelBorder;
 
     self.debugLogView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, logScrollView.contentSize.width, logScrollView.contentSize.height)];
+    self.debugLogTextView = self.debugLogView;  // Alias for TestServer
     self.debugLogView.editable = NO;
     self.debugLogView.font = [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
     self.debugLogView.backgroundColor = [NSColor textBackgroundColor];
@@ -1589,6 +1625,10 @@ extern "C" {
 }
 
 - (void)saveSettings:(id)sender {
+    // Track which settings need restart vs immediate apply
+    NSString *oldPort = [self loadSetting:kPortKey defaultValue:@"3456"];
+    NSString *oldNetworkMode = [self loadSetting:kNetworkModeKey defaultValue:@"localhost"];
+
     [self saveSetting:kAgentNameKey value:self.agentNameField.stringValue];
 
     NSInteger modeIndex = self.networkModePopup.indexOfSelectedItem;
@@ -1611,16 +1651,33 @@ extern "C" {
     // Save tools configuration
     [self saveToolsConfig];
 
-    NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"Settings Saved";
-    alert.informativeText = @"Your settings have been saved. Restart the agent for changes to take effect.";
-    alert.alertStyle = NSAlertStyleInformational;
-    [alert addButtonWithTitle:@"OK"];
-    [alert addButtonWithTitle:@"Restart Now"];
+    // Apply control server settings immediately (no restart needed)
+    [self checkControlServerConnection];
 
-    NSModalResponse response = [alert runModal];
-    if (response == NSAlertSecondButtonReturn) {
-        [self restartAgent];
+    // Check if MCP server settings changed (these need restart)
+    BOOL needsRestart = ![oldPort isEqualToString:self.portField.stringValue] ||
+                        ![oldNetworkMode isEqualToString:mode];
+
+    if (needsRestart) {
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"Settings Saved";
+        alert.informativeText = @"Port or network mode changed. Restart the agent for these changes to take effect.";
+        alert.alertStyle = NSAlertStyleInformational;
+        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"Restart Now"];
+
+        NSModalResponse response = [alert runModal];
+        if (response == NSAlertSecondButtonReturn) {
+            [self restartAgent];
+        }
+    } else {
+        // Just show confirmation - control server settings applied immediately
+        NSAlert *alert = [[NSAlert alloc] init];
+        alert.messageText = @"Settings Saved";
+        alert.informativeText = @"Your settings have been applied.";
+        alert.alertStyle = NSAlertStyleInformational;
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
     }
 
     [self.settingsWindow close];
@@ -2356,6 +2413,30 @@ extern "C" {
             [self debugConnect:nil];
         });
     }
+}
+
+#pragma mark - TestServer Wrapper Methods
+
+- (IBAction)debugConnectClicked:(id)sender {
+    [self debugConnect:sender];
+}
+
+- (IBAction)debugDisconnectClicked:(id)sender {
+    [self debugDisconnect:sender];
+}
+
+- (IBAction)debugSaveSettingsClicked:(id)sender {
+    // Save debug-specific settings to UserDefaults
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    [defaults setObject:self.debugServerUrlField.stringValue forKey:@"debugServerUrl"];
+    [defaults setObject:self.debugEndpointUuidField.stringValue forKey:@"debugEndpointUuid"];
+    [defaults setObject:self.debugCustomerIdField.stringValue forKey:@"debugCustomerId"];
+    if (self.debugConnectOnStartupCheckbox) {
+        [defaults setBool:(self.debugConnectOnStartupCheckbox.state == NSControlStateValueOn) forKey:@"debugConnectOnStartup"];
+    }
+    [defaults synchronize];
+
+    [self debugLog:@"Settings saved"];
 }
 
 @end

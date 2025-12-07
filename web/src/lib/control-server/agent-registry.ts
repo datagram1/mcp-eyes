@@ -206,7 +206,7 @@ class LocalAgentRegistry implements IAgentRegistry {
   }
 
   /**
-   * Get an agent by connection ID
+   * Get an agent by connection ID or database ID
    */
   getAgent(agentId: string): ConnectedAgent | undefined {
     // Try connection ID first
@@ -712,6 +712,18 @@ class LocalAgentRegistry implements IAgentRegistry {
   }
 }
 
-// Singleton instance
-export const agentRegistry = new LocalAgentRegistry();
+// Singleton instance using globalThis to survive Next.js module reloading
+// and ensure the same instance is used across custom server and API routes
+const globalForAgentRegistry = globalThis as unknown as {
+  agentRegistry: LocalAgentRegistry | undefined;
+};
+
+export const agentRegistry =
+  globalForAgentRegistry.agentRegistry ??
+  new LocalAgentRegistry();
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForAgentRegistry.agentRegistry = agentRegistry;
+}
+
 export { LocalAgentRegistry };
