@@ -190,8 +190,10 @@ export function validateTokenAudience(tokenAudience: string, expectedResource: s
     return true;
   }
 
-  // Allow base path match: if token is for /mcp, allow access to /mcp/uuid
-  // This supports the case where Claude requests auth for the base MCP URL
+  // Allow parent resource to match child resource
+  // e.g., token for "/mcp" can access "/mcp/{uuid}"
+  // This is useful when a token is issued for the generic MCP service
+  // and should work for any specific MCP endpoint
   if (normalizedExpected.startsWith(normalizedAudience + '/')) {
     return true;
   }

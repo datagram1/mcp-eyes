@@ -73,7 +73,7 @@ export const OAUTH_CONFIG = {
   responseTypesSupported: ['code'] as const,
   grantTypesSupported: ['authorization_code', 'refresh_token'] as const,
   codeChallengeMethodsSupported: ['S256'] as const,
-  tokenEndpointAuthMethodsSupported: ['none'] as const,
+  tokenEndpointAuthMethodsSupported: ['none', 'client_secret_post'] as const,
   scopesSupported: ['mcp:tools', 'mcp:resources', 'mcp:prompts', 'mcp:agents:read', 'mcp:agents:write'] as const,
 } as const;
 

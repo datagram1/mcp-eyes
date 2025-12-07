@@ -93,20 +93,8 @@ export async function GET(request: NextRequest) {
     logOAuth('ERROR', { error: 'unsupported_response_type', reason: `Got "${params.response_type}" instead of "code"` });
     return errorResponse('unsupported_response_type', 'Only response_type=code is supported');
   }
-  if (!params.code_challenge) {
-    logOAuth('ERROR', { error: 'invalid_request', reason: 'Missing code_challenge parameter (PKCE required)' });
-    return errorResponse('invalid_request', 'Missing code_challenge parameter (PKCE required)');
-  }
-  if (params.code_challenge_method !== 'S256') {
-    logOAuth('ERROR', { error: 'invalid_request', reason: `code_challenge_method must be S256, got "${params.code_challenge_method}"` });
-    return errorResponse('invalid_request', 'Only code_challenge_method=S256 is supported');
-  }
-  if (!isValidCodeChallenge(params.code_challenge)) {
-    logOAuth('ERROR', { error: 'invalid_request', reason: 'Invalid code_challenge format', code_challenge: params.code_challenge });
-    return errorResponse('invalid_request', 'Invalid code_challenge format');
-  }
 
-  // 2. Validate client exists and redirect_uri matches
+  // 2. Validate client exists and redirect_uri matches (needed before PKCE check)
   logOAuth('CLIENT LOOKUP', { client_id: params.client_id });
   const client = await getClient(params.client_id);
   if (!client) {
@@ -128,6 +116,25 @@ export async function GET(request: NextRequest) {
     });
     return errorResponse('invalid_request', 'redirect_uri does not match registered URIs');
   }
+
+  // 3. Check PKCE requirements based on client type
+  // Confidential clients (client_secret_post) can skip PKCE
+  // Public clients (none) MUST use PKCE
+  const isConfidentialClient = client.tokenEndpointAuth === 'client_secret_post';
+
+  if (params.code_challenge) {
+    // If PKCE is provided, validate it
+    if (params.code_challenge_method !== 'S256') {
+      return errorResponse('invalid_request', 'Only code_challenge_method=S256 is supported');
+    }
+    if (!isValidCodeChallenge(params.code_challenge)) {
+      return errorResponse('invalid_request', 'Invalid code_challenge format');
+    }
+  } else if (!isConfidentialClient) {
+    // Public clients MUST use PKCE
+    return errorResponse('invalid_request', 'Missing code_challenge parameter (PKCE required for public clients)');
+  }
+  // Note: Confidential clients can skip PKCE (they authenticate with client_secret)
 
   // 3. Parse and validate scopes
   const requestedScopes = params.scope ? parseScopes(params.scope) : [];
@@ -211,17 +218,22 @@ export async function GET(request: NextRequest) {
   }
 
   // 6. Create a signed JWT containing the authorization request for consent page
-  const pendingRequest = {
+  const pendingRequest: Record<string, unknown> = {
     clientId: params.client_id,
     clientDbId: client.id,
     userId: user.id,
     redirectUri: params.redirect_uri,
     scope: scopes,
-    codeChallenge: params.code_challenge,
-    codeChallengeMethod: params.code_challenge_method,
     resource: params.resource || `${APP_URL}/mcp`,
     state: params.state,
+    isConfidentialClient,
   };
+
+  // Only include PKCE if provided (confidential clients can skip it)
+  if (params.code_challenge) {
+    pendingRequest.codeChallenge = params.code_challenge;
+    pendingRequest.codeChallengeMethod = params.code_challenge_method;
+  }
 
   logOAuth('PENDING REQUEST', pendingRequest);
 
