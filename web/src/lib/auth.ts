@@ -1,18 +1,24 @@
-import bcrypt from 'bcryptjs';
+import * as argon2 from 'argon2';
 import crypto from 'crypto';
 
 /**
- * Hash a password using bcrypt
+ * Hash a password using Argon2id (recommended for password hashing)
+ * Argon2id is resistant to both side-channel and GPU-based attacks
  */
 export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 12);
+  return argon2.hash(password, {
+    type: argon2.argon2id,
+    memoryCost: 65536,    // 64 MB
+    timeCost: 3,          // 3 iterations
+    parallelism: 4,       // 4 parallel threads
+  });
 }
 
 /**
- * Verify a password against a hash
+ * Verify a password against an Argon2 hash
  */
 export async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
-  return bcrypt.compare(password, hashedPassword);
+  return argon2.verify(hashedPassword, password);
 }
 
 /**
