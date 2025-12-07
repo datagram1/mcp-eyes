@@ -15,6 +15,9 @@ import {
   CommandMessage,
   IAgentRegistry,
   OSType,
+  MCPTool,
+  MCPResource,
+  MCPPrompt,
 } from './types';
 import { NetworkUtils } from './network';
 import {
@@ -25,6 +28,11 @@ import {
   logCommand,
   updateCommandLog,
   checkCommandPreConditions,
+  getAgentSchedule,
+  getAgentsNeedingScheduleUpdate,
+  ScheduleInfo,
+  getAgentsWithLicenseChanges,
+  LicenseValidationResult,
 } from './db-service';
 
 // Command queue entry for sleeping agents (1.2.18)
@@ -45,6 +53,170 @@ class LocalAgentRegistry implements IAgentRegistry {
   private agentsByDbId = new Map<string, string>(); // dbId -> connectionId
   private sessionIds = new Map<string, string>(); // connectionId -> sessionId
   private commandQueue = new Map<string, QueuedCommand[]>(); // agentId -> queued commands (1.2.18)
+  private scheduleCheckTimer: NodeJS.Timeout | null = null;
+  private licenseCheckTimer: NodeJS.Timeout | null = null; // I.2.2
+
+  constructor() {
+    // Start periodic schedule checker (runs every minute)
+    this.startScheduleChecker();
+    // Start periodic license checker (runs every 5 minutes)
+    this.startLicenseChecker();
+  }
+
+  /**
+   * Start periodic schedule checker (I.2.1)
+   */
+  private startScheduleChecker(): void {
+    // Check every minute for schedule transitions
+    this.scheduleCheckTimer = setInterval(() => {
+      this.checkScheduleTransitions().catch(err => {
+        console.error('[Registry] Schedule check error:', err);
+      });
+    }, 60000); // 1 minute
+
+    console.log('[Registry] Schedule checker started (60s interval)');
+  }
+
+  /**
+   * Check for schedule-based power state transitions (I.2.1)
+   */
+  private async checkScheduleTransitions(): Promise<void> {
+    try {
+      const updates = await getAgentsNeedingScheduleUpdate();
+
+      for (const update of updates) {
+        const connectionId = this.agentsByDbId.get(update.agentDbId);
+        if (!connectionId) continue;
+
+        const agent = this.agents.get(connectionId);
+        if (!agent) continue;
+
+        // Send config update
+        this.sendConfigUpdate(agent, {
+          heartbeatInterval: update.heartbeatInterval,
+          powerState: update.desiredPowerState,
+        });
+
+        // Update local state
+        agent.powerState = update.desiredPowerState;
+
+        console.log(
+          `[Registry] Schedule transition for ${agent.machineName || agent.machineId}: ` +
+          `${update.currentPowerState} -> ${update.desiredPowerState}`
+        );
+      }
+    } catch (err) {
+      console.error('[Registry] Failed to check schedule transitions:', err);
+    }
+  }
+
+  /**
+   * Start periodic license checker (I.2.2)
+   */
+  private startLicenseChecker(): void {
+    // Check every 5 minutes for license validity
+    this.licenseCheckTimer = setInterval(() => {
+      this.checkLicenseValidity().catch(err => {
+        console.error('[Registry] License check error:', err);
+      });
+    }, 300000); // 5 minutes
+
+    console.log('[Registry] License checker started (5m interval)');
+  }
+
+  /**
+   * Check license validity for all connected agents (I.2.2)
+   */
+  private async checkLicenseValidity(): Promise<void> {
+    try {
+      const updates = await getAgentsWithLicenseChanges();
+
+      for (const update of updates) {
+        const connectionId = this.agentsByDbId.get(update.agentDbId);
+        if (!connectionId) continue;
+
+        const agent = this.agents.get(connectionId);
+        if (!agent) continue;
+
+        // Handle license expiry mid-session (I.2.3)
+        await this.handleLicenseStateChange(agent, update);
+      }
+
+      if (updates.length > 0) {
+        console.log(`[Registry] License check: ${updates.length} agents with state changes`);
+      }
+    } catch (err) {
+      console.error('[Registry] Failed to check license validity:', err);
+    }
+  }
+
+  /**
+   * Handle license state change for an agent (I.2.3)
+   */
+  private async handleLicenseStateChange(
+    agent: ConnectedAgent,
+    update: LicenseValidationResult
+  ): Promise<void> {
+    const previousState = agent.state;
+    agent.state = update.newState;
+    agent.licenseStatus = this.mapStateToLicenseStatus(update.newState);
+
+    console.log(
+      `[Registry] License state change for ${agent.machineName || agent.machineId}: ` +
+      `${previousState} -> ${update.newState} (${update.reason})`
+    );
+
+    // Send notification to agent about state change
+    if (agent.socket.readyState === WebSocket.OPEN) {
+      const message: CommandMessage = {
+        type: 'command',
+        id: uuidv4(),
+        method: 'license_state_change',
+        params: {
+          newState: update.newState,
+          reason: update.reason,
+          // For EXPIRED/BLOCKED, we allow graceful shutdown
+          // Agent should complete current task, then enter degraded mode
+          gracePeriodMs: update.newState === 'BLOCKED' ? 0 : 60000, // 1 minute grace for EXPIRED
+        },
+      };
+
+      try {
+        agent.socket.send(JSON.stringify(message));
+      } catch (err) {
+        console.error(`[Registry] Failed to notify agent of license change:`, err);
+      }
+    }
+
+    // For BLOCKED state, optionally disconnect after grace period
+    if (update.newState === 'BLOCKED') {
+      // Schedule disconnect after 30 seconds (allow agent to acknowledge)
+      setTimeout(() => {
+        if (agent.socket.readyState === WebSocket.OPEN && agent.state === 'BLOCKED') {
+          console.log(`[Registry] Disconnecting blocked agent: ${agent.machineName || agent.machineId}`);
+          agent.socket.close(4003, 'License blocked');
+        }
+      }, 30000);
+    }
+  }
+
+  /**
+   * Map agent state to license status
+   */
+  private mapStateToLicenseStatus(
+    state: 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'BLOCKED'
+  ): 'active' | 'pending' | 'expired' | 'blocked' {
+    switch (state) {
+      case 'ACTIVE':
+        return 'active';
+      case 'PENDING':
+        return 'pending';
+      case 'EXPIRED':
+        return 'expired';
+      case 'BLOCKED':
+        return 'blocked';
+    }
+  }
 
   /**
    * Register a new agent connection
@@ -166,7 +338,123 @@ class LocalAgentRegistry implements IAgentRegistry {
       `[${agent.state}] [${dbResult.isNew ? 'NEW' : 'EXISTING'}]`
     );
 
+    // Fetch agent capabilities asynchronously (don't block registration)
+    this.fetchAgentCapabilities(agent.id).catch(err => {
+      console.error(`[Registry] Failed to fetch capabilities for ${agent.machineName}:`, err);
+    });
+
+    // Apply schedule-based power state (I.2.1)
+    this.applyScheduleToAgent(agent).catch(err => {
+      console.error(`[Registry] Failed to apply schedule for ${agent.machineName}:`, err);
+    });
+
     return agent;
+  }
+
+  /**
+   * Apply schedule-based power state to an agent (I.2.1)
+   */
+  private async applyScheduleToAgent(agent: ConnectedAgent): Promise<void> {
+    if (!agent.dbId) return;
+
+    try {
+      const schedule = await getAgentSchedule(agent.dbId);
+      if (!schedule) return;
+
+      // Send config update with schedule-based power state
+      this.sendConfigUpdate(agent, {
+        heartbeatInterval: schedule.heartbeatInterval,
+        powerState: schedule.desiredPowerState,
+      });
+
+      // Update local state
+      agent.powerState = schedule.desiredPowerState;
+
+      console.log(
+        `[Registry] Applied schedule to ${agent.machineName || agent.machineId}: ` +
+        `${schedule.scheduleMode} -> ${schedule.desiredPowerState} ` +
+        `(quiet: ${schedule.isInQuietHours})`
+      );
+    } catch (err) {
+      console.error(`[Registry] Failed to get schedule for agent ${agent.id}:`, err);
+    }
+  }
+
+  /**
+   * Send config update to agent
+   */
+  private sendConfigUpdate(
+    agent: ConnectedAgent,
+    config: { heartbeatInterval?: number; powerState?: 'ACTIVE' | 'PASSIVE' | 'SLEEP' }
+  ): void {
+    if (agent.socket.readyState !== WebSocket.OPEN) return;
+
+    const message: CommandMessage = {
+      type: 'config',
+      id: uuidv4(),
+      config,
+    };
+
+    try {
+      agent.socket.send(JSON.stringify(message));
+    } catch (err) {
+      console.error(`[Registry] Failed to send config to ${agent.id}:`, err);
+    }
+  }
+
+  /**
+   * Fetch and cache agent capabilities (tools, resources, prompts)
+   */
+  async fetchAgentCapabilities(agentId: string): Promise<void> {
+    const agent = this.agents.get(agentId);
+    if (!agent) return;
+
+    try {
+      // Fetch tools
+      const toolsResult = await this.sendCommand(agentId, 'tools/list', {});
+      if (toolsResult && typeof toolsResult === 'object' && 'tools' in toolsResult) {
+        agent.tools = (toolsResult as { tools: MCPTool[] }).tools || [];
+        agent.toolsFetchedAt = new Date();
+        console.log(
+          `[Registry] Cached ${agent.tools.length} tools for ${agent.machineName || agent.machineId}`
+        );
+      }
+
+      // Fetch resources (optional, agent may not support)
+      try {
+        const resourcesResult = await this.sendCommand(agentId, 'resources/list', {});
+        if (resourcesResult && typeof resourcesResult === 'object' && 'resources' in resourcesResult) {
+          agent.resources = (resourcesResult as { resources: MCPResource[] }).resources || [];
+        }
+      } catch {
+        // Resources not supported - that's fine
+        agent.resources = [];
+      }
+
+      // Fetch prompts (optional, agent may not support)
+      try {
+        const promptsResult = await this.sendCommand(agentId, 'prompts/list', {});
+        if (promptsResult && typeof promptsResult === 'object' && 'prompts' in promptsResult) {
+          agent.prompts = (promptsResult as { prompts: MCPPrompt[] }).prompts || [];
+        }
+      } catch {
+        // Prompts not supported - that's fine
+        agent.prompts = [];
+      }
+    } catch (err) {
+      console.error(`[Registry] Failed to fetch tools for ${agent.machineName}:`, err);
+      // Don't fail registration, just leave tools undefined
+    }
+  }
+
+  /**
+   * Refresh capabilities for all connected agents
+   */
+  async refreshAllCapabilities(): Promise<void> {
+    const agents = Array.from(this.agents.values());
+    await Promise.allSettled(
+      agents.map(agent => this.fetchAgentCapabilities(agent.id))
+    );
   }
 
   /**
@@ -244,6 +532,100 @@ class LocalAgentRegistry implements IAgentRegistry {
    */
   getAllAgents(): ConnectedAgent[] {
     return Array.from(this.agents.values());
+  }
+
+  /**
+   * Get aggregated tools from all connected agents
+   * Tools are prefixed with agent name to avoid conflicts
+   */
+  getAggregatedTools(): Array<MCPTool & { agentId: string; agentName: string }> {
+    const aggregatedTools: Array<MCPTool & { agentId: string; agentName: string }> = [];
+
+    for (const agent of this.agents.values()) {
+      if (!agent.tools || agent.state !== 'ACTIVE') continue;
+
+      const agentName = agent.machineName || agent.machineId || agent.id;
+
+      for (const tool of agent.tools) {
+        aggregatedTools.push({
+          ...tool,
+          name: `${agentName}__${tool.name}`,
+          description: `[${agentName}] ${tool.description || ''}`,
+          agentId: agent.id,
+          agentName,
+        });
+      }
+    }
+
+    return aggregatedTools;
+  }
+
+  /**
+   * Get aggregated resources from all connected agents
+   */
+  getAggregatedResources(): Array<MCPResource & { agentId: string; agentName: string }> {
+    const aggregatedResources: Array<MCPResource & { agentId: string; agentName: string }> = [];
+
+    for (const agent of this.agents.values()) {
+      if (!agent.resources || agent.state !== 'ACTIVE') continue;
+
+      const agentName = agent.machineName || agent.machineId || agent.id;
+
+      for (const resource of agent.resources) {
+        aggregatedResources.push({
+          ...resource,
+          uri: `${agentName}://${resource.uri}`,
+          name: `[${agentName}] ${resource.name}`,
+          agentId: agent.id,
+          agentName,
+        });
+      }
+    }
+
+    return aggregatedResources;
+  }
+
+  /**
+   * Get aggregated prompts from all connected agents
+   */
+  getAggregatedPrompts(): Array<MCPPrompt & { agentId: string; agentName: string }> {
+    const aggregatedPrompts: Array<MCPPrompt & { agentId: string; agentName: string }> = [];
+
+    for (const agent of this.agents.values()) {
+      if (!agent.prompts || agent.state !== 'ACTIVE') continue;
+
+      const agentName = agent.machineName || agent.machineId || agent.id;
+
+      for (const prompt of agent.prompts) {
+        aggregatedPrompts.push({
+          ...prompt,
+          name: `${agentName}__${prompt.name}`,
+          description: `[${agentName}] ${prompt.description || ''}`,
+          agentId: agent.id,
+          agentName,
+        });
+      }
+    }
+
+    return aggregatedPrompts;
+  }
+
+  /**
+   * Find agent by tool name prefix (agentName__toolName)
+   */
+  findAgentByToolPrefix(prefixedToolName: string): { agent: ConnectedAgent; toolName: string } | null {
+    const match = prefixedToolName.match(/^(.+?)__(.+)$/);
+    if (!match) return null;
+
+    const [, agentName, toolName] = match;
+
+    for (const agent of this.agents.values()) {
+      if (agent.machineName === agentName || agent.machineId === agentName || agent.id === agentName) {
+        return { agent, toolName };
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -511,6 +893,18 @@ class LocalAgentRegistry implements IAgentRegistry {
    * Cleanup all connections
    */
   async cleanup(): Promise<void> {
+    // Stop periodic timers
+    if (this.scheduleCheckTimer) {
+      clearInterval(this.scheduleCheckTimer);
+      this.scheduleCheckTimer = null;
+      console.log('[Registry] Schedule checker stopped');
+    }
+    if (this.licenseCheckTimer) {
+      clearInterval(this.licenseCheckTimer);
+      this.licenseCheckTimer = null;
+      console.log('[Registry] License checker stopped');
+    }
+
     const promises: Promise<void>[] = [];
 
     for (const [id, agent] of this.agents) {

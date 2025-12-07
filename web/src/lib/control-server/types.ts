@@ -48,8 +48,45 @@ export interface ConnectedAgent {
   lastPing: Date;
   lastActivity: Date;
 
+  // Capabilities (cached from agent on connect)
+  tools?: MCPTool[];
+  toolsFetchedAt?: Date;
+  resources?: MCPResource[];
+  prompts?: MCPPrompt[];
+
   // Pending requests (for request/response correlation)
   pendingRequests: Map<string, PendingRequest>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP Capability Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface MCPTool {
+  name: string;
+  description?: string;
+  inputSchema?: {
+    type: 'object';
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+export interface MCPResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface MCPPrompt {
+  name: string;
+  description?: string;
+  arguments?: Array<{
+    name: string;
+    description?: string;
+    required?: boolean;
+  }>;
 }
 
 export interface FingerprintData {

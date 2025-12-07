@@ -1,11 +1,13 @@
 /**
  * Settings Form
  *
- * WinForms UI for service configuration and license management.
+ * WinForms UI for service configuration, license management, and debug mode.
  */
 
 using System;
 using System.Drawing;
+using System.IO;
+using System.Text.Json;
 using System.Windows.Forms;
 using System.Threading.Tasks;
 
@@ -38,10 +40,26 @@ namespace ScreenControlTray
         private CheckBox _loggingCheckBox;
         private Button _saveButton;
 
+        // Debug tab
+        private TextBox _debugServerUrlTextBox;
+        private TextBox _debugEndpointUuidTextBox;
+        private TextBox _debugCustomerIdTextBox;
+        private CheckBox _debugConnectOnStartupCheckBox;
+        private Button _debugConnectButton;
+        private Button _debugDisconnectButton;
+        private Button _debugSaveSettingsButton;
+        private Button _debugCopyMcpUrlButton;
+        private Label _debugConnectionStatusLabel;
+        private Label _debugLicenseStatusLabel;
+        private Label _debugAgentIdLabel;
+        private TextBox _debugLogTextBox;
+        private WebSocketClient? _webSocketClient;
+
         public SettingsForm(ServiceClient serviceClient)
         {
             _serviceClient = serviceClient;
             InitializeComponent();
+            LoadDebugConfig();
             _ = LoadDataAsync();
         }
 
@@ -74,6 +92,11 @@ namespace ScreenControlTray
             var settingsTab = new TabPage("Settings");
             InitializeSettingsTab(settingsTab);
             _tabControl.TabPages.Add(settingsTab);
+
+            // Debug Tab
+            var debugTab = new TabPage("Debug");
+            InitializeDebugTab(debugTab);
+            _tabControl.TabPages.Add(debugTab);
 
             Controls.Add(_tabControl);
         }
@@ -205,6 +228,318 @@ namespace ScreenControlTray
 
             tab.Controls.Add(panel);
         }
+
+        private void InitializeDebugTab(TabPage tab)
+        {
+            var mainPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                Padding = new Padding(10)
+            };
+
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+            // Connection Settings Group
+            var connectionGroup = new GroupBox
+            {
+                Text = "Debug Connection Settings",
+                Dock = DockStyle.Top,
+                Height = 180,
+                Padding = new Padding(10)
+            };
+
+            var connPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 5,
+                Padding = new Padding(5)
+            };
+            connPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+            connPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            // Server URL
+            connPanel.Controls.Add(new Label { Text = "Server URL:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+            _debugServerUrlTextBox = new TextBox { Width = 280, Text = "wss://screencontrol.knws.co.uk/ws" };
+            connPanel.Controls.Add(_debugServerUrlTextBox, 1, 0);
+
+            // Endpoint UUID
+            connPanel.Controls.Add(new Label { Text = "Endpoint UUID:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
+            _debugEndpointUuidTextBox = new TextBox { Width = 280 };
+            connPanel.Controls.Add(_debugEndpointUuidTextBox, 1, 1);
+
+            // Customer ID
+            connPanel.Controls.Add(new Label { Text = "Customer ID:", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 2);
+            _debugCustomerIdTextBox = new TextBox { Width = 280 };
+            connPanel.Controls.Add(_debugCustomerIdTextBox, 1, 2);
+
+            // Connect on startup checkbox
+            _debugConnectOnStartupCheckBox = new CheckBox { Text = "Connect automatically on startup", AutoSize = true };
+            connPanel.Controls.Add(_debugConnectOnStartupCheckBox, 1, 3);
+
+            // Buttons
+            var buttonPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+            _debugConnectButton = new Button { Text = "Connect", Size = new Size(80, 28) };
+            _debugConnectButton.Click += OnDebugConnectClick;
+            _debugDisconnectButton = new Button { Text = "Disconnect", Size = new Size(80, 28), Enabled = false };
+            _debugDisconnectButton.Click += OnDebugDisconnectClick;
+            _debugSaveSettingsButton = new Button { Text = "Save Settings", Size = new Size(90, 28) };
+            _debugSaveSettingsButton.Click += OnDebugSaveSettingsClick;
+            _debugCopyMcpUrlButton = new Button { Text = "Copy MCP URL", Size = new Size(100, 28) };
+            _debugCopyMcpUrlButton.Click += OnDebugCopyMcpUrlClick;
+            buttonPanel.Controls.Add(_debugConnectButton);
+            buttonPanel.Controls.Add(_debugDisconnectButton);
+            buttonPanel.Controls.Add(_debugSaveSettingsButton);
+            buttonPanel.Controls.Add(_debugCopyMcpUrlButton);
+            connPanel.Controls.Add(buttonPanel, 1, 4);
+
+            connectionGroup.Controls.Add(connPanel);
+            mainPanel.Controls.Add(connectionGroup, 0, 0);
+
+            // Status Group
+            var statusGroup = new GroupBox
+            {
+                Text = "Connection Status",
+                Dock = DockStyle.Top,
+                Height = 80,
+                Padding = new Padding(10)
+            };
+
+            var statusPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.TopDown,
+                AutoSize = true
+            };
+
+            _debugConnectionStatusLabel = new Label { Text = "Status: Not connected", AutoSize = true, ForeColor = Color.Gray };
+            _debugLicenseStatusLabel = new Label { Text = "License: --", AutoSize = true };
+            _debugAgentIdLabel = new Label { Text = "Agent ID: --", AutoSize = true };
+            statusPanel.Controls.Add(_debugConnectionStatusLabel);
+            statusPanel.Controls.Add(_debugLicenseStatusLabel);
+            statusPanel.Controls.Add(_debugAgentIdLabel);
+
+            statusGroup.Controls.Add(statusPanel);
+            mainPanel.Controls.Add(statusGroup, 0, 1);
+
+            // Log Group
+            var logGroup = new GroupBox
+            {
+                Text = "Connection Log",
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10)
+            };
+
+            _debugLogTextBox = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Dock = DockStyle.Fill,
+                Font = new Font("Consolas", 9)
+            };
+
+            logGroup.Controls.Add(_debugLogTextBox);
+            mainPanel.Controls.Add(logGroup, 0, 2);
+
+            tab.Controls.Add(mainPanel);
+        }
+
+        #region Debug Tab Event Handlers
+
+        private string GetDebugConfigPath()
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var configDir = Path.Combine(appData, "ScreenControl");
+            Directory.CreateDirectory(configDir);
+            return Path.Combine(configDir, "debug-config.json");
+        }
+
+        private void LoadDebugConfig()
+        {
+            try
+            {
+                var configPath = GetDebugConfigPath();
+                if (File.Exists(configPath))
+                {
+                    var json = File.ReadAllText(configPath);
+                    var config = JsonSerializer.Deserialize<DebugConfig>(json);
+                    if (config != null)
+                    {
+                        _debugServerUrlTextBox.Text = config.ServerUrl;
+                        _debugEndpointUuidTextBox.Text = config.EndpointUuid;
+                        _debugCustomerIdTextBox.Text = config.CustomerId;
+                        _debugConnectOnStartupCheckBox.Checked = config.ConnectOnStartup;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"Failed to load debug config: {ex.Message}");
+            }
+        }
+
+        private void SaveDebugConfig()
+        {
+            try
+            {
+                var config = new DebugConfig
+                {
+                    ServerUrl = _debugServerUrlTextBox.Text,
+                    EndpointUuid = _debugEndpointUuidTextBox.Text,
+                    CustomerId = _debugCustomerIdTextBox.Text,
+                    ConnectOnStartup = _debugConnectOnStartupCheckBox.Checked
+                };
+
+                var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(GetDebugConfigPath(), json);
+                DebugLog("Settings saved");
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"Failed to save debug config: {ex.Message}");
+            }
+        }
+
+        private async void OnDebugConnectClick(object? sender, EventArgs e)
+        {
+            if (_webSocketClient != null && _webSocketClient.IsConnected)
+                return;
+
+            _webSocketClient?.Dispose();
+            _webSocketClient = new WebSocketClient();
+
+            // Wire up events
+            _webSocketClient.OnLog += DebugLog;
+            _webSocketClient.OnConnectionChanged += OnDebugConnectionChanged;
+            _webSocketClient.OnStatusChanged += OnDebugStatusChanged;
+
+            var config = new DebugConfig
+            {
+                ServerUrl = _debugServerUrlTextBox.Text,
+                EndpointUuid = _debugEndpointUuidTextBox.Text,
+                CustomerId = _debugCustomerIdTextBox.Text
+            };
+
+            _debugConnectButton.Enabled = false;
+            _debugConnectionStatusLabel.Text = "Status: Connecting...";
+            _debugConnectionStatusLabel.ForeColor = Color.Orange;
+
+            await _webSocketClient.ConnectAsync(config);
+        }
+
+        private async void OnDebugDisconnectClick(object? sender, EventArgs e)
+        {
+            if (_webSocketClient == null) return;
+
+            _debugDisconnectButton.Enabled = false;
+            await _webSocketClient.DisconnectAsync();
+        }
+
+        private void OnDebugSaveSettingsClick(object? sender, EventArgs e)
+        {
+            SaveDebugConfig();
+            MessageBox.Show("Debug settings saved.", "ScreenControl", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void OnDebugCopyMcpUrlClick(object? sender, EventArgs e)
+        {
+            var endpointUuid = _debugEndpointUuidTextBox.Text.Trim();
+            if (string.IsNullOrEmpty(endpointUuid))
+            {
+                MessageBox.Show("Please enter an Endpoint UUID first.", "ScreenControl", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var serverUrl = _debugServerUrlTextBox.Text.Trim();
+            if (string.IsNullOrEmpty(serverUrl))
+            {
+                serverUrl = "wss://screencontrol.knws.co.uk/ws";
+            }
+
+            // Convert WebSocket URL to HTTP URL
+            var httpUrl = serverUrl
+                .Replace("wss://", "https://")
+                .Replace("ws://", "http://");
+
+            if (httpUrl.EndsWith("/ws"))
+            {
+                httpUrl = httpUrl[..^3];
+            }
+
+            var mcpUrl = $"{httpUrl}/mcp/{endpointUuid}";
+            Clipboard.SetText(mcpUrl);
+            DebugLog($"MCP URL copied: {mcpUrl}");
+            MessageBox.Show("MCP URL copied to clipboard.", "ScreenControl", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void OnDebugConnectionChanged(bool connected)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => OnDebugConnectionChanged(connected)));
+                return;
+            }
+
+            _debugConnectButton.Enabled = !connected;
+            _debugDisconnectButton.Enabled = connected;
+
+            if (connected)
+            {
+                _debugConnectionStatusLabel.Text = "Status: Connected";
+                _debugConnectionStatusLabel.ForeColor = Color.Green;
+            }
+            else
+            {
+                _debugConnectionStatusLabel.Text = "Status: Disconnected";
+                _debugConnectionStatusLabel.ForeColor = Color.Gray;
+                _debugLicenseStatusLabel.Text = "License: --";
+                _debugAgentIdLabel.Text = "Agent ID: --";
+            }
+        }
+
+        private void OnDebugStatusChanged(string agentId, string licenseStatus)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => OnDebugStatusChanged(agentId, licenseStatus)));
+                return;
+            }
+
+            _debugAgentIdLabel.Text = $"Agent ID: {agentId}";
+            _debugLicenseStatusLabel.Text = $"License: {licenseStatus.ToUpper()}";
+
+            if (licenseStatus == "active")
+            {
+                _debugLicenseStatusLabel.ForeColor = Color.Green;
+            }
+            else if (licenseStatus == "pending")
+            {
+                _debugLicenseStatusLabel.ForeColor = Color.Orange;
+            }
+            else
+            {
+                _debugLicenseStatusLabel.ForeColor = Color.Red;
+            }
+        }
+
+        private void DebugLog(string message)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => DebugLog(message)));
+                return;
+            }
+
+            _debugLogTextBox.AppendText(message + Environment.NewLine);
+            _debugLogTextBox.ScrollToCaret();
+        }
+
+        #endregion
 
         private async Task LoadDataAsync()
         {

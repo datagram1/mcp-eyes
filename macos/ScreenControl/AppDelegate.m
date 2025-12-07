@@ -758,6 +758,14 @@ extern "C" {
     saveSettingsButton.target = self;
     saveSettingsButton.action = @selector(debugSaveSettingsClicked:);
     [connectionBox addSubview:saveSettingsButton];
+
+    // Copy MCP URL button
+    NSButton *copyMcpUrlButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 330, boxY, 120, 32)];
+    copyMcpUrlButton.title = @"Copy MCP URL";
+    copyMcpUrlButton.bezelStyle = NSBezelStyleRounded;
+    copyMcpUrlButton.target = self;
+    copyMcpUrlButton.action = @selector(copyMcpUrl:);
+    [connectionBox addSubview:copyMcpUrlButton];
     boxY -= rowHeight + 5;
 
     // Connect on startup checkbox
@@ -2437,6 +2445,44 @@ extern "C" {
     [defaults synchronize];
 
     [self debugLog:@"Settings saved"];
+}
+
+- (IBAction)copyMcpUrl:(id)sender {
+    // Get the endpoint UUID from the debug field
+    NSString *endpointUuid = self.debugEndpointUuidField.stringValue;
+
+    if (endpointUuid.length == 0) {
+        [self debugLog:@"ERROR: No Endpoint UUID configured - cannot generate MCP URL"];
+        return;
+    }
+
+    // Get the server URL and convert to HTTPS for MCP endpoint
+    NSString *serverUrl = self.debugServerUrlField.stringValue;
+    if (serverUrl.length == 0) {
+        serverUrl = @"wss://screencontrol.knws.co.uk/ws";
+    }
+
+    // Convert WebSocket URL to HTTPS URL for MCP
+    // wss://screencontrol.knws.co.uk/ws -> https://screencontrol.knws.co.uk
+    // ws://localhost:3000/ws -> http://localhost:3000
+    NSString *httpUrl = serverUrl;
+    httpUrl = [httpUrl stringByReplacingOccurrencesOfString:@"wss://" withString:@"https://"];
+    httpUrl = [httpUrl stringByReplacingOccurrencesOfString:@"ws://" withString:@"http://"];
+
+    // Remove /ws suffix if present
+    if ([httpUrl hasSuffix:@"/ws"]) {
+        httpUrl = [httpUrl substringToIndex:httpUrl.length - 3];
+    }
+
+    // Construct the MCP URL
+    NSString *mcpUrl = [NSString stringWithFormat:@"%@/mcp/%@", httpUrl, endpointUuid];
+
+    // Copy to clipboard
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    [pasteboard clearContents];
+    [pasteboard setString:mcpUrl forType:NSPasteboardTypeString];
+
+    [self debugLog:[NSString stringWithFormat:@"MCP URL copied to clipboard: %@", mcpUrl]];
 }
 
 @end

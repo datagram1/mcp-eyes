@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 interface Agent {
@@ -35,9 +36,11 @@ const stateColors: Record<string, string> = {
 };
 
 export default function DebugPage() {
+  const router = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [debugEnabled, setDebugEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -46,6 +49,26 @@ export default function DebugPage() {
   const [mockHostname, setMockHostname] = useState('');
   const [mockOsType, setMockOsType] = useState<'macos' | 'windows' | 'linux'>('macos');
   const [mockState, setMockState] = useState<'PENDING' | 'ACTIVE' | 'BLOCKED' | 'EXPIRED'>('PENDING');
+
+  // Check debug mode - redirect if not enabled
+  useEffect(() => {
+    const checkDebugMode = async () => {
+      try {
+        // Try to fetch from debug API - if it returns 403, debug mode is disabled
+        const res = await fetch('/api/debug/agents', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } });
+        if (res.status === 403) {
+          const data = await res.json();
+          if (data.error === 'Debug mode not enabled') {
+            setDebugEnabled(false);
+            router.push('/dashboard');
+          }
+        }
+      } catch {
+        // Ignore errors from the check
+      }
+    };
+    checkDebugMode();
+  }, [router]);
 
   const fetchAgents = async () => {
     try {
@@ -161,6 +184,46 @@ export default function DebugPage() {
     }
   };
 
+  const simulateExpiration = async (agentId: string) => {
+    setActionLoading(agentId + '-expire');
+    try {
+      const res = await fetch(`/api/debug/agents/${agentId}/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'expiration' }),
+      });
+
+      if (!res.ok) throw new Error('Failed to simulate expiration');
+      const data = await res.json();
+      showMessage('success', `License expired: ${data.previousState} -> EXPIRED`);
+      fetchAgents();
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const simulateRenewal = async (agentId: string) => {
+    setActionLoading(agentId + '-renew');
+    try {
+      const res = await fetch(`/api/debug/agents/${agentId}/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'renewal' }),
+      });
+
+      if (!res.ok) throw new Error('Failed to simulate renewal');
+      const data = await res.json();
+      showMessage('success', `License renewed: ${data.previousState} -> ACTIVE`);
+      fetchAgents();
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const deleteAgent = async (agentId: string) => {
     if (!confirm('Are you sure you want to delete this agent?')) return;
 
@@ -194,11 +257,11 @@ export default function DebugPage() {
     }
   };
 
-  if (loading) {
+  if (loading || !debugEnabled) {
     return (
       <div className="p-6">
         <h1 className="text-2xl font-bold mb-4">Debug Dashboard</h1>
-        <p>Loading...</p>
+        <p>{!debugEnabled ? 'Debug mode not enabled. Redirecting...' : 'Loading...'}</p>
       </div>
     );
   }
@@ -383,7 +446,7 @@ export default function DebugPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 flex-wrap">
                         <button
                           onClick={() => simulateOnline(agent.id)}
                           disabled={actionLoading === agent.id}
@@ -397,6 +460,20 @@ export default function DebugPage() {
                           className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                         >
                           Offline
+                        </button>
+                        <button
+                          onClick={() => simulateExpiration(agent.id)}
+                          disabled={actionLoading === agent.id + '-expire' || agent.state === 'EXPIRED'}
+                          className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50"
+                        >
+                          Expire
+                        </button>
+                        <button
+                          onClick={() => simulateRenewal(agent.id)}
+                          disabled={actionLoading === agent.id + '-renew' || agent.state === 'ACTIVE'}
+                          className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
+                        >
+                          Renew
                         </button>
                       </div>
                     </td>

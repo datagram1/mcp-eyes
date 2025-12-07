@@ -1560,6 +1560,36 @@ curl -X POST http://localhost:3456 \
 
 For complete documentation, test scripts, and CI/CD examples, see [docs/AGENT_TEST_SERVER.md](docs/AGENT_TEST_SERVER.md).
 
+### CI/CD Pipeline
+
+Automated testing and release pipeline using GitHub Actions:
+
+**CI Pipeline** (on push/PR):
+- TypeScript build & test on Ubuntu and macOS
+- macOS agent build (Debug + Release)
+- Automated agent testing via TestServer API
+- Security verification (TestServer excluded from Release)
+- NPM package validation
+
+**Release Pipeline** (on version tags):
+- Builds all artifacts: NPM package, macOS DMG/ZIP, Web bundle
+- Creates GitHub Release with all downloads
+- Publishes to NPM registry
+
+**Local Testing:**
+```bash
+# Quick health check
+./scripts/test-agent.sh --quick
+
+# Full integration test
+./scripts/test-agent.sh
+
+# With control server connection test
+./scripts/test-agent.sh --with-server
+```
+
+For full details, see [docs/CI_CD_PIPELINE.md](docs/CI_CD_PIPELINE.md).
+
 ### Tool Registry (New in v1.1.16)
 
 The tool registry system allows you to enable/disable tools by category or individually:

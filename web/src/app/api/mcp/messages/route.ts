@@ -60,36 +60,9 @@ export async function POST(request: NextRequest) {
 
       case 'tools/list':
         if (!agentId) {
-          // Return aggregated tools from all connected agents
-          const tools: unknown[] = [];
-          const agents = agentRegistry.getAllAgents();
-
-          for (const agent of agents) {
-            try {
-              const result = await agentRegistry.sendCommand(
-                agent.id,
-                'tools/list',
-                {},
-                { ipAddress: clientIP }
-              );
-              if (result && typeof result === 'object' && 'tools' in result) {
-                const agentTools = (result as { tools: unknown[] }).tools;
-                // Prefix tool names with agent name to avoid conflicts
-                for (const tool of agentTools) {
-                  if (tool && typeof tool === 'object' && 'name' in tool) {
-                    tools.push({
-                      ...tool,
-                      name: `${agent.machineName || agent.machineId}__${(tool as { name: string }).name}`,
-                      description: `[${agent.machineName || 'Agent'}] ${(tool as { description?: string }).description || ''}`,
-                    });
-                  }
-                }
-              }
-            } catch {
-              // Skip agents that fail
-            }
-          }
-
+          // Return cached aggregated tools from all connected agents
+          // Tools are fetched and cached when agents register
+          const tools = agentRegistry.getAggregatedTools();
           return jsonRPCResponse(message.id, { tools });
         }
         return await forwardToAgent(agentId, message, clientIP);
@@ -98,30 +71,32 @@ export async function POST(request: NextRequest) {
         if (!agentId) {
           // Try to route based on tool name prefix (agent__tool)
           const toolName = (message.params as { name?: string })?.name || '';
-          const match = toolName.match(/^(.+?)__(.+)$/);
-          if (match) {
-            const [, agentName, actualToolName] = match;
-            // Find agent by name
-            const agents = agentRegistry.getAllAgents();
-            const targetAgent = agents.find(
-              a => a.machineName === agentName || a.machineId === agentName
-            );
-            if (targetAgent) {
-              // Rewrite params with actual tool name
-              const newParams = { ...(message.params as object), name: actualToolName };
-              const newMessage = { ...message, params: newParams };
-              return await forwardToAgent(targetAgent.id, newMessage as MCPMessage, clientIP);
-            }
+          const agentLookup = agentRegistry.findAgentByToolPrefix(toolName);
+          if (agentLookup) {
+            // Rewrite params with actual tool name (without prefix)
+            const newParams = { ...(message.params as object), name: agentLookup.toolName };
+            const newMessage = { ...message, params: newParams };
+            return await forwardToAgent(agentLookup.agent.id, newMessage as MCPMessage, clientIP);
           }
-          return jsonRPCError(message.id, -32602, 'Agent ID required');
+          return jsonRPCError(message.id, -32602, 'Agent ID required or invalid tool prefix');
         }
         return await forwardToAgent(agentId, message, clientIP);
 
       case 'resources/list':
-        return jsonRPCResponse(message.id, { resources: [] });
+        if (!agentId) {
+          // Return cached aggregated resources from all connected agents
+          const resources = agentRegistry.getAggregatedResources();
+          return jsonRPCResponse(message.id, { resources });
+        }
+        return await forwardToAgent(agentId, message, clientIP);
 
       case 'prompts/list':
-        return jsonRPCResponse(message.id, { prompts: [] });
+        if (!agentId) {
+          // Return cached aggregated prompts from all connected agents
+          const prompts = agentRegistry.getAggregatedPrompts();
+          return jsonRPCResponse(message.id, { prompts });
+        }
+        return await forwardToAgent(agentId, message, clientIP);
 
       case 'ping':
         return jsonRPCResponse(message.id, {

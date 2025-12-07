@@ -733,3 +733,476 @@ function detectQuietHours(hourlyActivity: number[]): {
 
   return { start: null, end: null };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Schedule Override Functions (I.2.1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ScheduleInfo {
+  scheduleMode: 'ALWAYS_ACTIVE' | 'AUTO_DETECT' | 'CUSTOM' | 'SLEEP_OVERNIGHT';
+  quietHoursStart: number | null;
+  quietHoursEnd: number | null;
+  timezone: string;
+  isInQuietHours: boolean;
+  desiredPowerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP';
+  heartbeatInterval: number; // milliseconds
+}
+
+/**
+ * Get schedule information for an agent via its owner
+ */
+export async function getAgentSchedule(agentDbId: string): Promise<ScheduleInfo | null> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentDbId },
+    include: {
+      owner: {
+        include: {
+          activityPattern: true,
+        },
+      },
+    },
+  });
+
+  if (!agent?.owner) {
+    // No owner, default to PASSIVE
+    return {
+      scheduleMode: 'AUTO_DETECT',
+      quietHoursStart: null,
+      quietHoursEnd: null,
+      timezone: 'UTC',
+      isInQuietHours: false,
+      desiredPowerState: 'PASSIVE',
+      heartbeatInterval: 30000, // 30 seconds for PASSIVE
+    };
+  }
+
+  const pattern = agent.owner.activityPattern;
+
+  if (!pattern) {
+    // No activity pattern yet, default to PASSIVE
+    return {
+      scheduleMode: 'AUTO_DETECT',
+      quietHoursStart: null,
+      quietHoursEnd: null,
+      timezone: 'UTC',
+      isInQuietHours: false,
+      desiredPowerState: 'PASSIVE',
+      heartbeatInterval: 30000,
+    };
+  }
+
+  const { isQuiet, currentHour } = isInQuietHours(
+    pattern.scheduleMode as ScheduleInfo['scheduleMode'],
+    pattern.quietHoursStart,
+    pattern.quietHoursEnd,
+    pattern.timezone
+  );
+
+  const desiredPowerState = getDesiredPowerState(
+    pattern.scheduleMode as ScheduleInfo['scheduleMode'],
+    isQuiet
+  );
+
+  const heartbeatInterval = getHeartbeatInterval(desiredPowerState);
+
+  return {
+    scheduleMode: pattern.scheduleMode as ScheduleInfo['scheduleMode'],
+    quietHoursStart: pattern.quietHoursStart,
+    quietHoursEnd: pattern.quietHoursEnd,
+    timezone: pattern.timezone,
+    isInQuietHours: isQuiet,
+    desiredPowerState,
+    heartbeatInterval,
+  };
+}
+
+/**
+ * Check if current time is in quiet hours
+ */
+function isInQuietHours(
+  scheduleMode: ScheduleInfo['scheduleMode'],
+  quietHoursStart: number | null,
+  quietHoursEnd: number | null,
+  timezone: string
+): { isQuiet: boolean; currentHour: number } {
+  // Get current hour in the specified timezone
+  let currentHour: number;
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: timezone,
+    });
+    currentHour = parseInt(formatter.format(now), 10);
+  } catch {
+    // Fallback to UTC if timezone is invalid
+    currentHour = new Date().getUTCHours();
+  }
+
+  switch (scheduleMode) {
+    case 'ALWAYS_ACTIVE':
+      return { isQuiet: false, currentHour };
+
+    case 'SLEEP_OVERNIGHT':
+      // Default overnight: 11pm (23) to 7am (7)
+      const overnightStart = 23;
+      const overnightEnd = 7;
+      const isOvernight =
+        currentHour >= overnightStart || currentHour < overnightEnd;
+      return { isQuiet: isOvernight, currentHour };
+
+    case 'CUSTOM':
+    case 'AUTO_DETECT':
+      if (quietHoursStart === null || quietHoursEnd === null) {
+        return { isQuiet: false, currentHour };
+      }
+
+      // Handle wrap-around (e.g., 23 to 6)
+      let isQuiet: boolean;
+      if (quietHoursStart <= quietHoursEnd) {
+        // Same day range (e.g., 1 to 6)
+        isQuiet = currentHour >= quietHoursStart && currentHour <= quietHoursEnd;
+      } else {
+        // Wrap-around range (e.g., 23 to 6)
+        isQuiet = currentHour >= quietHoursStart || currentHour <= quietHoursEnd;
+      }
+      return { isQuiet, currentHour };
+
+    default:
+      return { isQuiet: false, currentHour };
+  }
+}
+
+/**
+ * Determine desired power state based on schedule
+ */
+function getDesiredPowerState(
+  scheduleMode: ScheduleInfo['scheduleMode'],
+  isQuiet: boolean
+): 'ACTIVE' | 'PASSIVE' | 'SLEEP' {
+  if (scheduleMode === 'ALWAYS_ACTIVE') {
+    return 'ACTIVE';
+  }
+
+  if (isQuiet) {
+    return 'SLEEP';
+  }
+
+  return 'PASSIVE';
+}
+
+/**
+ * Get heartbeat interval for power state
+ */
+function getHeartbeatInterval(powerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP'): number {
+  switch (powerState) {
+    case 'ACTIVE':
+      return 5000; // 5 seconds
+    case 'PASSIVE':
+      return 30000; // 30 seconds
+    case 'SLEEP':
+      return 300000; // 5 minutes
+    default:
+      return 30000;
+  }
+}
+
+/**
+ * Get all agents that need schedule-based power state updates
+ * Called periodically to check for transitions
+ */
+export async function getAgentsNeedingScheduleUpdate(): Promise<
+  Array<{
+    agentDbId: string;
+    currentPowerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP';
+    desiredPowerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP';
+    heartbeatInterval: number;
+  }>
+> {
+  // Get all online agents with their owner's activity patterns
+  const agents = await prisma.agent.findMany({
+    where: {
+      status: 'ONLINE',
+    },
+    include: {
+      owner: {
+        include: {
+          activityPattern: true,
+        },
+      },
+    },
+  });
+
+  const updates: Array<{
+    agentDbId: string;
+    currentPowerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP';
+    desiredPowerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP';
+    heartbeatInterval: number;
+  }> = [];
+
+  for (const agent of agents) {
+    if (!agent.owner?.activityPattern) continue;
+
+    const pattern = agent.owner.activityPattern;
+    const { isQuiet } = isInQuietHours(
+      pattern.scheduleMode as ScheduleInfo['scheduleMode'],
+      pattern.quietHoursStart,
+      pattern.quietHoursEnd,
+      pattern.timezone
+    );
+
+    const desiredPowerState = getDesiredPowerState(
+      pattern.scheduleMode as ScheduleInfo['scheduleMode'],
+      isQuiet
+    );
+
+    // Only include if state needs to change
+    if (agent.powerState !== desiredPowerState) {
+      updates.push({
+        agentDbId: agent.id,
+        currentPowerState: agent.powerState as 'ACTIVE' | 'PASSIVE' | 'SLEEP',
+        desiredPowerState,
+        heartbeatInterval: getHeartbeatInterval(desiredPowerState),
+      });
+    }
+  }
+
+  return updates;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// License Validation Functions (I.2.2, I.2.3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface LicenseValidationResult {
+  agentDbId: string;
+  licenseId: string;
+  isValid: boolean;
+  newState: 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'BLOCKED';
+  reason?: string;
+  trialDaysRemaining?: number;
+  validUntil?: Date | null;
+}
+
+/**
+ * Check license validity for an agent (I.2.2)
+ */
+export async function checkAgentLicense(agentDbId: string): Promise<LicenseValidationResult | null> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentDbId },
+    include: {
+      license: true,
+    },
+  });
+
+  if (!agent?.license) {
+    return null;
+  }
+
+  const license = agent.license;
+  const now = new Date();
+
+  // Check license status
+  if (license.status === 'SUSPENDED') {
+    return {
+      agentDbId,
+      licenseId: license.id,
+      isValid: false,
+      newState: 'BLOCKED',
+      reason: 'License suspended',
+    };
+  }
+
+  if (license.status === 'CANCELLED') {
+    return {
+      agentDbId,
+      licenseId: license.id,
+      isValid: false,
+      newState: 'BLOCKED',
+      reason: 'License cancelled',
+    };
+  }
+
+  if (license.status === 'EXPIRED') {
+    return {
+      agentDbId,
+      licenseId: license.id,
+      isValid: false,
+      newState: 'EXPIRED',
+      reason: 'License expired',
+    };
+  }
+
+  // Check trial expiry
+  if (license.isTrial && license.trialEnds) {
+    if (now > license.trialEnds) {
+      // Trial has expired, update the license
+      await prisma.license.update({
+        where: { id: license.id },
+        data: { status: 'EXPIRED' },
+      });
+
+      return {
+        agentDbId,
+        licenseId: license.id,
+        isValid: false,
+        newState: 'EXPIRED',
+        reason: 'Trial period ended',
+      };
+    }
+
+    // Calculate trial days remaining
+    const trialDaysRemaining = Math.ceil(
+      (license.trialEnds.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    return {
+      agentDbId,
+      licenseId: license.id,
+      isValid: true,
+      newState: 'ACTIVE',
+      trialDaysRemaining,
+      validUntil: license.trialEnds,
+    };
+  }
+
+  // Check validUntil expiry (for paid licenses)
+  if (license.validUntil && now > license.validUntil) {
+    // License has expired, update it
+    await prisma.license.update({
+      where: { id: license.id },
+      data: { status: 'EXPIRED' },
+    });
+
+    return {
+      agentDbId,
+      licenseId: license.id,
+      isValid: false,
+      newState: 'EXPIRED',
+      reason: 'License validity period ended',
+    };
+  }
+
+  // License is valid
+  return {
+    agentDbId,
+    licenseId: license.id,
+    isValid: true,
+    newState: 'ACTIVE',
+    validUntil: license.validUntil,
+  };
+}
+
+/**
+ * Get all agents that need license state updates (I.2.2)
+ * Returns agents whose license has expired or been suspended
+ */
+export async function getAgentsWithLicenseChanges(): Promise<LicenseValidationResult[]> {
+  // Get all online agents
+  const agents = await prisma.agent.findMany({
+    where: {
+      status: 'ONLINE',
+    },
+    include: {
+      license: true,
+    },
+  });
+
+  const updates: LicenseValidationResult[] = [];
+  const now = new Date();
+
+  for (const agent of agents) {
+    if (!agent.license) continue;
+
+    const license = agent.license;
+    let needsUpdate = false;
+    let newState: 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'BLOCKED' = agent.state as 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'BLOCKED';
+    let reason: string | undefined;
+
+    // Check for status changes
+    if (license.status === 'SUSPENDED' && agent.state !== 'BLOCKED') {
+      newState = 'BLOCKED';
+      reason = 'License suspended';
+      needsUpdate = true;
+    } else if (license.status === 'CANCELLED' && agent.state !== 'BLOCKED') {
+      newState = 'BLOCKED';
+      reason = 'License cancelled';
+      needsUpdate = true;
+    } else if (license.status === 'EXPIRED' && agent.state !== 'EXPIRED') {
+      newState = 'EXPIRED';
+      reason = 'License expired';
+      needsUpdate = true;
+    }
+
+    // Check trial expiry
+    if (!needsUpdate && license.isTrial && license.trialEnds && now > license.trialEnds) {
+      if (agent.state !== 'EXPIRED') {
+        newState = 'EXPIRED';
+        reason = 'Trial period ended';
+        needsUpdate = true;
+
+        // Also update the license status
+        await prisma.license.update({
+          where: { id: license.id },
+          data: { status: 'EXPIRED' },
+        });
+      }
+    }
+
+    // Check validUntil expiry
+    if (!needsUpdate && license.validUntil && now > license.validUntil) {
+      if (agent.state !== 'EXPIRED') {
+        newState = 'EXPIRED';
+        reason = 'License validity period ended';
+        needsUpdate = true;
+
+        await prisma.license.update({
+          where: { id: license.id },
+          data: { status: 'EXPIRED' },
+        });
+      }
+    }
+
+    if (needsUpdate) {
+      // Update agent state in database
+      await prisma.agent.update({
+        where: { id: agent.id },
+        data: { state: newState },
+      });
+
+      updates.push({
+        agentDbId: agent.id,
+        licenseId: license.id,
+        isValid: newState === 'ACTIVE' || newState === 'PENDING',
+        newState,
+        reason,
+      });
+    }
+  }
+
+  return updates;
+}
+
+/**
+ * Update agent state due to license change (I.2.3)
+ */
+export async function updateAgentLicenseState(
+  agentDbId: string,
+  newState: 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'BLOCKED',
+  reason?: string
+): Promise<void> {
+  await prisma.agent.update({
+    where: { id: agentDbId },
+    data: { state: newState },
+  });
+
+  // Log the state change
+  await prisma.auditLog.create({
+    data: {
+      agentId: agentDbId,
+      action: 'LICENSE_STATE_CHANGE',
+      details: { newState, reason },
+    },
+  });
+}

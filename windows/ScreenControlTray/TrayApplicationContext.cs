@@ -22,6 +22,10 @@ namespace ScreenControlTray
         private SettingsForm? _settingsForm;
         private bool _isConnected;
 
+#if DEBUG
+        private TestServer? _testServer;
+#endif
+
         public TrayApplicationContext()
         {
             _serviceClient = new ServiceClient();
@@ -189,6 +193,22 @@ namespace ScreenControlTray
             if (_settingsForm == null || _settingsForm.IsDisposed)
             {
                 _settingsForm = new SettingsForm(_serviceClient);
+
+#if DEBUG
+                // Start test server for automated testing (DEBUG builds only)
+                if (_testServer == null)
+                {
+                    _testServer = new TestServer(_settingsForm);
+                    if (_testServer.Start(3456))
+                    {
+                        Console.WriteLine($"[ScreenControl] Test server started on localhost:{_testServer.Port}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("[ScreenControl] WARNING: Failed to start test server");
+                    }
+                }
+#endif
             }
 
             if (_settingsForm.Visible)
@@ -282,6 +302,10 @@ namespace ScreenControlTray
         {
             if (disposing)
             {
+#if DEBUG
+                _testServer?.Stop();
+                _testServer?.Dispose();
+#endif
                 _statusTimer?.Stop();
                 _statusTimer?.Dispose();
                 _trayIcon?.Dispose();

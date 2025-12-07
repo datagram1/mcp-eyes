@@ -239,6 +239,8 @@
         result = [self handleQuit];
     } else if ([method isEqualToString:@"restart"]) {
         result = [self handleRestart];
+    } else if ([method isEqualToString:@"getVersion"]) {
+        result = [self handleGetVersion];
     } else {
         result = @{@"error": [NSString stringWithFormat:@"Unknown method: %@", method]};
     }
@@ -417,6 +419,52 @@
     });
 
     return @{@"success": @YES, @"action": @"restart"};
+}
+
+- (NSDictionary *)handleGetVersion {
+    NSBundle *bundle = [NSBundle mainBundle];
+
+    // Get version info from bundle
+    NSString *version = [bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"1.0.0";
+    NSString *buildNumber = [bundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"1";
+
+    // Get build date from executable modification date
+    NSString *executablePath = [bundle executablePath];
+    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:executablePath error:nil];
+    NSDate *buildDate = attrs[NSFileModificationDate] ?: [NSDate date];
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.dateFormat = @"yyyy-MM-dd";
+    NSString *buildDateString = [formatter stringFromDate:buildDate];
+
+    // Get architecture
+    NSString *arch = @"unknown";
+#if defined(__arm64__)
+    arch = @"arm64";
+#elif defined(__x86_64__)
+    arch = @"x86_64";
+#endif
+
+    // Git commit would need to be embedded at build time via a build script
+    // For now, check if we have it in Info.plist
+    NSString *gitCommit = [bundle objectForInfoDictionaryKey:@"GitCommit"] ?: @"unknown";
+
+    // Get app startup time (uptime)
+    static NSDate *startTime = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        startTime = [NSDate date];
+    });
+    NSTimeInterval uptime = [[NSDate date] timeIntervalSinceDate:startTime];
+
+    return @{
+        @"version": version,
+        @"build": buildNumber,
+        @"buildDate": buildDateString,
+        @"gitCommit": gitCommit,
+        @"platform": @"macos",
+        @"arch": arch,
+        @"uptime": @((NSInteger)uptime)
+    };
 }
 
 @end

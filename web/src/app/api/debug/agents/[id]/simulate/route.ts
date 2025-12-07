@@ -80,39 +80,94 @@ export async function POST(
 
   try {
     const body = await request.json();
-    const { status } = body;
+    const { action, status } = body;
 
-    // Validate status
-    if (!status || !['ONLINE', 'OFFLINE'].includes(status)) {
-      return NextResponse.json(
-        { error: 'Status must be ONLINE or OFFLINE' },
-        { status: 400 }
-      );
+    // Handle different simulation actions
+    if (action === 'expiration') {
+      // Simulate license expiration
+      const agent = await prisma.agent.update({
+        where: { id },
+        data: {
+          state: 'EXPIRED',
+        },
+      });
+
+      console.log(`[Debug] Agent ${id} expired: ${existingAgent.state} -> EXPIRED (simulated by ${user.id})`);
+
+      return NextResponse.json({
+        success: true,
+        action: 'expiration',
+        previousState: existingAgent.state,
+        agent: {
+          id: agent.id,
+          hostname: agent.hostname,
+          state: agent.state,
+        },
+      });
     }
 
-    // Update agent status
-    const agent = await prisma.agent.update({
-      where: { id },
-      data: {
-        status: status as 'ONLINE' | 'OFFLINE',
-        lastSeenAt: status === 'ONLINE' ? new Date() : existingAgent.lastSeenAt,
-        lastActivity: status === 'ONLINE' ? new Date() : existingAgent.lastActivity,
-      },
-    });
+    if (action === 'renewal') {
+      // Simulate license renewal
+      const agent = await prisma.agent.update({
+        where: { id },
+        data: {
+          state: 'ACTIVE',
+          activatedAt: new Date(),
+        },
+      });
 
-    return NextResponse.json({
-      success: true,
-      agent: {
-        id: agent.id,
-        hostname: agent.hostname,
-        status: agent.status,
-        lastSeenAt: agent.lastSeenAt,
-      },
-    });
-  } catch (err) {
-    console.error('[Debug] Error simulating agent status:', err);
+      console.log(`[Debug] Agent ${id} renewed: ${existingAgent.state} -> ACTIVE (simulated by ${user.id})`);
+
+      return NextResponse.json({
+        success: true,
+        action: 'renewal',
+        previousState: existingAgent.state,
+        agent: {
+          id: agent.id,
+          hostname: agent.hostname,
+          state: agent.state,
+          activatedAt: agent.activatedAt,
+        },
+      });
+    }
+
+    // Handle status simulation (ONLINE/OFFLINE)
+    if (status) {
+      if (!['ONLINE', 'OFFLINE'].includes(status)) {
+        return NextResponse.json(
+          { error: 'Status must be ONLINE or OFFLINE' },
+          { status: 400 }
+        );
+      }
+
+      const agent = await prisma.agent.update({
+        where: { id },
+        data: {
+          status: status as 'ONLINE' | 'OFFLINE',
+          lastSeenAt: status === 'ONLINE' ? new Date() : existingAgent.lastSeenAt,
+          lastActivity: status === 'ONLINE' ? new Date() : existingAgent.lastActivity,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        agent: {
+          id: agent.id,
+          hostname: agent.hostname,
+          status: agent.status,
+          lastSeenAt: agent.lastSeenAt,
+        },
+      });
+    }
+
     return NextResponse.json(
-      { error: 'Failed to simulate agent status' },
+      { error: 'Must provide action (expiration, renewal) or status (ONLINE, OFFLINE)' },
+      { status: 400 }
+    );
+  } catch (err) {
+    console.error('[Debug] Error simulating agent:', err);
+    return NextResponse.json(
+      { error: 'Failed to simulate agent' },
       { status: 500 }
     );
   }

@@ -383,7 +383,7 @@ Agents need to read embedded configuration on startup.
 - [x] D.8.1.3 Save settings to `~/Library/Application Support/ScreenControl/debug-config.json`
 - [x] D.8.1.4 On startup, load debug config (bundled or user-saved)
 - [x] D.8.1.5 Show connection status in menu bar (connected/disconnected/error)
-- [ ] D.8.1.6 Add "Copy MCP URL" button to copy `https://server/mcp/{uuid}` to clipboard
+- [x] D.8.1.6 Add "Copy MCP URL" button to copy `https://server/mcp/{uuid}` to clipboard
 - [ ] D.8.1.7 Add feature flag for hiding debug menu in production (disabled during testing)
 
 #### D.8.2 Windows Debug Menu (ScreenControl.exe Tray)
@@ -456,8 +456,8 @@ Agents need to read embedded configuration on startup.
   │  [ 2024-12-31 ]  [ Clear ]                          │
   └─────────────────────────────────────────────────────┘
   ```
-- [ ] D.8.5.3.2 "Simulate License Expiration" - fast-forward agent to EXPIRED
-- [ ] D.8.5.3.3 "Simulate License Renewal" - reset expiration, move to ACTIVE
+- [x] D.8.5.3.2 "Simulate License Expiration" - fast-forward agent to EXPIRED
+- [x] D.8.5.3.3 "Simulate License Renewal" - reset expiration, move to ACTIVE
 - [ ] D.8.5.3.4 View state change history for debugging
 
 ##### D.8.5.4 Billing Simulation
@@ -482,10 +482,10 @@ Add environment variable and/or database flag:
 DEBUG_MODE=true  # Enable debug features (disable in production)
 ```
 
-- [ ] D.8.5.6.1 Add `DEBUG_MODE` environment variable check
-- [ ] D.8.5.6.2 Create `isDebugMode()` utility function in `web/src/lib/debug.ts`
-- [ ] D.8.5.6.3 Conditionally render debug navigation item
-- [ ] D.8.5.6.4 Add middleware to protect debug routes when `DEBUG_MODE=false`
+- [x] D.8.5.6.1 Add `DEBUG_MODE` environment variable check
+- [x] D.8.5.6.2 Create `isDebugMode()` utility function in `web/src/lib/debug.ts`
+- [x] D.8.5.6.3 Conditionally render debug navigation item
+- [x] D.8.5.6.4 Add middleware to protect debug routes when `DEBUG_MODE=false` (API routes check isDebugMode())
 
 ---
 
@@ -652,7 +652,7 @@ The test server listens on `localhost:3456` (primary) and `localhost:3457` (fall
 - [ ] D.12.2.13 Implement `getMetrics` - memory/CPU via mach_task_info
 - [ ] D.12.2.14 Implement `getScreenshot` - capture via CGWindowListCreateImage
 - [ ] D.12.2.15 Implement `updateBinary` - download and replace app bundle
-- [ ] D.12.2.16 Implement `getVersion` - return app version, build date, git commit
+- [x] D.12.2.16 Implement `getVersion` - return app version, build date, git commit
 - [ ] D.12.2.17 Implement WebSocket endpoint for `streamLogs` real-time log streaming
 
 #### D.12.3 Windows Test Server Implementation
@@ -723,10 +723,10 @@ Create a test runner in `test/agent-tests/` that can control agents remotely:
 
 **Important**: The test server should ONLY be available in debug builds or when explicitly enabled.
 
-- [ ] D.12.7.1 Only enable test server when `DEBUG` build flag is set
-- [ ] D.12.7.2 Bind ONLY to 127.0.0.1 (never 0.0.0.0)
+- [x] D.12.7.1 Only enable test server when `DEBUG` build flag is set
+- [x] D.12.7.2 Bind ONLY to 127.0.0.1 (never 0.0.0.0)
 - [ ] D.12.7.3 Add `--enable-test-server` command line flag for production builds
-- [ ] D.12.7.4 Log warning when test server is enabled
+- [x] D.12.7.4 Log warning when test server is enabled
 - [ ] D.12.7.5 Consider token-based auth for additional security
 
 #### D.12.8 Continuous Deployment & Automated Testing Workflow
@@ -981,28 +981,29 @@ WS_PORT=3001
 
 **Current state**: Transaction model exists but no Stripe integration.
 
-**Create**: `web/src/app/dashboard/billing/page.tsx`
+**Created**: `web/src/app/dashboard/licenses/page.tsx` (with billing/plan features)
+**Created**: `web/src/lib/billing/` (provider-agnostic abstraction)
 
 #### H.2.1 Billing Dashboard
-- [ ] H.2.1.1 Current plan display (Starter, Pro, Enterprise)
-- [ ] H.2.1.2 Active agents count vs plan limit
-- [ ] H.2.1.3 Current billing period dates
-- [ ] H.2.1.4 Next invoice estimate based on active agents
-- [ ] H.2.1.5 Payment method on file (last 4 digits)
+- [x] H.2.1.1 Current plan display (Starter, Pro, Enterprise)
+- [x] H.2.1.2 Active agents count vs plan limit
+- [x] H.2.1.3 Current billing period dates
+- [x] H.2.1.4 Next invoice estimate based on active agents
+- [x] H.2.1.5 Payment method on file (last 4 digits)
 
-#### H.2.2 Stripe Integration
+#### H.2.2 Stripe Integration (Provider-Agnostic)
 - [ ] H.2.2.1 Set up Stripe account and API keys
-- [ ] H.2.2.2 Create `web/src/lib/stripe.ts` client
-- [ ] H.2.2.3 Create `/api/billing/create-checkout-session` - New subscription
-- [ ] H.2.2.4 Create `/api/billing/create-portal-session` - Manage subscription
-- [ ] H.2.2.5 Create `/api/billing/webhook` - Stripe webhook handler
-- [ ] H.2.2.6 Handle `checkout.session.completed` - Create/update license
-- [ ] H.2.2.7 Handle `customer.subscription.updated` - Plan changes
-- [ ] H.2.2.8 Handle `customer.subscription.deleted` - Cancellations
-- [ ] H.2.2.9 Handle `invoice.payment_failed` - Suspend license
+- [x] H.2.2.2 Create `web/src/lib/billing/provider.ts` (abstraction layer with mock + Stripe stub)
+- [x] H.2.2.3 Create `/api/billing/checkout` - New subscription
+- [x] H.2.2.4 Create `/api/billing/portal` - Manage subscription
+- [x] H.2.2.5 Create `/api/billing/webhook` - Webhook handler (stub)
+- [ ] H.2.2.6 Handle `checkout.session.completed` - Create/update license (stub ready)
+- [ ] H.2.2.7 Handle `customer.subscription.updated` - Plan changes (stub ready)
+- [ ] H.2.2.8 Handle `customer.subscription.deleted` - Cancellations (stub ready)
+- [ ] H.2.2.9 Handle `invoice.payment_failed` - Suspend license (stub ready)
 
 #### H.2.3 Per-Agent Pricing
-- [ ] H.2.3.1 Define pricing tiers:
+- [x] H.2.3.1 Define pricing tiers:
   - Starter: 5 agents, $XX/month
   - Pro: 25 agents, $XX/month
   - Enterprise: Unlimited, custom pricing
@@ -1079,24 +1080,27 @@ WS_PORT=3001
 
 ### H.5 User Account Settings
 
-**Current state**: Basic user model exists, no settings UI.
+**Current state**: Settings page created with profile, password, and session management.
 
-**Create**: `web/src/app/dashboard/settings/page.tsx`
+**Created**: `web/src/app/dashboard/settings/page.tsx`
+**Created**: `web/src/app/api/settings/route.ts` - GET/PATCH user profile
+**Created**: `web/src/app/api/settings/password/route.ts` - POST change password
+**Created**: `web/src/app/api/settings/sessions/route.ts` - GET/DELETE sessions
 
 #### H.5.1 Profile Settings
-- [ ] H.5.1.1 Edit name, email
-- [ ] H.5.1.2 Change password (for local auth users)
+- [x] H.5.1.1 Edit name, email
+- [x] H.5.1.2 Change password (for local auth users)
 - [ ] H.5.1.3 Profile picture upload
 
 #### H.5.2 Company/Billing Info
-- [ ] H.5.2.1 Company name
-- [ ] H.5.2.2 Billing email (for invoices)
-- [ ] H.5.2.3 VAT number (for EU customers)
+- [x] H.5.2.1 Company name
+- [x] H.5.2.2 Billing email (for invoices)
+- [x] H.5.2.3 VAT number (for EU customers)
 - [ ] H.5.2.4 Billing address
 
 #### H.5.3 Security Settings
-- [ ] H.5.3.1 Active sessions list (from Session table)
-- [ ] H.5.3.2 "Sign out all other devices" button
+- [x] H.5.3.1 Active sessions list (from Session table)
+- [x] H.5.3.2 "Sign out all other devices" button
 - [ ] H.5.3.3 Two-factor authentication (optional enhancement)
 - [ ] H.5.3.4 API keys management (for programmatic access)
 
@@ -1163,12 +1167,12 @@ WS_PORT=3001
 
 ### H.9 Dashboard Home Widgets
 
-**Current state**: Basic dashboard exists. Needs summary widgets.
+**Current state**: Dashboard has agent fleet status and recent activity widgets.
 
-**Update**: `web/src/app/dashboard/page.tsx`
+**Updated**: `web/src/app/dashboard/page.tsx`
 
-- [ ] H.9.1 Agent status summary card (online/offline/pending counts)
-- [ ] H.9.2 Recent activity feed (last 10 commands)
+- [x] H.9.1 Agent status summary card (online/offline/pending counts, activation state, power state)
+- [x] H.9.2 Recent activity feed (last 10 commands from CommandLog)
 - [ ] H.9.3 Billing summary card (current usage vs limit)
 - [ ] H.9.4 Quick actions: Add connection, Download installer
 - [ ] H.9.5 System health indicators
@@ -1194,11 +1198,11 @@ WS_PORT=3001
 
 ### I.2 Control Server Enhancements
 
-- [ ] I.2.1 Implement customer schedule overrides (from CustomerActivityPattern)
-- [ ] I.2.2 Implement periodic license re-validation
-- [ ] I.2.3 Handle license expiry mid-session
-- [ ] I.2.4 Register agent capabilities (tool list) on connect
-- [ ] I.2.5 Aggregate tools/list from connected agents
+- [x] I.2.1 Implement customer schedule overrides (from CustomerActivityPattern)
+- [x] I.2.2 Implement periodic license re-validation
+- [x] I.2.3 Handle license expiry mid-session
+- [x] I.2.4 Register agent capabilities (tool list) on connect
+- [x] I.2.5 Aggregate tools/list from connected agents
 
 ---
 
