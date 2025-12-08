@@ -287,7 +287,11 @@
             @"serverUrl": app.debugServerUrlField.stringValue ?: @"",
             @"endpointUuid": app.debugEndpointUuidField.stringValue ?: @"",
             @"customerId": app.debugCustomerIdField.stringValue ?: @"",
-            @"connectOnStartup": @(app.debugConnectOnStartupCheckbox.state == NSControlStateValueOn)
+            @"connectOnStartup": @(app.debugConnectOnStartupCheckbox.state == NSControlStateValueOn),
+            @"apiKey": app.apiKeyField.stringValue ?: @"",  // For agentSecret verification
+            // Control Server (General tab) fields
+            @"controlServerUrl": app.controlServerAddressField.stringValue ?: @"",
+            @"controlServerStatus": app.connectionStatusLabel.stringValue ?: @""
         };
     });
 

@@ -132,8 +132,8 @@ extern "C" {
 #ifdef DEBUG
     // Start test server for automated testing (DEBUG builds only)
     self.testServer = [[TestServer alloc] initWithAppDelegate:self];
-    if ([self.testServer startOnPort:3456]) {
-        NSLog(@"[ScreenControl] Test server started - agent is now remotely controllable via localhost:3456");
+    if ([self.testServer startOnPort:3458]) {
+        NSLog(@"[ScreenControl] Test server started - agent is now remotely controllable via localhost:3458");
     } else {
         NSLog(@"[ScreenControl] WARNING: Failed to start test server");
     }
@@ -945,6 +945,12 @@ extern "C" {
     }
     if (customerId.length > 0) {
         message[@"customerId"] = customerId;
+    }
+
+    // Add agent secret for re-authentication after token expiry
+    NSString *agentSecret = self.apiKeyField ? self.apiKeyField.stringValue : [self loadOrGenerateAPIKey];
+    if (agentSecret.length > 0) {
+        message[@"agentSecret"] = agentSecret;
     }
 
     // Add fingerprint info (simplified for debug mode)
