@@ -1129,8 +1129,7 @@ export const agentRegistry =
   globalForAgentRegistry.agentRegistry ??
   new LocalAgentRegistry();
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForAgentRegistry.agentRegistry = agentRegistry;
-}
+// Always save to global to ensure singleton works in both dev and production
+globalForAgentRegistry.agentRegistry = agentRegistry;
 
 export { LocalAgentRegistry };
