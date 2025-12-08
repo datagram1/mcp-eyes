@@ -792,6 +792,15 @@ extern "C" {
     [connectionBox addSubview:self.debugConnectOnStartupCheckbox];
     boxY -= rowHeight + 5;
 
+    // Bypass mode checkbox (force ACTIVE, no heartbeats)
+    self.debugBypassModeCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
+    self.debugBypassModeCheckbox.title = @"Bypass mode (force ACTIVE, no heartbeats)";
+    [self.debugBypassModeCheckbox setButtonType:NSButtonTypeSwitch];
+    self.debugBypassModeCheckbox.state = [[NSUserDefaults standardUserDefaults] boolForKey:@"debugBypassMode"] ? NSControlStateValueOn : NSControlStateValueOff;
+    self.debugBypassModeEnabled = (self.debugBypassModeCheckbox.state == NSControlStateValueOn);
+    [connectionBox addSubview:self.debugBypassModeCheckbox];
+    boxY -= rowHeight + 5;
+
     // Connection status
     self.debugConnectionStatusLabel = [self createLabel:@"Status: Not connected"
                                                   frame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
@@ -876,8 +885,57 @@ extern "C" {
 }
 
 - (void)debugConnect:(id)sender {
+    NSLog(@"[WS-DEBUG] ========== debugConnect called ==========");
+    NSLog(@"[WS-DEBUG] Existing task: %@", self.debugWebSocketTask ? @"YES" : @"NO");
+    NSLog(@"[WS-DEBUG] Existing session: %@", self.debugSession ? @"YES" : @"NO");
+    NSLog(@"[WS-DEBUG] debugIsConnected: %@", self.debugIsConnected ? @"YES" : @"NO");
+    NSLog(@"[WS-DEBUG] debugAutoReconnectEnabled: %@", self.debugAutoReconnectEnabled ? @"YES" : @"NO");
+
     // Cancel any pending reconnect
     [self debugCancelReconnect];
+
+    // Set cleanup flag to ignore errors from old connection during cleanup
+    self.debugCleaningUpConnection = YES;
+    NSLog(@"[WS-DEBUG] Set cleaningUpConnection flag to YES");
+
+    // Clean up any existing connection to prevent orphaned sockets
+    // Temporarily disable auto-reconnect so cleanup doesn't trigger a new reconnect
+    BOOL wasAutoReconnectEnabled = self.debugAutoReconnectEnabled;
+    self.debugAutoReconnectEnabled = NO;
+    NSLog(@"[WS-DEBUG] Temporarily disabled auto-reconnect for cleanup");
+
+    // Stop existing heartbeat timer
+    if (self.debugHeartbeatTimer) {
+        NSLog(@"[WS-DEBUG] Stopping existing heartbeat timer");
+        [self.debugHeartbeatTimer invalidate];
+        self.debugHeartbeatTimer = nil;
+    }
+
+    // Close existing WebSocket if any
+    if (self.debugWebSocketTask) {
+        NSLog(@"[WS-DEBUG] Cancelling existing WebSocket task");
+        [self.debugWebSocketTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
+        self.debugWebSocketTask = nil;
+    }
+
+    // Invalidate existing session
+    if (self.debugSession) {
+        NSLog(@"[WS-DEBUG] Invalidating existing session");
+        [self.debugSession invalidateAndCancel];
+        self.debugSession = nil;
+    }
+
+    self.debugIsConnected = NO;
+
+    // Restore auto-reconnect setting
+    self.debugAutoReconnectEnabled = wasAutoReconnectEnabled;
+    NSLog(@"[WS-DEBUG] Restored auto-reconnect to: %@", wasAutoReconnectEnabled ? @"YES" : @"NO");
+
+    // Clear cleanup flag after a short delay to let old callbacks fire and be ignored
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        self.debugCleaningUpConnection = NO;
+        NSLog(@"[WS-DEBUG] Set cleaningUpConnection flag to NO (after delay)");
+    });
 
     NSString *serverUrl = self.debugServerUrlField.stringValue;
     if (serverUrl.length == 0) {
@@ -919,6 +977,9 @@ extern "C" {
 - (void)debugDisconnect:(id)sender {
     [self debugLog:@"Disconnecting..."];
 
+    // Set cleanup flag to ignore errors from old connection during disconnect
+    self.debugCleaningUpConnection = YES;
+
     // Disable auto-reconnect when manually disconnecting
     self.debugAutoReconnectEnabled = NO;
     [self debugCancelReconnect];
@@ -936,6 +997,11 @@ extern "C" {
     self.debugSession = nil;
 
     self.debugIsConnected = NO;
+
+    // Clear cleanup flag after a short delay
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        self.debugCleaningUpConnection = NO;
+    });
 
     // Update UI
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -959,12 +1025,16 @@ extern "C" {
 #pragma mark - Auto-Reconnect
 
 - (void)debugScheduleReconnect {
+    NSLog(@"[WS-DEBUG] ========== debugScheduleReconnect called ==========");
+    NSLog(@"[WS-DEBUG] Current reconnect attempt: %ld", (long)self.debugReconnectAttempt);
+
     // Calculate delay with exponential backoff: 5s, 10s, 20s, 40s, max 60s
     NSTimeInterval baseDelay = 5.0;
     NSTimeInterval delay = MIN(baseDelay * pow(2, self.debugReconnectAttempt), 60.0);
 
     self.debugReconnectAttempt++;
 
+    NSLog(@"[WS-DEBUG] Scheduling reconnect in %.0f seconds (attempt %ld)", delay, (long)self.debugReconnectAttempt);
     [self debugLog:[NSString stringWithFormat:@"Scheduling reconnect attempt %ld in %.0f seconds...", (long)self.debugReconnectAttempt, delay]];
 
     self.debugConnectionStatusLabel.stringValue = [NSString stringWithFormat:@"Status: Reconnecting in %.0fs (attempt %ld)", delay, (long)self.debugReconnectAttempt];
@@ -1616,9 +1686,31 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     __weak typeof(self) weakSelf = self;
     [self.debugWebSocketTask receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage *message, NSError *error) {
         if (error) {
-            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR: WebSocket error: %@", error.localizedDescription]];
+            // Check if we're in the middle of cleaning up an old connection
+            // If so, ignore this error as it's expected during cleanup
+            if (weakSelf.debugCleaningUpConnection) {
+                NSLog(@"[WS-DEBUG] Ignoring error during cleanup: %@", error.localizedDescription);
+                return;
+            }
+
+            // Detailed error logging for debugging
+            NSLog(@"[WS-DEBUG] WebSocket receive error:");
+            NSLog(@"  Domain: %@", error.domain);
+            NSLog(@"  Code: %ld", (long)error.code);
+            NSLog(@"  Description: %@", error.localizedDescription);
+            NSLog(@"  UserInfo: %@", error.userInfo);
+            NSLog(@"  debugIsConnected: %@", weakSelf.debugIsConnected ? @"YES" : @"NO");
+            NSLog(@"  debugAutoReconnectEnabled: %@", weakSelf.debugAutoReconnectEnabled ? @"YES" : @"NO");
+
+            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR: WebSocket error [%@:%ld]: %@", error.domain, (long)error.code, error.localizedDescription]];
 
             dispatch_async(dispatch_get_main_queue(), ^{
+                // Double-check we're not cleaning up (main thread check)
+                if (weakSelf.debugCleaningUpConnection) {
+                    NSLog(@"[WS-DEBUG] Ignoring error handling on main thread during cleanup");
+                    return;
+                }
+
                 weakSelf.debugIsConnected = NO;
                 weakSelf.debugConnectButton.enabled = YES;
                 weakSelf.debugDisconnectButton.enabled = NO;
@@ -1679,13 +1771,17 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
                         NSString *agentId = json[@"agentId"] ?: @"--";
                         weakSelf.debugAgentIdLabel.stringValue = [NSString stringWithFormat:@"Agent ID: %@", agentId];
 
-                        // Start heartbeat timer
-                        NSInteger heartbeatInterval = [json[@"config"][@"heartbeatInterval"] integerValue] ?: 5000;
-                        weakSelf.debugHeartbeatTimer = [NSTimer scheduledTimerWithTimeInterval:heartbeatInterval / 1000.0
-                                                                                        target:weakSelf
-                                                                                      selector:@selector(debugSendHeartbeat)
-                                                                                      userInfo:nil
-                                                                                       repeats:YES];
+                        // Start heartbeat timer (unless bypass mode is enabled)
+                        if (weakSelf.debugBypassModeEnabled) {
+                            [weakSelf debugLog:@"⚠️ BYPASS MODE: Heartbeat timer disabled"];
+                        } else {
+                            NSInteger heartbeatInterval = [json[@"config"][@"heartbeatInterval"] integerValue] ?: 5000;
+                            weakSelf.debugHeartbeatTimer = [NSTimer scheduledTimerWithTimeInterval:heartbeatInterval / 1000.0
+                                                                                            target:weakSelf
+                                                                                          selector:@selector(debugSendHeartbeat)
+                                                                                          userInfo:nil
+                                                                                           repeats:YES];
+                        }
                     });
 
                 } else if ([type isEqualToString:@"heartbeat_ack"]) {
@@ -2438,6 +2534,32 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     // Cancel any pending reconnect and connect
     [self debugCancelReconnect];
 
+    // Clean up any existing connection to prevent orphaned sockets
+    // Temporarily disable auto-reconnect so cleanup doesn't trigger a new reconnect
+    BOOL wasAutoReconnectEnabled = self.debugAutoReconnectEnabled;
+    self.debugAutoReconnectEnabled = NO;
+
+    // Stop existing heartbeat timer
+    [self.debugHeartbeatTimer invalidate];
+    self.debugHeartbeatTimer = nil;
+
+    // Close existing WebSocket if any
+    if (self.debugWebSocketTask) {
+        [self.debugWebSocketTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
+        self.debugWebSocketTask = nil;
+    }
+
+    // Invalidate existing session
+    if (self.debugSession) {
+        [self.debugSession invalidateAndCancel];
+        self.debugSession = nil;
+    }
+
+    self.debugIsConnected = NO;
+
+    // Restore auto-reconnect setting
+    self.debugAutoReconnectEnabled = wasAutoReconnectEnabled;
+
     NSURL *url = [NSURL URLWithString:wsUrl];
     if (!url) {
         self.connectionStatusLabel.stringValue = @"Status: Invalid URL";
@@ -3119,6 +3241,10 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     [defaults setObject:self.debugCustomerIdField.stringValue forKey:@"debugCustomerId"];
     if (self.debugConnectOnStartupCheckbox) {
         [defaults setBool:(self.debugConnectOnStartupCheckbox.state == NSControlStateValueOn) forKey:@"debugConnectOnStartup"];
+    }
+    if (self.debugBypassModeCheckbox) {
+        [defaults setBool:(self.debugBypassModeCheckbox.state == NSControlStateValueOn) forKey:@"debugBypassMode"];
+        self.debugBypassModeEnabled = (self.debugBypassModeCheckbox.state == NSControlStateValueOn);
     }
     [defaults synchronize];
 

@@ -52,7 +52,7 @@
         if ([self bindToPort:ports[i]]) {
             self.port = ports[i];
             self.isRunning = YES;
-            NSLog(@"[TestServer] Started on localhost:%d (DEBUG BUILD ONLY)", self.port);
+            NSLog(@"[TestServer] Started on 0.0.0.0:%d (DEBUG BUILD ONLY - accessible remotely)", self.port);
             return YES;
         }
     }
@@ -73,12 +73,12 @@
     int optval = 1;
     setsockopt(self.serverSocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
-    // Bind to localhost ONLY (127.0.0.1) - never bind to 0.0.0.0
+    // Bind to all interfaces for remote testing (DEBUG builds only)
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");  // SECURITY: localhost only
+    addr.sin_addr.s_addr = INADDR_ANY;  // 0.0.0.0 - allows remote access in DEBUG builds
 
     if (bind(self.serverSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         NSLog(@"[TestServer] Failed to bind to port %d: %s", port, strerror(errno));

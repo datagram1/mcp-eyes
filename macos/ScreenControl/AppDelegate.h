@@ -76,6 +76,11 @@
 @property (assign, nonatomic) NSInteger debugReconnectAttempt;
 @property (assign, nonatomic) BOOL debugAutoReconnectEnabled;
 @property (strong, nonatomic) NSButton *debugReconnectButton;
+@property (assign, nonatomic) BOOL debugCleaningUpConnection;  // Flag to ignore errors during cleanup
+
+// Bypass mode (force ACTIVE, no heartbeats)
+@property (strong, nonatomic) NSButton *debugBypassModeCheckbox;
+@property (assign, nonatomic) BOOL debugBypassModeEnabled;
 
 // OAuth-based connection (MCP URL discovery)
 @property (strong, nonatomic) NSTextField *debugMcpUrlField;
