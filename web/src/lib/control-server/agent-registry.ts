@@ -91,14 +91,17 @@ class LocalAgentRegistry implements IAgentRegistry {
         const agent = this.agents.get(connectionId);
         if (!agent) continue;
 
+        // TEMPORARY: Force ACTIVE power state (ignoring schedule)
+        const forcedPowerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP' = 'ACTIVE';
+
         // Send config update
         this.sendConfigUpdate(agent, {
           heartbeatInterval: update.heartbeatInterval,
-          powerState: update.desiredPowerState,
+          powerState: forcedPowerState,
         });
 
         // Update local state
-        agent.powerState = update.desiredPowerState;
+        agent.powerState = forcedPowerState;
 
         console.log(
           `[Registry] Schedule transition for ${agent.machineName || agent.machineId}: ` +
@@ -316,7 +319,7 @@ class LocalAgentRegistry implements IAgentRegistry {
 
       state,
       licenseStatus: dbResult.licenseStatus,
-      powerState: 'PASSIVE',
+      powerState: 'ACTIVE',
       isScreenLocked: false,
 
       connectedAt: new Date(),
@@ -337,7 +340,7 @@ class LocalAgentRegistry implements IAgentRegistry {
     try {
       const sessionId = await markAgentOnline(dbResult.agentDbId, {
         ipAddress: remoteAddress,
-        powerState: 'PASSIVE',
+        powerState: 'ACTIVE',
       });
       this.sessionIds.set(connectionId, sessionId);
     } catch (err) {
@@ -366,6 +369,9 @@ class LocalAgentRegistry implements IAgentRegistry {
 
   /**
    * Apply schedule-based power state to an agent (I.2.1)
+   *
+   * NOTE: Currently forcing all agents to ACTIVE to troubleshoot communication issues.
+   * Schedule-based power states will be re-enabled later.
    */
   private async applyScheduleToAgent(agent: ConnectedAgent): Promise<void> {
     if (!agent.dbId) return;
@@ -374,19 +380,21 @@ class LocalAgentRegistry implements IAgentRegistry {
       const schedule = await getAgentSchedule(agent.dbId);
       if (!schedule) return;
 
-      // Send config update with schedule-based power state
+      // TEMPORARY: Force ACTIVE power state for all agents (ignoring schedule)
+      const forcedPowerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP' = 'ACTIVE';
+
+      // Send config update with ACTIVE power state
       this.sendConfigUpdate(agent, {
         heartbeatInterval: schedule.heartbeatInterval,
-        powerState: schedule.desiredPowerState,
+        powerState: forcedPowerState,
       });
 
       // Update local state
-      agent.powerState = schedule.desiredPowerState;
+      agent.powerState = forcedPowerState;
 
       console.log(
         `[Registry] Applied schedule to ${agent.machineName || agent.machineId}: ` +
-        `${schedule.scheduleMode} -> ${schedule.desiredPowerState} ` +
-        `(quiet: ${schedule.isInQuietHours})`
+        `FORCED ACTIVE (schedule would be: ${schedule.scheduleMode} -> ${schedule.desiredPowerState})`
       );
     } catch (err) {
       console.error(`[Registry] Failed to get schedule for agent ${agent.id}:`, err);

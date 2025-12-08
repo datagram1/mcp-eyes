@@ -132,7 +132,7 @@ export async function findOrCreateAgent(
         ipAddress: remoteAddress,
         status: 'ONLINE',
         state: 'PENDING',
-        powerState: 'PASSIVE',
+        powerState: 'ACTIVE',
         firstSeenAt: new Date(),
         lastSeenAt: new Date(),
         agentSecretHash,  // Store hashed secret on creation
@@ -247,7 +247,7 @@ export async function markAgentOnline(
     where: { id: agentDbId },
     data: {
       status: 'ONLINE',
-      powerState: sessionInfo.powerState || 'PASSIVE',
+      powerState: sessionInfo.powerState || 'ACTIVE',
       lastSeenAt: new Date(),
     },
   });

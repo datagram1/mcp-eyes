@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
         agentVersion: osConfig.agentVersion,
         state: state as 'PENDING' | 'ACTIVE' | 'BLOCKED' | 'EXPIRED',
         status: 'OFFLINE',
-        powerState: 'PASSIVE',
+        powerState: 'ACTIVE',
         ownerUserId: user.id,
         activatedAt: state === 'ACTIVE' ? new Date() : null,
         isMock: true,
