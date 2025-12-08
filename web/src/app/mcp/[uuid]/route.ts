@@ -353,8 +353,41 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
         },
       });
 
-      // Define available tools - full desktop and browser automation suite
-      const toolsList = [
+      // Try to get dynamic tools from connected agents first
+      let toolsList: any[] = [];
+      let toolsSource = 'default';  // Track where tools came from for logging
+
+      // Aggregate tools from all online agents
+      const agentToolsMap = new Map<string, any>();  // tool name -> tool definition
+
+      for (const dbAgent of agentsForTools) {
+        const connectedAgent = agentRegistry.getAgent(dbAgent.id);
+        if (connectedAgent?.tools && connectedAgent.tools.length > 0) {
+          connectedAgent.tools.forEach(tool => {
+            agentToolsMap.set(tool.name, tool);
+          });
+        }
+      }
+
+      // If we have tools from agents, use them
+      if (agentToolsMap.size > 0) {
+        toolsList = Array.from(agentToolsMap.values());
+        toolsSource = `agent (${agentToolsMap.size} tools from ${agentsForTools.length} agents)`;
+
+        logMcp('USING AGENT TOOLS', {
+          agentCount: agentsForTools.length,
+          toolCount: toolsList.length,
+          toolNames: toolsList.map(t => t.name).slice(0, 20),  // First 20 for logging
+        });
+      } else {
+        // Fall back to default hardcoded tools if agents haven't advertised yet
+        toolsSource = 'default hardcoded';
+        logMcp('USING DEFAULT TOOLS', {
+          reason: 'No tools advertised by agents yet',
+          agentCount: agentsForTools.length,
+        });
+
+        toolsList = [
         // === Emergency Control ===
         {
           name: 'emergency_stop',
@@ -835,10 +868,12 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
             required: ['imageBase64'],
           },
         },
-      ];
+        ];
+      }
 
       logMcp('TOOLS LIST RESPONSE', {
         toolCount: toolsList.length,
+        toolsSource: toolsSource,
         toolNames: toolsList.map(t => t.name),
         onlineAgents: agentsForTools.length,
       });
