@@ -266,6 +266,52 @@ export default function DebugPage() {
         </div>
       </div>
 
+      {/* Debug API - Tool Testing */}
+      <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-6 mb-6">
+        <div className="flex items-start gap-3 mb-4">
+          <svg className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+          <div className="flex-1">
+            <p className="text-purple-200 font-medium mb-2">Debug API - Direct Tool Execution</p>
+            <p className="text-purple-300/80 text-sm mb-3">
+              Use the Debug API to test tool execution directly without going through Claude.ai.
+              This API is only available when DEBUG_MODE=true.
+            </p>
+
+            <div className="bg-slate-900/50 rounded-lg p-4 mb-3">
+              <div className="text-xs text-slate-400 mb-1">API Key (Authorization Header)</div>
+              <code className="text-purple-300 text-sm break-all">{process.env.DEBUG_API_KEY || 'Not configured'}</code>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <div className="text-xs text-slate-400 mb-2">List Connected Agents:</div>
+                <div className="bg-slate-900/50 rounded-lg p-3 overflow-x-auto">
+                  <code className="text-sm text-green-400 whitespace-pre">
+{`curl -H "Authorization: Bearer ${process.env.DEBUG_API_KEY}" \\
+  ${process.env.APP_URL}/api/debug/execute-tool`}
+                  </code>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-400 mb-2">Execute Tool (e.g., screenshot):</div>
+                <div className="bg-slate-900/50 rounded-lg p-3 overflow-x-auto">
+                  <code className="text-sm text-green-400 whitespace-pre">
+{`curl -X POST \\
+  -H "Authorization: Bearer ${process.env.DEBUG_API_KEY}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"agentId":"AGENT_ID","tool":"desktop_screenshot","arguments":{"format":"png"}}' \\
+  ${process.env.APP_URL}/api/debug/execute-tool`}
+                  </code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Stats Summary */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
