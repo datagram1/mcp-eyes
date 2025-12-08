@@ -35,11 +35,10 @@
 @property (strong, nonatomic) NSButton *duplicateKeyButton;
 
 // Control server settings
-@property (strong, nonatomic) NSPopUpButton *controlServerModePopup;
 @property (strong, nonatomic) NSTextField *controlServerAddressField;
-@property (strong, nonatomic) NSTextField *controlServerKeyField;
-@property (strong, nonatomic) NSButton *testConnectionButton;
+@property (strong, nonatomic) NSButton *connectButton;
 @property (strong, nonatomic) NSTextField *connectionStatusLabel;
+@property (strong, nonatomic) NSTextField *healthStatusLabel;
 
 // Permission indicators
 @property (strong, nonatomic) NSImageView *accessibilityIndicator;
@@ -66,10 +65,39 @@
 @property (strong, nonatomic) NSTextField *debugAgentIdLabel;
 @property (strong, nonatomic) NSTextView *debugLogView;
 @property (strong, nonatomic) NSTextView *debugLogTextView;  // Alias for test server
+@property (strong, nonatomic) NSURLSession *debugSession;
 @property (strong, nonatomic) NSURLSessionWebSocketTask *debugWebSocketTask;
 @property (strong, nonatomic) NSTimer *debugHeartbeatTimer;
 @property (assign, nonatomic) BOOL debugIsConnected;
 @property (strong, nonatomic) NSButton *debugConnectOnStartupCheckbox;
+
+// Auto-reconnect properties
+@property (strong, nonatomic) NSTimer *debugReconnectTimer;
+@property (assign, nonatomic) NSInteger debugReconnectAttempt;
+@property (assign, nonatomic) BOOL debugAutoReconnectEnabled;
+@property (strong, nonatomic) NSButton *debugReconnectButton;
+
+// OAuth-based connection (MCP URL discovery)
+@property (strong, nonatomic) NSTextField *debugMcpUrlField;
+@property (strong, nonatomic) NSButton *debugDiscoverButton;
+@property (strong, nonatomic) NSTextField *debugOAuthStatusLabel;
+
+// OAuth discovery results
+@property (strong, nonatomic) NSString *oauthIssuer;
+@property (strong, nonatomic) NSString *oauthAuthorizationEndpoint;
+@property (strong, nonatomic) NSString *oauthTokenEndpoint;
+@property (strong, nonatomic) NSString *oauthRegistrationEndpoint;
+
+// OAuth client credentials (stored in Keychain after registration)
+@property (strong, nonatomic) NSString *oauthClientId;
+@property (strong, nonatomic) NSString *oauthClientSecret;
+@property (strong, nonatomic) NSString *oauthAccessToken;
+@property (strong, nonatomic) NSDate *oauthTokenExpiry;
+@property (strong, nonatomic) NSTimer *oauthRefreshTimer;
+
+// Discovered MCP endpoint info
+@property (strong, nonatomic) NSString *mcpEndpointUuid;
+@property (strong, nonatomic) NSString *mcpBaseUrl;
 
 #ifdef DEBUG
 // Test server for automated testing (DEBUG builds only)
@@ -80,5 +108,23 @@
 - (IBAction)debugConnectClicked:(id)sender;
 - (IBAction)debugDisconnectClicked:(id)sender;
 - (IBAction)debugSaveSettingsClicked:(id)sender;
+- (IBAction)debugReconnectClicked:(id)sender;
+- (void)debugScheduleReconnect;
+- (void)debugCancelReconnect;
+- (void)discoverAndJoinClicked:(id)sender;
+
+// Control Server methods (General tab)
+- (void)connectControlServer:(id)sender;
+
+// OAuth methods
+- (void)discoverOAuthFromMcpUrl:(NSString *)mcpUrl;
+- (void)registerOAuthClient;
+- (void)requestOAuthToken;
+- (void)connectWithOAuthToken;
+
+// Keychain helpers
+- (void)saveOAuthCredentialsToKeychain;
+- (void)loadOAuthCredentialsFromKeychain;
+- (void)clearOAuthCredentials;
 
 @end

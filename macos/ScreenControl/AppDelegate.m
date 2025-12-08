@@ -19,9 +19,7 @@ static NSString * const kAgentNameKey = @"AgentName";
 static NSString * const kNetworkModeKey = @"NetworkMode";
 static NSString * const kPortKey = @"Port";
 static NSString * const kAPIKeyKey = @"APIKey";
-static NSString * const kControlServerModeKey = @"ControlServerMode";
 static NSString * const kControlServerAddressKey = @"ControlServerAddress";
-static NSString * const kControlServerKeyKey = @"ControlServerKey";
 
 // Tools configuration path
 static NSString * const kToolsConfigFilename = @"tools.json";
@@ -131,6 +129,7 @@ extern "C" {
 
 #ifdef DEBUG
     // Start test server for automated testing (DEBUG builds only)
+    // Use port 3458 to avoid conflict with MCPServer on 3456
     self.testServer = [[TestServer alloc] initWithAppDelegate:self];
     if ([self.testServer startOnPort:3458]) {
         NSLog(@"[ScreenControl] Test server started - agent is now remotely controllable via localhost:3458");
@@ -480,74 +479,46 @@ extern "C" {
     y -= 110;
 
     // Control Server Section
-    NSBox *controlServerBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 140, tabWidth - padding * 2, 150)];
+    NSBox *controlServerBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 105, tabWidth - padding * 2, 115)];
     controlServerBox.title = @"Control Server (Remote Mode)";
     controlServerBox.titlePosition = NSAtTop;
     [tabView addSubview:controlServerBox];
 
-    boxY = 100;
+    boxY = 70;
 
-    NSTextField *controlModeLabel = [self createLabel:@"Mode:"
-                                                 frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
-    [controlServerBox addSubview:controlModeLabel];
+    // URL field with Connect button
+    NSTextField *urlLabel = [self createLabel:@"URL:"
+                                        frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
+    [controlServerBox addSubview:urlLabel];
 
-    self.controlServerModePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 20, 24)];
-    [self.controlServerModePopup addItemsWithTitles:@[@"Disabled", @"Auto (Bonjour)", @"Manual (WAN)"]];
-    NSString *savedControlMode = [self loadSetting:kControlServerModeKey defaultValue:@"disabled"];
-    if ([savedControlMode isEqualToString:@"auto"]) {
-        [self.controlServerModePopup selectItemAtIndex:1];
-    } else if ([savedControlMode isEqualToString:@"manual"]) {
-        [self.controlServerModePopup selectItemAtIndex:2];
-    }
-    [self.controlServerModePopup setTarget:self];
-    [self.controlServerModePopup setAction:@selector(controlServerModeChanged:)];
-    [controlServerBox addSubview:self.controlServerModePopup];
-
-    // Initialize field states based on saved mode
-    BOOL manualMode = ([savedControlMode isEqualToString:@"manual"]);
-    self.controlServerAddressField.enabled = manualMode;
-    self.controlServerKeyField.enabled = manualMode;
-    self.testConnectionButton.enabled = manualMode;
-    boxY -= rowHeight + 5;
-
-    NSTextField *serverAddressLabel = [self createLabel:@"Server Address:"
-                                                  frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
-    [controlServerBox addSubview:serverAddressLabel];
-
-    self.controlServerAddressField = [[NSTextField alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 20, 24)];
-    self.controlServerAddressField.placeholderString = @"control.example.com:3457 or 192.168.1.100:3457";
+    self.controlServerAddressField = [[NSTextField alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 100, 24)];
+    self.controlServerAddressField.placeholderString = @"https://control.example.com";
     self.controlServerAddressField.stringValue = [self loadSetting:kControlServerAddressKey defaultValue:@""];
     self.controlServerAddressField.delegate = self;
     [controlServerBox addSubview:self.controlServerAddressField];
+
+    // Connect button
+    self.connectButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth + controlWidth - 95, boxY, 80, 24)];
+    self.connectButton.title = @"Connect";
+    self.connectButton.bezelStyle = NSBezelStyleRounded;
+    self.connectButton.target = self;
+    self.connectButton.action = @selector(connectControlServer:);
+    [controlServerBox addSubview:self.connectButton];
     boxY -= rowHeight + 5;
 
-    NSTextField *serverKeyLabel = [self createLabel:@"Secure Key:"
-                                               frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
-    [controlServerBox addSubview:serverKeyLabel];
-
-    self.controlServerKeyField = [[NSTextField alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 100, 24)];
-    self.controlServerKeyField.placeholderString = @"agt_...";
-    self.controlServerKeyField.stringValue = [self loadSetting:kControlServerKeyKey defaultValue:@""];
-    self.controlServerKeyField.delegate = self;
-    self.controlServerKeyField.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
-    [controlServerBox addSubview:self.controlServerKeyField];
-
-    // Test connection button
-    self.testConnectionButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth + controlWidth - 95, boxY, 80, 24)];
-    self.testConnectionButton.title = @"Test";
-    self.testConnectionButton.bezelStyle = NSBezelStyleRounded;
-    self.testConnectionButton.target = self;
-    self.testConnectionButton.action = @selector(testControlServerConnection:);
-    [controlServerBox addSubview:self.testConnectionButton];
-    boxY -= rowHeight + 5;
+    // Health status label
+    self.healthStatusLabel = [self createLabel:@"Health: --"
+                                         frame:NSMakeRect(boxPadding, boxY, controlWidth / 2, 20)];
+    self.healthStatusLabel.textColor = [NSColor secondaryLabelColor];
+    [controlServerBox addSubview:self.healthStatusLabel];
 
     // Connection status label
     self.connectionStatusLabel = [self createLabel:@"Status: Not connected"
-                                             frame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
+                                             frame:NSMakeRect(boxPadding + controlWidth / 2, boxY, controlWidth / 2, 20)];
     self.connectionStatusLabel.textColor = [NSColor secondaryLabelColor];
     [controlServerBox addSubview:self.connectionStatusLabel];
 
-    y -= 150;
+    y -= 115;
 
     // Status Section
     NSBox *statusBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 70, tabWidth - padding * 2, 80)];
@@ -684,7 +655,7 @@ extern "C" {
 
 - (NSView *)createDebugTabView {
     CGFloat tabWidth = 600;
-    CGFloat tabHeight = 650;
+    CGFloat tabHeight = 750;  // Increased for OAuth section
     NSView *tabView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, tabWidth, tabHeight)];
 
     CGFloat padding = 20;
@@ -692,15 +663,51 @@ extern "C" {
     CGFloat controlWidth = tabWidth - padding * 2 - labelWidth - 10;
     CGFloat rowHeight = 30;
     CGFloat y = tabHeight - 50;
+    CGFloat boxPadding = 15;
+    CGFloat boxY;
 
-    // ScreenControl Connection Section
+    // OAuth Join Section (Join by URL - like Claude MCP)
+    NSBox *oauthBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 100, tabWidth - padding * 2, 110)];
+    oauthBox.title = @"Join by URL (OAuth Discovery)";
+    oauthBox.titlePosition = NSAtTop;
+    [tabView addSubview:oauthBox];
+
+    boxY = 65;
+
+    // MCP URL field
+    NSTextField *mcpUrlLabel = [self createLabel:@"MCP URL:"
+                                           frame:NSMakeRect(boxPadding, boxY, labelWidth, rowHeight)];
+    [oauthBox addSubview:mcpUrlLabel];
+
+    self.debugMcpUrlField = [[NSTextField alloc] initWithFrame:NSMakeRect(boxPadding + labelWidth, boxY, controlWidth - 130, 24)];
+    self.debugMcpUrlField.placeholderString = @"https://screencontrol.knws.co.uk/mcp/<uuid>";
+    self.debugMcpUrlField.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular];
+    [oauthBox addSubview:self.debugMcpUrlField];
+
+    // Discover & Join button
+    self.debugDiscoverButton = [[NSButton alloc] initWithFrame:NSMakeRect(controlWidth - 5, boxY - 3, 120, 28)];
+    self.debugDiscoverButton.title = @"Discover & Join";
+    self.debugDiscoverButton.bezelStyle = NSBezelStyleRounded;
+    self.debugDiscoverButton.target = self;
+    self.debugDiscoverButton.action = @selector(discoverAndJoinClicked:);
+    [oauthBox addSubview:self.debugDiscoverButton];
+    boxY -= rowHeight + 5;
+
+    // OAuth status
+    self.debugOAuthStatusLabel = [self createLabel:@"OAuth: Not configured"
+                                             frame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
+    self.debugOAuthStatusLabel.textColor = [NSColor secondaryLabelColor];
+    [oauthBox addSubview:self.debugOAuthStatusLabel];
+
+    y -= 120;
+
+    // ScreenControl Connection Section (Manual/Debug)
     NSBox *connectionBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 200, tabWidth - padding * 2, 210)];
-    connectionBox.title = @"ScreenControl Server Connection (Debug)";
+    connectionBox.title = @"Manual Connection (Debug)";
     connectionBox.titlePosition = NSAtTop;
     [tabView addSubview:connectionBox];
 
-    CGFloat boxPadding = 15;
-    CGFloat boxY = 165;
+    boxY = 165;
 
     // Server URL
     NSTextField *urlLabel = [self createLabel:@"Server URL:"
@@ -751,8 +758,17 @@ extern "C" {
     self.debugDisconnectButton.enabled = NO;
     [connectionBox addSubview:self.debugDisconnectButton];
 
+    // Reconnect button (for forcing immediate reconnection)
+    self.debugReconnectButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 220, boxY, 100, 32)];
+    self.debugReconnectButton.title = @"Reconnect";
+    self.debugReconnectButton.bezelStyle = NSBezelStyleRounded;
+    self.debugReconnectButton.target = self;
+    self.debugReconnectButton.action = @selector(debugReconnectClicked:);
+    self.debugReconnectButton.enabled = NO;  // Enabled when connected or during reconnect attempts
+    [connectionBox addSubview:self.debugReconnectButton];
+
     // Save Settings button
-    NSButton *saveSettingsButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 220, boxY, 100, 32)];
+    NSButton *saveSettingsButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 330, boxY, 70, 32)];
     saveSettingsButton.title = @"Save";
     saveSettingsButton.bezelStyle = NSBezelStyleRounded;
     saveSettingsButton.target = self;
@@ -760,7 +776,7 @@ extern "C" {
     [connectionBox addSubview:saveSettingsButton];
 
     // Copy MCP URL button
-    NSButton *copyMcpUrlButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 330, boxY, 120, 32)];
+    NSButton *copyMcpUrlButton = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding + 410, boxY, 110, 32)];
     copyMcpUrlButton.title = @"Copy MCP URL";
     copyMcpUrlButton.bezelStyle = NSBezelStyleRounded;
     copyMcpUrlButton.target = self;
@@ -860,6 +876,9 @@ extern "C" {
 }
 
 - (void)debugConnect:(id)sender {
+    // Cancel any pending reconnect
+    [self debugCancelReconnect];
+
     NSString *serverUrl = self.debugServerUrlField.stringValue;
     if (serverUrl.length == 0) {
         serverUrl = @"wss://screencontrol.knws.co.uk/ws";
@@ -874,9 +893,9 @@ extern "C" {
     }
 
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
+    self.debugSession = [NSURLSession sessionWithConfiguration:config];
 
-    self.debugWebSocketTask = [session webSocketTaskWithURL:url];
+    self.debugWebSocketTask = [self.debugSession webSocketTaskWithURL:url];
 
     // Start receiving messages
     [self debugReceiveMessage];
@@ -887,6 +906,7 @@ extern "C" {
     // Update UI
     self.debugConnectButton.enabled = NO;
     self.debugDisconnectButton.enabled = YES;
+    self.debugReconnectButton.enabled = NO;
     self.debugConnectionStatusLabel.stringValue = @"Status: Connecting...";
     self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
 
@@ -899,6 +919,10 @@ extern "C" {
 - (void)debugDisconnect:(id)sender {
     [self debugLog:@"Disconnecting..."];
 
+    // Disable auto-reconnect when manually disconnecting
+    self.debugAutoReconnectEnabled = NO;
+    [self debugCancelReconnect];
+
     // Stop heartbeat timer
     [self.debugHeartbeatTimer invalidate];
     self.debugHeartbeatTimer = nil;
@@ -907,19 +931,596 @@ extern "C" {
     [self.debugWebSocketTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
     self.debugWebSocketTask = nil;
 
+    // Invalidate session to clean up resources
+    [self.debugSession invalidateAndCancel];
+    self.debugSession = nil;
+
     self.debugIsConnected = NO;
 
     // Update UI
     dispatch_async(dispatch_get_main_queue(), ^{
         self.debugConnectButton.enabled = YES;
         self.debugDisconnectButton.enabled = NO;
+        self.debugReconnectButton.enabled = NO;
         self.debugConnectionStatusLabel.stringValue = @"Status: Disconnected";
         self.debugConnectionStatusLabel.textColor = [NSColor secondaryLabelColor];
         self.debugLicenseStatusLabel.stringValue = @"License: --";
         self.debugAgentIdLabel.stringValue = @"Agent ID: --";
+
+        // Update General tab connection status
+        self.connectionStatusLabel.stringValue = @"Status: Not connected";
+        self.connectionStatusLabel.textColor = [NSColor secondaryLabelColor];
+        self.connectButton.enabled = YES;
     });
 
     [self debugLog:@"Disconnected"];
+}
+
+#pragma mark - Auto-Reconnect
+
+- (void)debugScheduleReconnect {
+    // Calculate delay with exponential backoff: 5s, 10s, 20s, 40s, max 60s
+    NSTimeInterval baseDelay = 5.0;
+    NSTimeInterval delay = MIN(baseDelay * pow(2, self.debugReconnectAttempt), 60.0);
+
+    self.debugReconnectAttempt++;
+
+    [self debugLog:[NSString stringWithFormat:@"Scheduling reconnect attempt %ld in %.0f seconds...", (long)self.debugReconnectAttempt, delay]];
+
+    self.debugConnectionStatusLabel.stringValue = [NSString stringWithFormat:@"Status: Reconnecting in %.0fs (attempt %ld)", delay, (long)self.debugReconnectAttempt];
+    self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
+
+    // Cancel existing timer if any
+    [self.debugReconnectTimer invalidate];
+
+    // Schedule reconnect
+    __weak typeof(self) weakSelf = self;
+    self.debugReconnectTimer = [NSTimer scheduledTimerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
+        [weakSelf debugLog:@"Attempting reconnect..."];
+        [weakSelf debugConnect:nil];
+    }];
+}
+
+- (void)debugCancelReconnect {
+    [self.debugReconnectTimer invalidate];
+    self.debugReconnectTimer = nil;
+    self.debugReconnectAttempt = 0;
+}
+
+- (IBAction)debugReconnectClicked:(id)sender {
+    [self debugLog:@"Manual reconnect requested"];
+    [self debugCancelReconnect];
+    self.debugAutoReconnectEnabled = YES;  // Re-enable auto-reconnect
+    [self debugConnect:nil];
+}
+
+#pragma mark - OAuth Discovery and Connection
+
+- (void)discoverAndJoinClicked:(id)sender {
+    NSString *mcpUrl = self.debugMcpUrlField.stringValue;
+    if (mcpUrl.length == 0) {
+        [self debugLog:@"ERROR: Please enter an MCP URL"];
+        self.debugOAuthStatusLabel.stringValue = @"OAuth: Enter MCP URL first";
+        self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+        return;
+    }
+
+    [self debugLog:[NSString stringWithFormat:@"Discovering OAuth from: %@", mcpUrl]];
+    self.debugOAuthStatusLabel.stringValue = @"OAuth: Discovering...";
+    self.debugOAuthStatusLabel.textColor = [NSColor systemOrangeColor];
+    self.debugDiscoverButton.enabled = NO;
+
+    [self discoverOAuthFromMcpUrl:mcpUrl];
+}
+
+- (void)discoverOAuthFromMcpUrl:(NSString *)mcpUrl {
+    // Parse the MCP URL to extract base URL and endpoint UUID
+    // Format: https://screencontrol.knws.co.uk/mcp/<uuid>
+    NSURL *url = [NSURL URLWithString:mcpUrl];
+    if (!url) {
+        [self debugLog:@"ERROR: Invalid MCP URL format"];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.debugOAuthStatusLabel.stringValue = @"OAuth: Invalid URL";
+            self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+            self.debugDiscoverButton.enabled = YES;
+        });
+        return;
+    }
+
+    // Extract base URL and UUID from path
+    NSString *scheme = url.scheme;
+    NSString *host = url.host;
+    NSNumber *port = url.port;
+    NSString *path = url.path;
+
+    // Build base URL
+    NSString *baseUrl;
+    if (port) {
+        baseUrl = [NSString stringWithFormat:@"%@://%@:%@", scheme, host, port];
+    } else {
+        baseUrl = [NSString stringWithFormat:@"%@://%@", scheme, host];
+    }
+    self.mcpBaseUrl = baseUrl;
+
+    // Extract UUID from path (e.g., /mcp/cmivv9aar000310vcfp9lg0qj)
+    NSArray *pathComponents = [path componentsSeparatedByString:@"/"];
+    if (pathComponents.count >= 3 && [pathComponents[1] isEqualToString:@"mcp"]) {
+        self.mcpEndpointUuid = pathComponents[2];
+        [self debugLog:[NSString stringWithFormat:@"Extracted UUID: %@", self.mcpEndpointUuid]];
+    } else {
+        [self debugLog:@"WARNING: Could not extract UUID from path"];
+    }
+
+    // Fetch OAuth discovery document from .well-known endpoint
+    NSString *discoveryUrl = [NSString stringWithFormat:@"%@/.well-known/oauth-authorization-server", baseUrl];
+    [self debugLog:[NSString stringWithFormat:@"Fetching: %@", discoveryUrl]];
+
+    NSURL *discoverURL = [NSURL URLWithString:discoveryUrl];
+    NSURLSessionDataTask *task = [self.urlSession dataTaskWithURL:discoverURL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            [self debugLog:[NSString stringWithFormat:@"ERROR: Discovery failed: %@", error.localizedDescription]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: Discovery failed";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+        if (httpResponse.statusCode != 200) {
+            [self debugLog:[NSString stringWithFormat:@"ERROR: Discovery returned %ld", (long)httpResponse.statusCode]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = [NSString stringWithFormat:@"OAuth: HTTP %ld", (long)httpResponse.statusCode];
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        NSError *jsonError;
+        NSDictionary *discovery = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+        if (jsonError || !discovery) {
+            [self debugLog:@"ERROR: Failed to parse discovery JSON"];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: Invalid JSON";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        // Extract OAuth endpoints
+        self.oauthIssuer = discovery[@"issuer"];
+        self.oauthAuthorizationEndpoint = discovery[@"authorization_endpoint"];
+        self.oauthTokenEndpoint = discovery[@"token_endpoint"];
+        self.oauthRegistrationEndpoint = discovery[@"registration_endpoint"];
+
+        [self debugLog:[NSString stringWithFormat:@"Discovered issuer: %@", self.oauthIssuer]];
+        [self debugLog:[NSString stringWithFormat:@"Token endpoint: %@", self.oauthTokenEndpoint]];
+        [self debugLog:[NSString stringWithFormat:@"Registration endpoint: %@", self.oauthRegistrationEndpoint]];
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.debugOAuthStatusLabel.stringValue = @"OAuth: Discovered, registering...";
+            self.debugOAuthStatusLabel.textColor = [NSColor systemOrangeColor];
+        });
+
+        // Check if we have stored credentials for this endpoint
+        [self loadOAuthCredentialsFromKeychain];
+
+        if (self.oauthClientId && self.oauthClientSecret) {
+            [self debugLog:@"Found stored OAuth credentials, requesting token..."];
+            [self requestOAuthToken];
+        } else {
+            [self debugLog:@"No stored credentials, registering new client..."];
+            [self registerOAuthClient];
+        }
+    }];
+    [task resume];
+}
+
+- (void)registerOAuthClient {
+    if (!self.oauthRegistrationEndpoint) {
+        [self debugLog:@"ERROR: No registration endpoint discovered"];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.debugOAuthStatusLabel.stringValue = @"OAuth: No registration endpoint";
+            self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+            self.debugDiscoverButton.enabled = YES;
+        });
+        return;
+    }
+
+    [self debugLog:@"Registering OAuth client..."];
+
+    // Build registration request
+    NSString *hostname = [[NSHost currentHost] localizedName];
+    NSString *machineId = [self getMachineId];
+
+    NSDictionary *regRequest = @{
+        @"client_name": [NSString stringWithFormat:@"ScreenControl Agent - %@", hostname],
+        @"grant_types": @[@"client_credentials"],
+        @"token_endpoint_auth_method": @"client_secret_basic",
+        @"scope": @"mcp:tools mcp:resources mcp:agents:read mcp:agents:write",
+        @"software_id": @"screencontrol-agent-macos",
+        @"software_version": @"1.0.0",
+        @"client_uri": [NSString stringWithFormat:@"local://%@", machineId],
+        // Redirect URIs required by server even for client_credentials (localhost allowed)
+        @"redirect_uris": @[@"http://localhost/oauth/callback"],
+        // Include endpoint UUID if we have it (links this client to the MCP endpoint)
+        @"mcp_endpoint_uuid": self.mcpEndpointUuid ?: @""
+    };
+
+    NSError *jsonError;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:regRequest options:0 error:&jsonError];
+    if (jsonError) {
+        [self debugLog:@"ERROR: Failed to serialize registration request"];
+        return;
+    }
+
+    NSURL *regUrl = [NSURL URLWithString:self.oauthRegistrationEndpoint];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:regUrl];
+    request.HTTPMethod = @"POST";
+    request.HTTPBody = jsonData;
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+
+    NSURLSessionDataTask *task = [self.urlSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            [self debugLog:[NSString stringWithFormat:@"ERROR: Registration failed: %@", error.localizedDescription]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: Registration failed";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+        if (httpResponse.statusCode != 201 && httpResponse.statusCode != 200) {
+            NSString *responseBody = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            [self debugLog:[NSString stringWithFormat:@"ERROR: Registration returned %ld: %@", (long)httpResponse.statusCode, responseBody]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = [NSString stringWithFormat:@"OAuth: Reg failed (%ld)", (long)httpResponse.statusCode];
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        NSError *parseError;
+        NSDictionary *regResponse = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
+        if (parseError || !regResponse) {
+            [self debugLog:@"ERROR: Failed to parse registration response"];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: Invalid response";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        // Extract client credentials
+        self.oauthClientId = regResponse[@"client_id"];
+        self.oauthClientSecret = regResponse[@"client_secret"];
+
+        if (!self.oauthClientId || !self.oauthClientSecret) {
+            [self debugLog:@"ERROR: Registration response missing credentials"];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: Missing credentials in response";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        [self debugLog:[NSString stringWithFormat:@"Registered client_id: %@", self.oauthClientId]];
+
+        // Save credentials to keychain
+        [self saveOAuthCredentialsToKeychain];
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.debugOAuthStatusLabel.stringValue = @"OAuth: Registered, getting token...";
+        });
+
+        // Now request an access token
+        [self requestOAuthToken];
+    }];
+    [task resume];
+}
+
+- (void)requestOAuthToken {
+    if (!self.oauthTokenEndpoint || !self.oauthClientId || !self.oauthClientSecret) {
+        [self debugLog:@"ERROR: Missing OAuth configuration for token request"];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.debugOAuthStatusLabel.stringValue = @"OAuth: Missing configuration";
+            self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+            self.debugDiscoverButton.enabled = YES;
+        });
+        return;
+    }
+
+    [self debugLog:@"Requesting OAuth access token..."];
+
+    // Build token request (client_credentials grant)
+    NSString *body = [NSString stringWithFormat:@"grant_type=client_credentials&scope=%@",
+                      [@"mcp:tools mcp:resources mcp:agents:read mcp:agents:write" stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]]];
+
+    NSURL *tokenUrl = [NSURL URLWithString:self.oauthTokenEndpoint];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:tokenUrl];
+    request.HTTPMethod = @"POST";
+    request.HTTPBody = [body dataUsingEncoding:NSUTF8StringEncoding];
+    [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+
+    // Add Basic auth header with client credentials
+    NSString *credentials = [NSString stringWithFormat:@"%@:%@", self.oauthClientId, self.oauthClientSecret];
+    NSData *credData = [credentials dataUsingEncoding:NSUTF8StringEncoding];
+    NSString *base64Creds = [credData base64EncodedStringWithOptions:0];
+    [request setValue:[NSString stringWithFormat:@"Basic %@", base64Creds] forHTTPHeaderField:@"Authorization"];
+
+    NSURLSessionDataTask *task = [self.urlSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            [self debugLog:[NSString stringWithFormat:@"ERROR: Token request failed: %@", error.localizedDescription]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: Token request failed";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+        if (httpResponse.statusCode != 200) {
+            NSString *responseBody = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            [self debugLog:[NSString stringWithFormat:@"ERROR: Token request returned %ld: %@", (long)httpResponse.statusCode, responseBody]];
+
+            // If unauthorized, clear stored credentials and re-register
+            if (httpResponse.statusCode == 401) {
+                [self debugLog:@"Credentials invalid, clearing and re-registering..."];
+                [self clearOAuthCredentials];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.debugOAuthStatusLabel.stringValue = @"OAuth: Re-registering...";
+                });
+                [self registerOAuthClient];
+                return;
+            }
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = [NSString stringWithFormat:@"OAuth: Token failed (%ld)", (long)httpResponse.statusCode];
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        NSError *parseError;
+        NSDictionary *tokenResponse = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
+        if (parseError || !tokenResponse) {
+            [self debugLog:@"ERROR: Failed to parse token response"];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: Invalid token response";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        // Extract access token
+        self.oauthAccessToken = tokenResponse[@"access_token"];
+        NSNumber *expiresIn = tokenResponse[@"expires_in"];
+
+        if (!self.oauthAccessToken) {
+            [self debugLog:@"ERROR: Token response missing access_token"];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.debugOAuthStatusLabel.stringValue = @"OAuth: No token in response";
+                self.debugOAuthStatusLabel.textColor = [NSColor systemRedColor];
+                self.debugDiscoverButton.enabled = YES;
+            });
+            return;
+        }
+
+        // Calculate token expiry and schedule refresh
+        if (expiresIn) {
+            self.oauthTokenExpiry = [NSDate dateWithTimeIntervalSinceNow:expiresIn.doubleValue];
+            [self debugLog:[NSString stringWithFormat:@"Token expires in %@ seconds", expiresIn]];
+
+            // Schedule token refresh at 90% of expiry time (or 5 minutes before, whichever is less)
+            NSTimeInterval refreshDelay = MIN(expiresIn.doubleValue * 0.9, expiresIn.doubleValue - 300);
+            if (refreshDelay < 60) refreshDelay = 60; // At minimum, wait 60 seconds before refresh
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.oauthRefreshTimer invalidate];
+                self.oauthRefreshTimer = [NSTimer scheduledTimerWithTimeInterval:refreshDelay
+                                                                          target:self
+                                                                        selector:@selector(oauthRefreshTokenIfNeeded)
+                                                                        userInfo:nil
+                                                                         repeats:NO];
+                [self debugLog:[NSString stringWithFormat:@"Scheduled token refresh in %.0f seconds", refreshDelay]];
+            });
+        }
+
+        [self debugLog:@"OAuth token obtained successfully!"];
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.debugOAuthStatusLabel.stringValue = @"OAuth: Connected!";
+            self.debugOAuthStatusLabel.textColor = [NSColor systemGreenColor];
+            self.debugDiscoverButton.enabled = YES;
+
+            // Auto-fill the manual connection fields
+            if (self.mcpBaseUrl) {
+                self.debugServerUrlField.stringValue = [NSString stringWithFormat:@"%@/ws", [self.mcpBaseUrl stringByReplacingOccurrencesOfString:@"http://" withString:@"ws://"]];
+                self.debugServerUrlField.stringValue = [self.debugServerUrlField.stringValue stringByReplacingOccurrencesOfString:@"https://" withString:@"wss://"];
+            }
+            if (self.mcpEndpointUuid) {
+                self.debugEndpointUuidField.stringValue = self.mcpEndpointUuid;
+            }
+        });
+
+        // Connect using the OAuth token
+        [self connectWithOAuthToken];
+    }];
+    [task resume];
+}
+
+- (void)oauthRefreshTokenIfNeeded {
+    [self debugLog:@"Token refresh timer fired - checking if refresh needed..."];
+
+    // Check if we have the necessary credentials to refresh
+    if (!self.oauthTokenEndpoint || !self.oauthClientId || !self.oauthClientSecret) {
+        [self debugLog:@"Cannot refresh token - missing OAuth configuration"];
+        return;
+    }
+
+    // Check if token is actually expiring soon (within 5 minutes)
+    if (self.oauthTokenExpiry) {
+        NSTimeInterval timeUntilExpiry = [self.oauthTokenExpiry timeIntervalSinceNow];
+        [self debugLog:[NSString stringWithFormat:@"Token expires in %.0f seconds", timeUntilExpiry]];
+
+        if (timeUntilExpiry > 300) {
+            [self debugLog:@"Token not expiring soon, skipping refresh"];
+            return;
+        }
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.debugOAuthStatusLabel.stringValue = @"OAuth: Refreshing token...";
+        self.debugOAuthStatusLabel.textColor = [NSColor systemOrangeColor];
+    });
+
+    [self debugLog:@"Refreshing OAuth token..."];
+    [self requestOAuthToken];
+}
+
+- (void)connectWithOAuthToken {
+    if (!self.oauthAccessToken) {
+        [self debugLog:@"ERROR: No OAuth token available"];
+        return;
+    }
+
+    [self debugLog:@"Connecting with OAuth token..."];
+
+    // Build WebSocket URL with token
+    NSString *wsUrl = self.debugServerUrlField.stringValue;
+    if (wsUrl.length == 0 && self.mcpBaseUrl) {
+        wsUrl = [NSString stringWithFormat:@"%@/ws", [self.mcpBaseUrl stringByReplacingOccurrencesOfString:@"http://" withString:@"ws://"]];
+        wsUrl = [wsUrl stringByReplacingOccurrencesOfString:@"https://" withString:@"wss://"];
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.debugServerUrlField.stringValue = wsUrl;
+
+        // Set endpoint UUID
+        if (self.mcpEndpointUuid) {
+            self.debugEndpointUuidField.stringValue = self.mcpEndpointUuid;
+        }
+
+        // Trigger connection
+        [self debugConnect:nil];
+    });
+}
+
+#pragma mark - Keychain Helpers
+
+static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
+
+- (void)saveOAuthCredentialsToKeychain {
+    if (!self.oauthClientId || !self.oauthClientSecret || !self.mcpBaseUrl) return;
+
+    [self debugLog:@"Saving OAuth credentials to Keychain..."];
+
+    // Create a unique account name based on the server URL
+    NSString *account = [NSString stringWithFormat:@"%@::%@", self.mcpBaseUrl, self.mcpEndpointUuid ?: @"default"];
+
+    // Store credentials as JSON
+    NSDictionary *credentials = @{
+        @"client_id": self.oauthClientId,
+        @"client_secret": self.oauthClientSecret,
+        @"endpoint_uuid": self.mcpEndpointUuid ?: @"",
+        @"base_url": self.mcpBaseUrl
+    };
+
+    NSError *jsonError;
+    NSData *credData = [NSJSONSerialization dataWithJSONObject:credentials options:0 error:&jsonError];
+    if (jsonError) {
+        [self debugLog:@"ERROR: Failed to serialize credentials for Keychain"];
+        return;
+    }
+
+    // Delete any existing item first
+    NSDictionary *deleteQuery = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: kKeychainService,
+        (__bridge id)kSecAttrAccount: account
+    };
+    SecItemDelete((__bridge CFDictionaryRef)deleteQuery);
+
+    // Add new item
+    NSDictionary *addQuery = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: kKeychainService,
+        (__bridge id)kSecAttrAccount: account,
+        (__bridge id)kSecValueData: credData,
+        (__bridge id)kSecAttrAccessible: (__bridge id)kSecAttrAccessibleAfterFirstUnlock
+    };
+
+    OSStatus status = SecItemAdd((__bridge CFDictionaryRef)addQuery, NULL);
+    if (status == errSecSuccess) {
+        [self debugLog:@"OAuth credentials saved to Keychain"];
+    } else {
+        [self debugLog:[NSString stringWithFormat:@"WARNING: Failed to save to Keychain (status: %d)", (int)status]];
+    }
+}
+
+- (void)loadOAuthCredentialsFromKeychain {
+    if (!self.mcpBaseUrl) return;
+
+    NSString *account = [NSString stringWithFormat:@"%@::%@", self.mcpBaseUrl, self.mcpEndpointUuid ?: @"default"];
+
+    NSDictionary *query = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: kKeychainService,
+        (__bridge id)kSecAttrAccount: account,
+        (__bridge id)kSecReturnData: @YES,
+        (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne
+    };
+
+    CFTypeRef result = NULL;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
+
+    if (status == errSecSuccess && result) {
+        NSData *credData = (__bridge_transfer NSData *)result;
+        NSError *jsonError;
+        NSDictionary *credentials = [NSJSONSerialization JSONObjectWithData:credData options:0 error:&jsonError];
+
+        if (!jsonError && credentials) {
+            self.oauthClientId = credentials[@"client_id"];
+            self.oauthClientSecret = credentials[@"client_secret"];
+            [self debugLog:[NSString stringWithFormat:@"Loaded OAuth credentials from Keychain for %@", account]];
+        }
+    } else {
+        [self debugLog:@"No stored OAuth credentials found"];
+    }
+}
+
+- (void)clearOAuthCredentials {
+    self.oauthClientId = nil;
+    self.oauthClientSecret = nil;
+    self.oauthAccessToken = nil;
+    self.oauthTokenExpiry = nil;
+
+    // Cancel any pending token refresh
+    [self.oauthRefreshTimer invalidate];
+    self.oauthRefreshTimer = nil;
+
+    if (self.mcpBaseUrl) {
+        NSString *account = [NSString stringWithFormat:@"%@::%@", self.mcpBaseUrl, self.mcpEndpointUuid ?: @"default"];
+
+        NSDictionary *deleteQuery = @{
+            (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+            (__bridge id)kSecAttrService: kKeychainService,
+            (__bridge id)kSecAttrAccount: account
+        };
+        SecItemDelete((__bridge CFDictionaryRef)deleteQuery);
+        [self debugLog:@"Cleared OAuth credentials from Keychain"];
+    }
 }
 
 - (void)debugSendRegistration {
@@ -929,6 +1530,7 @@ extern "C" {
     NSString *hostname = [[NSHost currentHost] localizedName];
     NSString *endpointUuid = self.debugEndpointUuidField.stringValue;
     NSString *customerId = self.debugCustomerIdField.stringValue;
+    NSString *agentSecret = self.apiKeyField.stringValue;
 
     // Build registration message matching server expectations
     NSMutableDictionary *message = [NSMutableDictionary dictionary];
@@ -947,8 +1549,9 @@ extern "C" {
         message[@"customerId"] = customerId;
     }
 
-    // Add agent secret for re-authentication after token expiry
-    NSString *agentSecret = self.apiKeyField ? self.apiKeyField.stringValue : [self loadOrGenerateAPIKey];
+    // Include agent secret for server-side authentication
+    // Server stores this on first registration and validates on reconnection
+    // This ensures the agent can re-establish connection after token expiry
     if (agentSecret.length > 0) {
         message[@"agentSecret"] = agentSecret;
     }
@@ -971,9 +1574,10 @@ extern "C" {
     [self debugLog:[NSString stringWithFormat:@"→ REGISTER: %@", hostname]];
 
     NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
+    __weak typeof(self) weakSelf = self;
     [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *error) {
-        if (error) {
-            [self debugLog:[NSString stringWithFormat:@"ERROR sending registration: %@", error.localizedDescription]];
+        if (error && weakSelf) {
+            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR sending registration: %@", error.localizedDescription]];
         }
     }];
 }
@@ -995,11 +1599,13 @@ extern "C" {
     NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
 
     NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
+    __weak typeof(self) weakSelf = self;
     [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *error) {
+        if (!weakSelf) return;
         if (error) {
-            [self debugLog:[NSString stringWithFormat:@"ERROR sending heartbeat: %@", error.localizedDescription]];
+            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR sending heartbeat: %@", error.localizedDescription]];
         } else {
-            [self debugLog:@"→ HEARTBEAT"];
+            [weakSelf debugLog:@"→ HEARTBEAT"];
         }
     }];
 }
@@ -1016,10 +1622,21 @@ extern "C" {
                 weakSelf.debugIsConnected = NO;
                 weakSelf.debugConnectButton.enabled = YES;
                 weakSelf.debugDisconnectButton.enabled = NO;
+                weakSelf.debugReconnectButton.enabled = YES;  // Enable reconnect button
                 weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connection failed";
                 weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemRedColor];
                 [weakSelf.debugHeartbeatTimer invalidate];
                 weakSelf.debugHeartbeatTimer = nil;
+
+                // Update General tab connection status
+                weakSelf.connectionStatusLabel.stringValue = @"Status: Connection failed";
+                weakSelf.connectionStatusLabel.textColor = [NSColor systemRedColor];
+                weakSelf.connectButton.enabled = YES;
+
+                // Trigger auto-reconnect if enabled
+                if (weakSelf.debugAutoReconnectEnabled) {
+                    [weakSelf debugScheduleReconnect];
+                }
             });
             return;
         }
@@ -1038,8 +1655,15 @@ extern "C" {
 
                     dispatch_async(dispatch_get_main_queue(), ^{
                         weakSelf.debugIsConnected = YES;
+                        weakSelf.debugReconnectAttempt = 0;  // Reset reconnect attempts on success
+                        weakSelf.debugReconnectButton.enabled = YES;  // Enable reconnect for manual force-reconnect
                         weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connected";
                         weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemGreenColor];
+
+                        // Update General tab connection status
+                        weakSelf.connectionStatusLabel.stringValue = @"Status: Connected";
+                        weakSelf.connectionStatusLabel.textColor = [NSColor systemGreenColor];
+                        weakSelf.connectButton.enabled = YES;
 
                         NSString *licenseStatus = json[@"licenseStatus"] ?: @"unknown";
                         weakSelf.debugLicenseStatusLabel.stringValue = [NSString stringWithFormat:@"License: %@", [licenseStatus uppercaseString]];
@@ -1095,7 +1719,11 @@ extern "C" {
                     NSData *respData = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
                     NSString *respString = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
                     NSURLSessionWebSocketMessage *respMsg = [[NSURLSessionWebSocketMessage alloc] initWithString:respString];
-                    [weakSelf.debugWebSocketTask sendMessage:respMsg completionHandler:nil];
+                    if (weakSelf.debugWebSocketTask) {
+                        [weakSelf.debugWebSocketTask sendMessage:respMsg completionHandler:^(NSError *error) {
+                            // Ignore errors - just for cleanup
+                        }];
+                    }
 
                 } else if ([type isEqualToString:@"wake"]) {
                     [weakSelf debugLog:[NSString stringWithFormat:@"← WAKE: reason=%@", json[@"reason"]]];
@@ -1654,13 +2282,7 @@ extern "C" {
     [self saveSetting:kPortKey value:self.portField.stringValue];
 
     // Save control server settings
-    NSInteger controlModeIndex = self.controlServerModePopup.indexOfSelectedItem;
-    NSString *controlMode = @"disabled";
-    if (controlModeIndex == 1) controlMode = @"auto";
-    else if (controlModeIndex == 2) controlMode = @"manual";
-    [self saveSetting:kControlServerModeKey value:controlMode];
     [self saveSetting:kControlServerAddressKey value:self.controlServerAddressField.stringValue];
-    [self saveSetting:kControlServerKeyKey value:self.controlServerKeyField.stringValue];
 
     // Save tools configuration
     [self saveToolsConfig];
@@ -1736,78 +2358,138 @@ extern "C" {
 
 #pragma mark - Control Server Management
 
-- (void)controlServerModeChanged:(id)sender {
-    NSInteger modeIndex = self.controlServerModePopup.indexOfSelectedItem;
-    
-    // Enable/disable fields based on mode
-    BOOL manualMode = (modeIndex == 2);
-    self.controlServerAddressField.enabled = manualMode;
-    self.controlServerKeyField.enabled = manualMode;
-    self.testConnectionButton.enabled = manualMode;
-    
-    if (modeIndex == 2) {
-        // Manual mode - show warning
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"Manual Control Server Mode";
-        alert.informativeText = @"In manual mode, you must:\n\n"
-                                @"1. Enter the control server IP or domain\n"
-                                @"2. Provide a secure key (Argon2 encrypted)\n"
-                                @"3. Ensure the control server is accessible\n\n"
-                                @"The agent will connect to the control server and become controllable remotely.";
-        alert.alertStyle = NSAlertStyleInformational;
-        [alert addButtonWithTitle:@"OK"];
-        [alert runModal];
-    }
-}
-
-- (void)testControlServerConnection:(id)sender {
+- (void)connectControlServer:(id)sender {
     NSString *address = self.controlServerAddressField.stringValue;
     if (address.length == 0) {
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"Missing Server Address";
-        alert.informativeText = @"Please enter a control server address.";
-        alert.alertStyle = NSAlertStyleWarning;
-        [alert addButtonWithTitle:@"OK"];
-        [alert runModal];
+        if (sender != nil) {
+            // Only show alert if user clicked the button
+            NSAlert *alert = [[NSAlert alloc] init];
+            alert.messageText = @"Missing URL";
+            alert.informativeText = @"Please enter a control server URL.";
+            alert.alertStyle = NSAlertStyleWarning;
+            [alert addButtonWithTitle:@"OK"];
+            [alert runModal];
+        }
         return;
     }
 
     // Parse address (may include port)
     NSString *urlString = address;
     if (![urlString hasPrefix:@"http://"] && ![urlString hasPrefix:@"https://"]) {
-        urlString = [NSString stringWithFormat:@"http://%@", address];
-    }
-    
-    // Ensure port is included
-    if (![urlString containsString:@":"]) {
-        urlString = [urlString stringByAppendingString:@":3457"];
+        urlString = [NSString stringWithFormat:@"https://%@", address];
     }
 
-    NSURL *testURL = [NSURL URLWithString:[NSString stringWithFormat:@"%@/api/test", urlString]];
-    if (!testURL) {
-        self.connectionStatusLabel.stringValue = @"Status: Invalid address";
+    // Parse MCP URL to extract endpoint UUID if present
+    // Format: https://server.com/mcp/UUID or https://server.com
+    NSURL *parsedUrl = [NSURL URLWithString:urlString];
+    NSString *baseUrl = urlString;
+    NSString *endpointUuid = @"";
+
+    if (parsedUrl) {
+        NSString *path = parsedUrl.path;
+        // Check if path contains /mcp/UUID
+        if ([path hasPrefix:@"/mcp/"]) {
+            // Extract UUID from path
+            NSString *uuidPart = [path substringFromIndex:5]; // Skip "/mcp/"
+            // Remove any trailing slashes or path components
+            NSRange slashRange = [uuidPart rangeOfString:@"/"];
+            if (slashRange.location != NSNotFound) {
+                uuidPart = [uuidPart substringToIndex:slashRange.location];
+            }
+            endpointUuid = uuidPart;
+
+            // Build base URL without the /mcp/UUID path
+            NSString *scheme = parsedUrl.scheme ?: @"https";
+            NSString *host = parsedUrl.host ?: @"";
+            NSNumber *port = parsedUrl.port;
+            if (port) {
+                baseUrl = [NSString stringWithFormat:@"%@://%@:%@", scheme, host, port];
+            } else {
+                baseUrl = [NSString stringWithFormat:@"%@://%@", scheme, host];
+            }
+
+            NSLog(@"Parsed MCP URL - Base: %@, Endpoint UUID: %@", baseUrl, endpointUuid);
+        }
+    }
+
+    // Store endpoint UUID in debug field (used by registration)
+    self.debugEndpointUuidField.stringValue = endpointUuid;
+
+    // Save the URL to UserDefaults
+    [self saveSetting:kControlServerAddressKey value:self.controlServerAddressField.stringValue];
+
+    // Start health check in background (use base URL)
+    [self checkServerHealth:baseUrl];
+
+    // Build WebSocket URL from base URL
+    NSString *wsUrl = baseUrl;
+    wsUrl = [wsUrl stringByReplacingOccurrencesOfString:@"https://" withString:@"wss://"];
+    wsUrl = [wsUrl stringByReplacingOccurrencesOfString:@"http://" withString:@"ws://"];
+    wsUrl = [NSString stringWithFormat:@"%@/ws", wsUrl];
+
+    // Update debug server URL field and initiate WebSocket connection
+    self.debugServerUrlField.stringValue = wsUrl;
+
+    // Update UI
+    self.connectButton.enabled = NO;
+    self.connectionStatusLabel.stringValue = @"Status: Connecting...";
+    self.connectionStatusLabel.textColor = [NSColor systemOrangeColor];
+
+    // Cancel any pending reconnect and connect
+    [self debugCancelReconnect];
+
+    NSURL *url = [NSURL URLWithString:wsUrl];
+    if (!url) {
+        self.connectionStatusLabel.stringValue = @"Status: Invalid URL";
         self.connectionStatusLabel.textColor = [NSColor systemRedColor];
+        self.connectButton.enabled = YES;
         return;
     }
 
-    self.testConnectionButton.enabled = NO;
-    self.connectionStatusLabel.stringValue = @"Status: Testing...";
-    self.connectionStatusLabel.textColor = [NSColor systemBlueColor];
+    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    self.debugSession = [NSURLSession sessionWithConfiguration:config];
+    self.debugWebSocketTask = [self.debugSession webSocketTaskWithURL:url];
+
+    // Start receiving messages
+    [self debugReceiveMessage];
+
+    // Resume the task to start connection
+    [self.debugWebSocketTask resume];
+
+    // Update debug UI as well
+    self.debugConnectButton.enabled = NO;
+    self.debugDisconnectButton.enabled = YES;
+    self.debugReconnectButton.enabled = NO;
+    self.debugConnectionStatusLabel.stringValue = @"Status: Connecting...";
+    self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
+
+    // Send registration after a brief delay to ensure connection is established
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        [self debugSendRegistration];
+    });
+}
+
+- (void)checkServerHealth:(NSString *)urlString {
+    NSURL *testURL = [NSURL URLWithString:[NSString stringWithFormat:@"%@/api/health", urlString]];
+    if (!testURL) {
+        self.healthStatusLabel.stringValue = @"Health: Invalid URL";
+        self.healthStatusLabel.textColor = [NSColor systemRedColor];
+        return;
+    }
+
+    self.healthStatusLabel.stringValue = @"Health: Checking...";
+    self.healthStatusLabel.textColor = [NSColor systemOrangeColor];
 
     NSURLRequest *request = [NSURLRequest requestWithURL:testURL
-                                                 cachePolicy:NSURLRequestUseProtocolCachePolicy
-                                             timeoutInterval:10.0];
+                                             cachePolicy:NSURLRequestUseProtocolCachePolicy
+                                         timeoutInterval:10.0];
 
     NSURLSessionDataTask *task = [self.urlSession dataTaskWithRequest:request
-                                                     completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                                                    completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.testConnectionButton.enabled = YES;
-            
             if (error) {
-                self.connectionStatusLabel.stringValue = [NSString stringWithFormat:@"Status: Connection failed - %@", error.localizedDescription];
-                self.connectionStatusLabel.textColor = [NSColor systemRedColor];
-                self.isRemoteMode = NO;
-                [self updateStatusBarIcon:[self isScreenLocked]];
+                self.healthStatusLabel.stringValue = @"Health: Error";
+                self.healthStatusLabel.textColor = [NSColor systemRedColor];
                 return;
             }
 
@@ -1816,23 +2498,15 @@ extern "C" {
                 NSError *jsonError;
                 NSDictionary *result = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
                 if (result && [result[@"status"] isEqualToString:@"ok"]) {
-                    BOOL isInternal = [result[@"isInternal"] boolValue];
-                    NSString *clientIP = result[@"clientIP"] ?: @"unknown";
-                    self.connectionStatusLabel.stringValue = [NSString stringWithFormat:@"Status: Connected (%@ - %@)", clientIP, isInternal ? @"Internal" : @"External"];
-                    self.connectionStatusLabel.textColor = [NSColor systemGreenColor];
-                    self.isRemoteMode = YES;
-                    [self updateStatusBarIcon:[self isScreenLocked]];
+                    self.healthStatusLabel.stringValue = @"Health: Ok";
+                    self.healthStatusLabel.textColor = [NSColor systemGreenColor];
                 } else {
-                    self.connectionStatusLabel.stringValue = @"Status: Invalid response";
-                    self.connectionStatusLabel.textColor = [NSColor systemRedColor];
-                    self.isRemoteMode = NO;
-                    [self updateStatusBarIcon:[self isScreenLocked]];
+                    self.healthStatusLabel.stringValue = @"Health: Bad";
+                    self.healthStatusLabel.textColor = [NSColor systemRedColor];
                 }
             } else {
-                self.connectionStatusLabel.stringValue = [NSString stringWithFormat:@"Status: Server error (%ld)", (long)httpResponse.statusCode];
-                self.connectionStatusLabel.textColor = [NSColor systemRedColor];
-                self.isRemoteMode = NO;
-                [self updateStatusBarIcon:[self isScreenLocked]];
+                self.healthStatusLabel.stringValue = [NSString stringWithFormat:@"Health: %ld", (long)httpResponse.statusCode];
+                self.healthStatusLabel.textColor = [NSColor systemRedColor];
             }
         });
     }];
@@ -1841,22 +2515,17 @@ extern "C" {
 }
 
 - (void)checkControlServerConnection {
-    NSString *controlMode = [self loadSetting:kControlServerModeKey defaultValue:@"disabled"];
-    if ([controlMode isEqualToString:@"disabled"]) {
+    NSString *address = [self loadSetting:kControlServerAddressKey defaultValue:@""];
+    if (address.length == 0) {
         self.isRemoteMode = NO;
+        self.connectionStatusLabel.stringValue = @"Not connected";
+        self.connectionStatusLabel.textColor = [NSColor secondaryLabelColor];
         [self updateStatusBarIcon:[self isScreenLocked]];
         return;
     }
 
-    if ([controlMode isEqualToString:@"manual"]) {
-        // Test connection periodically
-        [self testControlServerConnection:nil];
-    } else if ([controlMode isEqualToString:@"auto"]) {
-        // Bonjour discovery - would need NSNetServiceBrowser implementation
-        // For now, just mark as remote mode if auto is enabled
-        self.isRemoteMode = YES;
-        [self updateStatusBarIcon:[self isScreenLocked]];
-    }
+    // If address is configured, try to connect
+    [self connectControlServer:nil];
 }
 
 #pragma mark - Agent Management
@@ -2419,6 +3088,9 @@ extern "C" {
             NSLog(@"Environment: %@", environment);
         }
     }
+
+    // Enable auto-reconnect by default (agents should stay connected)
+    self.debugAutoReconnectEnabled = YES;
 
     // Auto-connect on startup if configured
     if ([config[@"connectOnStartup"] boolValue]) {

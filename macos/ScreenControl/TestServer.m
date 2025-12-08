@@ -271,7 +271,10 @@
             @"serverUrl": app.debugServerUrlField.stringValue ?: @"",
             @"endpointUuid": app.debugEndpointUuidField.stringValue ?: @"",
             @"customerId": app.debugCustomerIdField.stringValue ?: @"",
-            @"connectionStatus": app.debugConnectionStatusLabel.stringValue ?: @"Unknown"
+            @"connectionStatus": app.debugConnectionStatusLabel.stringValue ?: @"Unknown",
+            @"autoReconnectEnabled": @(app.debugAutoReconnectEnabled),
+            @"reconnectAttempt": @(app.debugReconnectAttempt),
+            @"reconnectPending": @(app.debugReconnectTimer != nil)
         };
     });
 
@@ -288,7 +291,8 @@
             @"endpointUuid": app.debugEndpointUuidField.stringValue ?: @"",
             @"customerId": app.debugCustomerIdField.stringValue ?: @"",
             @"connectOnStartup": @(app.debugConnectOnStartupCheckbox.state == NSControlStateValueOn),
-            @"apiKey": app.apiKeyField.stringValue ?: @"",  // For agentSecret verification
+            @"mcpUrl": app.debugMcpUrlField.stringValue ?: @"",
+            @"oauthStatus": app.debugOAuthStatusLabel.stringValue ?: @"",
             // Control Server (General tab) fields
             @"controlServerUrl": app.controlServerAddressField.stringValue ?: @"",
             @"controlServerStatus": app.connectionStatusLabel.stringValue ?: @""
@@ -322,6 +326,12 @@
             success = YES;
         } else if ([field isEqualToString:@"connectOnStartup"]) {
             app.debugConnectOnStartupCheckbox.state = [value boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
+            success = YES;
+        } else if ([field isEqualToString:@"mcpUrl"]) {
+            app.debugMcpUrlField.stringValue = value;
+            success = YES;
+        } else if ([field isEqualToString:@"controlServerUrl"]) {
+            app.controlServerAddressField.stringValue = value;
             success = YES;
         }
     });
@@ -358,10 +368,27 @@
                 action = @"disconnect";
                 success = YES;
             }
+        } else if ([button isEqualToString:@"reconnect"]) {
+            // Force reconnect - always available
+            [app debugReconnectClicked:nil];
+            action = @"reconnect";
+            success = YES;
         } else if ([button isEqualToString:@"saveSettings"]) {
             [app debugSaveSettingsClicked:nil];
             action = @"saveSettings";
             success = YES;
+        } else if ([button isEqualToString:@"discoverAndJoin"]) {
+            // Trigger OAuth discovery and join
+            [app discoverAndJoinClicked:nil];
+            action = @"discoverAndJoin";
+            success = YES;
+        } else if ([button isEqualToString:@"controlServerConnect"]) {
+            // Connect to control server (General tab)
+            if (app.connectButton.enabled) {
+                [app connectControlServer:nil];
+                action = @"controlServerConnect";
+                success = YES;
+            }
         }
     });
 
