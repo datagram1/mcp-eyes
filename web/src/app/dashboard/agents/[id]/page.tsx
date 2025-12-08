@@ -8,6 +8,7 @@ interface Agent {
   id: string;
   agentKey: string;
   hostname: string;
+  displayName: string | null;
   machineId: string;
   machineFingerprint: string | null;
   fingerprintRaw: Record<string, unknown> | null;
@@ -71,6 +72,8 @@ export default function AgentDetailPage({ params }: PageProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [label, setLabel] = useState('');
+  const [editDisplayNameMode, setEditDisplayNameMode] = useState(false);
+  const [displayName, setDisplayName] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showResetSecretModal, setShowResetSecretModal] = useState(false);
 
@@ -88,6 +91,7 @@ export default function AgentDetailPage({ params }: PageProps) {
       const data = await res.json();
       setAgent(data.agent);
       setLabel(data.agent.label || '');
+      setDisplayName(data.agent.displayName || '');
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -129,6 +133,21 @@ export default function AgentDetailPage({ params }: PageProps) {
       if (!res.ok) throw new Error('Failed to update label');
       await fetchAgent();
       setEditMode(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    }
+  };
+
+  const handleDisplayNameSave = async () => {
+    try {
+      const res = await fetch(`/api/agents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName }),
+      });
+      if (!res.ok) throw new Error('Failed to update friendly name');
+      await fetchAgent();
+      setEditDisplayNameMode(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     }
@@ -239,7 +258,7 @@ export default function AgentDetailPage({ params }: PageProps) {
                 onClick={() => setEditMode(true)}
                 title="Click to edit label"
               >
-                {agent.label || agent.hostname}
+                {agent.displayName || agent.hostname}
               </h1>
             )}
             <p className="text-slate-400 text-sm">
@@ -340,6 +359,40 @@ export default function AgentDetailPage({ params }: PageProps) {
         <div className="bg-slate-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4">Machine Information</h3>
           <dl className="space-y-3">
+            <div className="flex justify-between items-center">
+              <dt className="text-slate-400">Friendly Name</dt>
+              {editDisplayNameMode ? (
+                <dd className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder={agent.hostname}
+                    className="px-2 py-1 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                  />
+                  <button
+                    onClick={handleDisplayNameSave}
+                    className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditDisplayNameMode(false)}
+                    className="px-2 py-1 bg-slate-600 text-white text-xs rounded hover:bg-slate-500"
+                  >
+                    Cancel
+                  </button>
+                </dd>
+              ) : (
+                <dd
+                  className="text-white cursor-pointer hover:text-blue-400"
+                  onClick={() => setEditDisplayNameMode(true)}
+                  title="Click to edit friendly name"
+                >
+                  {agent.displayName || <span className="text-slate-500 italic">Not set</span>}
+                </dd>
+              )}
+            </div>
             <div className="flex justify-between">
               <dt className="text-slate-400">Hostname</dt>
               <dd className="text-white">{agent.hostname}</dd>
