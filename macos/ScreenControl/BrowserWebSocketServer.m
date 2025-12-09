@@ -179,11 +179,10 @@ static const int WS_OPCODE_PONG = 0xA;
 
     [self.connectedBrowsers removeAllObjects];
 
-    // Notify delegate
-    if ([self.delegate respondsToSelector:@selector(browserWebSocketServerDidStop:)]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.delegate browserWebSocketServerDidStop:self];
-        });
+    // Notify delegate (no async - avoid issues with object deallocation)
+    id<BrowserWebSocketServerDelegate> delegate = self.delegate;
+    if ([delegate respondsToSelector:@selector(browserWebSocketServerDidStop:)]) {
+        [delegate browserWebSocketServerDidStop:self];
     }
 
     NSLog(@"[WebSocketServer] Server stopped");

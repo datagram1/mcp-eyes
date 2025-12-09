@@ -181,22 +181,28 @@
 }
 
 - (NSString *)handleRequest:(NSString *)httpRequest {
-    // Extract JSON body from HTTP request
-    NSRange bodyRange = [httpRequest rangeOfString:@"\r\n\r\n"];
-    if (bodyRange.location == NSNotFound) {
-        // Handle GET request (for simple health check)
+    // Handle GET requests first (before checking for body)
+    if ([httpRequest hasPrefix:@"GET "]) {
         if ([httpRequest hasPrefix:@"GET /ping"]) {
             return [self handleMethod:@"ping" params:nil];
+        } else if ([httpRequest hasPrefix:@"GET / "] || [httpRequest hasPrefix:@"GET / HTTP"] || [httpRequest hasPrefix:@"GET /\r\n"]) {
+            // Base endpoint - return menu
+            return [self handleMenu];
         }
-        return @"{\"error\":\"Invalid request\"}";
     }
-
-    NSString *body = [httpRequest substringFromIndex:NSMaxRange(bodyRange)];
 
     // Handle OPTIONS (CORS preflight)
     if ([httpRequest hasPrefix:@"OPTIONS"]) {
         return @"{}";
     }
+
+    // Extract JSON body from HTTP request
+    NSRange bodyRange = [httpRequest rangeOfString:@"\r\n\r\n"];
+    if (bodyRange.location == NSNotFound) {
+        return @"{\"error\":\"Invalid request\"}";
+    }
+
+    NSString *body = [httpRequest substringFromIndex:NSMaxRange(bodyRange)];
 
     // Parse JSON
     NSData *jsonData = [body dataUsingEncoding:NSUTF8StringEncoding];
@@ -250,6 +256,79 @@
 }
 
 #pragma mark - Method Handlers
+
+- (NSString *)handleMenu {
+    NSDictionary *menu = @{
+        @"service": @"ScreenControl Test Server",
+        @"description": @"HTTP API for automated testing of ScreenControl agent (DEBUG builds only)",
+        @"version": [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"1.0.0",
+        @"port": @(self.port),
+        @"usage": @"Send POST requests with JSON body: {\"method\": \"<method_name>\", \"params\": {...}}",
+        @"availableCommands": @[
+            @{
+                @"method": @"ping",
+                @"description": @"Health check - returns server status",
+                @"params": @{},
+                @"example": @{@"method": @"ping"}
+            },
+            @{
+                @"method": @"getState",
+                @"description": @"Get current connection state and status",
+                @"params": @{},
+                @"example": @{@"method": @"getState"}
+            },
+            @{
+                @"method": @"getFields",
+                @"description": @"Get all UI field values",
+                @"params": @{},
+                @"example": @{@"method": @"getFields"}
+            },
+            @{
+                @"method": @"setField",
+                @"description": @"Set a UI field value",
+                @"params": @{@"field": @"<field_name>", @"value": @"<value>"},
+                @"example": @{@"method": @"setField", @"params": @{@"field": @"serverUrl", @"value": @"ws://localhost:3000"}}
+            },
+            @{
+                @"method": @"clickButton",
+                @"description": @"Click a UI button",
+                @"params": @{@"button": @"<button_name>"},
+                @"availableButtons": @[
+                    @"connect", @"disconnect", @"saveSettings", @"reconnect",
+                    @"discoverAndJoin", @"startBrowserBridge", @"stopBrowserBridge"
+                ],
+                @"example": @{@"method": @"clickButton", @"params": @{@"button": @"startBrowserBridge"}}
+            },
+            @{
+                @"method": @"getLogs",
+                @"description": @"Get recent debug logs",
+                @"params": @{@"lines": @"<number_of_lines>"},
+                @"example": @{@"method": @"getLogs", @"params": @{@"lines": @50}}
+            },
+            @{
+                @"method": @"getVersion",
+                @"description": @"Get application version information",
+                @"params": @{},
+                @"example": @{@"method": @"getVersion"}
+            },
+            @{
+                @"method": @"restart",
+                @"description": @"Restart the application",
+                @"params": @{},
+                @"example": @{@"method": @"restart"}
+            },
+            @{
+                @"method": @"quit",
+                @"description": @"Quit the application",
+                @"params": @{},
+                @"example": @{@"method": @"quit"}
+            }
+        ]
+    };
+
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:menu options:NSJSONWritingPrettyPrinted error:nil];
+    return [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+}
 
 - (NSDictionary *)handlePing {
     NSString *version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"1.0.0";
@@ -389,6 +468,16 @@
                 action = @"controlServerConnect";
                 success = YES;
             }
+        } else if ([button isEqualToString:@"startBrowserBridge"]) {
+            // Start browser bridge server
+            [app startBrowserBridge];
+            action = @"startBrowserBridge";
+            success = YES;
+        } else if ([button isEqualToString:@"stopBrowserBridge"]) {
+            // Stop browser bridge server
+            [app stopBrowserBridge];
+            action = @"stopBrowserBridge";
+            success = YES;
         }
     });
 

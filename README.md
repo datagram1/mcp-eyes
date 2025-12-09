@@ -166,6 +166,7 @@ For same-network scenarios, master agents communicate **directly** with workers 
 - **Filesystem & Shell Tools**: Full file system access and command execution
 - **Licensing & Billing**: Stripe integration, trial periods, concurrent agent limits
 - **Audit Logging**: Full command history and audit trail
+- **Dynamic Tool Updates**: Real-time `notifications/tools/list_changed` broadcasts when agent capabilities change (no reconnection required)
 
 ### Security
 
@@ -179,7 +180,7 @@ For same-network scenarios, master agents communicate **directly** with workers 
 
 | Transport | Use Case | Status |
 |-----------|----------|--------|
-| **Streamable HTTP** | Claude.ai, modern MCP clients | Implementing |
+| **Streamable HTTP** | Claude.ai, modern MCP clients | Supported (with `notifications/tools/list_changed`) |
 | **SSE** | Open WebUI, legacy clients | Supported |
 | **stdio** | Local LLMs (Ollama, LM Studio) | Supported |
 | **WebSocket** | Agent connections | Supported |

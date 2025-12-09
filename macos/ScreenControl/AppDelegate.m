@@ -53,6 +53,7 @@ extern "C" {
 @property (strong) NSImage* cachedLockedIcon;
 @property (assign) BOOL currentIconIsLocked;
 @property (assign) BOOL isAppTerminating;
+@property (strong) NSString* logFilePath;
 
 // Helper method declarations
 - (NSString *)getToolsConfigPath;
@@ -71,6 +72,7 @@ extern "C" {
 - (void)debugSendHeartbeat;
 - (void)debugReceiveMessage;
 - (void)debugLog:(NSString *)message;
+- (void)fileLog:(NSString *)message;
 - (NSString *)getMachineId;
 - (CGFloat)addCategoryBox:(NSString *)categoryName categoryId:(NSString *)categoryId tools:(NSArray *)tools toView:(NSView *)documentView atY:(CGFloat)y;
 - (void)categoryToggleChanged:(NSButton *)sender;
@@ -84,6 +86,20 @@ extern "C" {
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     self.startTime = [NSDate date];
+
+    // Initialize file logging
+    NSString *logsDir = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Logs/ScreenControl"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:logsDir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    [formatter setDateFormat:@"yyyy-MM-dd_HH-mm-ss"];
+    NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+    self.logFilePath = [logsDir stringByAppendingPathComponent:[NSString stringWithFormat:@"crash_%@.log", timestamp]];
+
+    [self fileLog:@"========================================"];
+    [self fileLog:@"ScreenControl Agent Starting"];
+    [self fileLog:[NSString stringWithFormat:@"PID: %d", [[NSProcessInfo processInfo] processIdentifier]]];
+    [self fileLog:[NSString stringWithFormat:@"Version: %@", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"]]];
+    [self fileLog:@"========================================"];
 
     // Initialize URL session for control server connections
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
@@ -142,6 +158,16 @@ extern "C" {
 }
 
 - (void)applicationWillTerminate:(NSNotification *)notification {
+    [self fileLog:@"========================================"];
+    [self fileLog:@"APPLICATION WILL TERMINATE"];
+    [self fileLog:[NSString stringWithFormat:@"Notification: %@", notification]];
+    [self fileLog:[NSString stringWithFormat:@"Reason: %@", notification.userInfo]];
+    [self fileLog:@"Stack trace:"];
+    for (NSString *line in [NSThread callStackSymbols]) {
+        [self fileLog:[NSString stringWithFormat:@"  %@", line]];
+    }
+    [self fileLog:@"========================================"];
+
     self.isAppTerminating = YES;
 
 #ifdef DEBUG
@@ -871,6 +897,9 @@ extern "C" {
 }
 
 - (void)debugLog:(NSString *)message {
+    // Also write to file
+    [self fileLog:message];
+
     dispatch_async(dispatch_get_main_queue(), ^{
         NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
         formatter.dateFormat = @"HH:mm:ss";
@@ -884,6 +913,28 @@ extern "C" {
         [[self.debugLogView textStorage] appendAttributedString:attrStr];
         [self.debugLogView scrollRangeToVisible:NSMakeRange(self.debugLogView.string.length, 0)];
     });
+}
+
+- (void)fileLog:(NSString *)message {
+    @try {
+        if (!self.logFilePath) return;
+
+        NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+        formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS";
+        NSString *timestamp = [formatter stringFromDate:[NSDate date]];
+        NSString *logLine = [NSString stringWithFormat:@"[%@] %@\n", timestamp, message];
+
+        NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:self.logFilePath];
+        if (fileHandle) {
+            [fileHandle seekToEndOfFile];
+            [fileHandle writeData:[logLine dataUsingEncoding:NSUTF8StringEncoding]];
+            [fileHandle closeFile];
+        } else {
+            [logLine writeToFile:self.logFilePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+    } @catch (NSException *exception) {
+        NSLog(@"Failed to write to log file: %@", exception);
+    }
 }
 
 - (void)debugConnect:(id)sender {
@@ -1685,10 +1736,14 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 - (void)debugNotifyToolsChanged {
     if (!self.debugWebSocketTask || !self.debugIsConnected) return;
 
+    // Check if either browser bridge server is running
+    BOOL bridgeRunning = (self.browserBridgeServer && self.browserBridgeServer.isRunning) ||
+                        (self.browserWebSocketServer && self.browserWebSocketServer.isRunning);
+
     NSDictionary *message = @{
         @"type": @"tools_changed",
         @"timestamp": @([[NSDate date] timeIntervalSince1970] * 1000),
-        @"browserBridgeRunning": @(self.browserBridgeServer && self.browserBridgeServer.isRunning)
+        @"browserBridgeRunning": @(bridgeRunning)
     };
 
     NSError *error;
@@ -1815,6 +1870,12 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
                                                                                           userInfo:nil
                                                                                            repeats:YES];
                         }
+
+                        // Notify server of current tool availability after successful registration
+                        // Do this on a background queue since it's a network operation
+                        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                            [weakSelf debugNotifyToolsChanged];
+                        });
                     });
 
                 } else if ([type isEqualToString:@"heartbeat_ack"]) {
@@ -2747,26 +2808,20 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 #pragma mark - Browser Bridge Server
 
 - (void)startBrowserBridge {
-    if (self.browserBridgeServer && self.browserBridgeServer.isRunning) {
-        NSLog(@"[Browser Bridge] Server already running");
+    // Check if WebSocket server is already running
+    if (self.browserWebSocketServer && self.browserWebSocketServer.isRunning) {
+        NSLog(@"[WebSocket Bridge] WebSocket server already running");
         return;
     }
 
-    NSLog(@"[Browser Bridge] Starting browser bridge server with Native Messaging...");
-
-    // Create browser bridge server on port 3457
-    self.browserBridgeServer = [[BrowserBridgeServer alloc] initWithPort:3457];
-    self.browserBridgeServer.delegate = self;
-
-    BOOL success = [self.browserBridgeServer start];
-    if (success) {
-        NSLog(@"[Browser Bridge] Server started successfully with Native Messaging");
-    } else {
-        NSLog(@"[Browser Bridge] Failed to start server");
+    // Stop legacy bridge server if running (can't both use port 3457)
+    if (self.browserBridgeServer && self.browserBridgeServer.isRunning) {
+        NSLog(@"[Browser Bridge] Stopping legacy bridge server...");
+        [self.browserBridgeServer stop];
         self.browserBridgeServer = nil;
     }
 
-    // Start native WebSocket server (replaces Node.js dependency)
+    // Start native WebSocket server (replaces legacy bridge and Node.js dependency)
     NSLog(@"[WebSocket Bridge] Starting native WebSocket server...");
     self.browserWebSocketServer = [[BrowserWebSocketServer alloc] initWithPort:3457];
     self.browserWebSocketServer.delegate = self;
@@ -2971,10 +3026,14 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 
 - (void)browserWebSocketServerDidStart:(BrowserWebSocketServer *)server onPort:(NSUInteger)port {
     NSLog(@"[WebSocket Bridge] Delegate: WebSocket server started on port %lu", (unsigned long)port);
+    // Notify control server that tools have changed (browser tools now available)
+    [self debugNotifyToolsChanged];
 }
 
 - (void)browserWebSocketServerDidStop:(BrowserWebSocketServer *)server {
     NSLog(@"[WebSocket Bridge] Delegate: WebSocket server stopped");
+    // Notify control server that tools have changed (browser tools no longer available)
+    [self debugNotifyToolsChanged];
 }
 
 - (void)browserWebSocketServer:(BrowserWebSocketServer *)server
@@ -2986,6 +3045,19 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     NSString *requestId = request[@"id"];
     NSString *toolName = request[@"tool"];
     NSDictionary *params = request[@"params"] ?: @{};
+
+    // Validate required fields
+    if (!requestId || !toolName) {
+        NSLog(@"[WebSocket Bridge] ERROR: Missing required fields (requestId: %@, toolName: %@)", requestId, toolName);
+        NSDictionary *errorResponse = @{
+            @"type": @"tool_response",
+            @"id": requestId ?: @"unknown",
+            @"success": @NO,
+            @"error": @"Missing required fields: id or tool"
+        };
+        [self.browserWebSocketServer sendResponse:errorResponse toBrowser:browserId];
+        return;
+    }
 
     // Create MCP-style params for executeToolFromWebSocket:
     NSDictionary *mcpParams = @{
@@ -3804,8 +3876,9 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 - (NSArray *)getAvailableTools {
     NSMutableArray *tools = [NSMutableArray array];
 
-    // Check if browser tools should be included
-    BOOL includeBrowserTools = (self.browserBridgeServer && self.browserBridgeServer.isRunning);
+    // Check if browser tools should be included (check both legacy and WebSocket servers)
+    BOOL includeBrowserTools = (self.browserBridgeServer && self.browserBridgeServer.isRunning) ||
+                               (self.browserWebSocketServer && self.browserWebSocketServer.isRunning);
 
     NSLog(@"[Agent] Building tool list - Browser bridge running: %@", includeBrowserTools ? @"YES" : @"NO");
 
@@ -3843,7 +3916,28 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         }
     }
 
-    NSLog(@"[Agent] Built %lu tool definitions", (unsigned long)tools.count);
+    // Add special test tool to verify cache freshness
+    NSDate *now = [NSDate date];
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
+    NSString *timestamp = [formatter stringFromDate:now];
+
+    NSDictionary *testTool = @{
+        @"name": @"test_cache_version",
+        @"description": [NSString stringWithFormat:@"Test tool to verify MCP cache freshness. Returns: CACHE_TEST_VERSION_%@", timestamp],
+        @"inputSchema": @{
+            @"type": @"object",
+            @"properties": @{
+                @"agentId": @{
+                    @"type": @"string",
+                    @"description": @"Target agent ID (optional)"
+                }
+            }
+        }
+    };
+    [tools addObject:testTool];
+
+    NSLog(@"[Agent] Built %lu tool definitions (including test tool)", (unsigned long)tools.count);
     return [tools copy];
 }
 

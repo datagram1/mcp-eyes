@@ -133,6 +133,10 @@
 // Control Server methods (General tab)
 - (void)connectControlServer:(id)sender;
 
+// Browser Bridge methods
+- (void)startBrowserBridge;
+- (void)stopBrowserBridge;
+
 // OAuth methods
 - (void)discoverOAuthFromMcpUrl:(NSString *)mcpUrl;
 - (void)registerOAuthClient;
