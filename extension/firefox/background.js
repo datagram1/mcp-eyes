@@ -570,7 +570,19 @@ const browserAPI = (() => {
           // Promise-based (Firefox)
           result
             .then(response => resolve({ success: true, frameId, response }))
-            .catch(error => resolve({ success: false, frameId, error: error.message }));
+            .catch(error => {
+              // Enhance error message for CSP issues
+              if (error.message && error.message.includes('Receiving end does not exist')) {
+                resolve({
+                  success: false,
+                  frameId,
+                  error: error.message,
+                  cspRestricted: true
+                });
+              } else {
+                resolve({ success: false, frameId, error: error.message });
+              }
+            });
         } else {
           // Callback fallback
           resolve({ success: true, frameId, response: result });
@@ -680,7 +692,41 @@ const browserAPI = (() => {
         const result = browserAPI.tabs.sendMessage(targetTabId, message, { frameId: 0 });
         if (result && typeof result.then === 'function') {
           // Promise-based (Firefox)
-          result.then(resolve).catch(reject);
+          result.then(resolve).catch(async (error) => {
+            // Provide better error message for CSP-restricted pages
+            if (error.message && error.message.includes('Receiving end does not exist')) {
+              try {
+                const tab = await browserAPI.tabs.get(targetTabId);
+                const url = new URL(tab.url);
+                const hostname = url.hostname;
+
+                // List of known CSP-restricted domains
+                const restrictedDomains = ['youtube.com', 'google.com', 'gemini.google.com',
+                                          'docs.google.com', 'gmail.com', 'addons.mozilla.org',
+                                          'chrome.google.com'];
+
+                const isKnownRestricted = restrictedDomains.some(domain => hostname.includes(domain));
+
+                if (isKnownRestricted || url.protocol === 'file:' || hostname.startsWith('about:')) {
+                  reject(new Error(
+                    `Content script cannot run on ${hostname}. ` +
+                    `This page has Content Security Policy (CSP) restrictions that prevent browser extensions from accessing the page content. ` +
+                    `Please navigate to a different website to use interactive browser commands.`
+                  ));
+                } else {
+                  reject(new Error(
+                    `Content script is not available on this page (${hostname}). ` +
+                    `This may be due to CSP restrictions or the page hasn't fully loaded. ` +
+                    `Try refreshing the page or navigating to a different website.`
+                  ));
+                }
+              } catch (tabError) {
+                reject(error); // Fall back to original error
+              }
+            } else {
+              reject(error);
+            }
+          });
         } else {
           // Callback-based (Chrome) - but sendMessage is async in Chrome too
           // In Chrome MV3, sendMessage returns a Promise
