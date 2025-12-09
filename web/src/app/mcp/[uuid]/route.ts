@@ -531,159 +531,9 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
         },
 
         // === Browser Automation ===
-        {
-          name: 'browser_navigate',
-          description: 'Navigate browser to a URL',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              url: { type: 'string', description: 'URL to navigate to' },
-            },
-            required: ['url'],
-          },
-        },
-        {
-          name: 'browser_click',
-          description: 'Click an element in the browser by selector or text',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              selector: { type: 'string', description: 'CSS selector or XPath' },
-              text: { type: 'string', description: 'Text content to find and click' },
-              index: { type: 'number', description: 'Index if multiple matches (0-based)' },
-            },
-          },
-        },
-        {
-          name: 'browser_fill',
-          description: 'Fill a form field in the browser',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              selector: { type: 'string', description: 'CSS selector of the input field' },
-              value: { type: 'string', description: 'Value to fill' },
-            },
-            required: ['selector', 'value'],
-          },
-        },
-        {
-          name: 'browser_screenshot',
-          description: 'Take a screenshot of the browser page',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              fullPage: { type: 'boolean', description: 'Capture full scrollable page' },
-              selector: { type: 'string', description: 'Capture specific element only' },
-            },
-          },
-        },
-        {
-          name: 'browser_get_text',
-          description: 'Get visible text content from the page',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              selector: { type: 'string', description: 'CSS selector (optional, gets all visible text if omitted)' },
-            },
-          },
-        },
-        {
-          name: 'browser_get_elements',
-          description: 'Get interactive elements on the page (buttons, links, inputs)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-            },
-          },
-        },
-        {
-          name: 'browser_select',
-          description: 'Select an option from a dropdown',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              selector: { type: 'string', description: 'CSS selector of select element' },
-              value: { type: 'string', description: 'Value or label to select' },
-            },
-            required: ['selector', 'value'],
-          },
-        },
-        {
-          name: 'browser_wait',
-          description: 'Wait for an element or condition',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              selector: { type: 'string', description: 'Wait for this selector to appear' },
-              text: { type: 'string', description: 'Wait for this text to appear' },
-              timeout: { type: 'number', description: 'Max wait time in ms' },
-            },
-          },
-        },
-        {
-          name: 'browser_back',
-          description: 'Navigate browser back',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-            },
-          },
-        },
-        {
-          name: 'browser_forward',
-          description: 'Navigate browser forward',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-            },
-          },
-        },
-        {
-          name: 'browser_refresh',
-          description: 'Refresh the current page',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-            },
-          },
-        },
-        {
-          name: 'browser_tabs',
-          description: 'List, create, close, or switch browser tabs',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              action: { type: 'string', enum: ['list', 'new', 'close', 'switch'], description: 'Tab action' },
-              tabIndex: { type: 'number', description: 'Tab index for switch/close' },
-              url: { type: 'string', description: 'URL for new tab' },
-            },
-            required: ['action'],
-          },
-        },
-        {
-          name: 'browser_evaluate',
-          description: 'Execute JavaScript in the browser context',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              agentId: { type: 'string' },
-              script: { type: 'string', description: 'JavaScript code to execute' },
-            },
-            required: ['script'],
-          },
-        },
+        // NOTE: Browser tools are provided by agents dynamically.
+        // This fallback should only contain minimal desktop control tools.
+        // If you're seeing this, agents haven't advertised their tools yet.
 
         // === Window Management ===
         {
@@ -1423,143 +1273,7 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
     }
 
     // === Browser Automation ===
-    case 'browser_navigate': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_navigate',
-        arguments: { url: args?.url },
-      });
-    }
-
-    case 'browser_click': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_click',
-        arguments: {
-          selector: args?.selector,
-          text: args?.text,
-          index: args?.index,
-        },
-      });
-    }
-
-    case 'browser_fill': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_fill',
-        arguments: {
-          selector: args?.selector,
-          value: args?.value,
-        },
-      });
-    }
-
-    case 'browser_screenshot': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_screenshot',
-        arguments: {
-          fullPage: args?.fullPage,
-          selector: args?.selector,
-        },
-      });
-    }
-
-    case 'browser_get_text': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_get_text',
-        arguments: { selector: args?.selector },
-      });
-    }
-
-    case 'browser_get_elements': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_get_elements',
-        arguments: {},
-      });
-    }
-
-    case 'browser_select': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_select',
-        arguments: {
-          selector: args?.selector,
-          value: args?.value,
-        },
-      });
-    }
-
-    case 'browser_wait': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_wait',
-        arguments: {
-          selector: args?.selector,
-          text: args?.text,
-          timeout: args?.timeout,
-        },
-      });
-    }
-
-    case 'browser_back': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_back',
-        arguments: {},
-      });
-    }
-
-    case 'browser_forward': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_forward',
-        arguments: {},
-      });
-    }
-
-    case 'browser_refresh': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_refresh',
-        arguments: {},
-      });
-    }
-
-    case 'browser_tabs': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_tabs',
-        arguments: {
-          action: args?.action,
-          tabIndex: args?.tabIndex,
-          url: args?.url,
-        },
-      });
-    }
-
-    case 'browser_evaluate': {
-      const result = await selectAgent(args?.agentId);
-      if (result.error) return result.error;
-      return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'browser_evaluate',
-        arguments: { script: args?.script },
-      });
-    }
+    // NOTE: Browser tools are handled by the generic agent tool forwarding below (default case)
 
     // === Window Management ===
     case 'window_list': {
@@ -1698,9 +1412,41 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
       });
     }
 
-    default:
+    default: {
+      // Check if this tool is advertised by an agent dynamically
+      // This allows agents to provide custom tools (like browser_* tools)
+      // without needing to hardcode them in this switch statement
+
+      const agents = await getOnlineAgents();
+      let toolFoundInAgent = false;
+
+      for (const dbAgent of agents) {
+        const connectedAgent = agentRegistry.getAgent(dbAgent.id);
+        if (connectedAgent?.tools) {
+          const agentTool = connectedAgent.tools.find(t => t.name === toolName);
+          if (agentTool) {
+            toolFoundInAgent = true;
+            break;
+          }
+        }
+      }
+
+      if (toolFoundInAgent) {
+        // Forward this tool call to the agent
+        logMcp('FORWARDING AGENT TOOL', { tool: toolName, arguments: args });
+        const result = await selectAgent(args?.agentId);
+        if (result.error) return result.error;
+
+        return executeAgentCommand(result.agent, 'tools/call', {
+          name: toolName,
+          arguments: args || {},
+        });
+      }
+
+      // Tool not found anywhere
       logMcp('TOOL ERROR - Unknown tool', { tool: toolName });
-      throw { code: -32601, message: `Unknown tool: ${toolName}. Available tools: emergency_stop, list_agents, desktop_screenshot, mouse_click, mouse_move, mouse_drag, mouse_scroll, keyboard_type, keyboard_press, keyboard_shortcut, browser_navigate, browser_click, browser_fill, browser_screenshot, browser_get_text, browser_get_elements, browser_select, browser_wait, browser_back, browser_forward, browser_refresh, browser_tabs, browser_evaluate, window_list, window_focus, window_resize, window_move, app_launch, app_close, clipboard_read, clipboard_write, file_read, file_write, file_list, system_info, screen_find_text, screen_find_image` };
+      throw { code: -32601, message: `Unknown tool: ${toolName}. Use "list_agents" to see available agents and tools.` };
+    }
   }
 }
 

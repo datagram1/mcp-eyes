@@ -40,10 +40,8 @@ export function getClientIP(request: NextRequest): string | null {
     return cfConnectingIP;
   }
 
-  // For local development
-  if (request.ip) {
-    return request.ip;
-  }
+  // Note: request.ip is not available in Next.js 16+
+  // Rely on headers (x-forwarded-for, x-real-ip, cf-connecting-ip) instead
 
   return null;
 }
