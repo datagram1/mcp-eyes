@@ -2723,8 +2723,8 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 
     NSLog(@"[Browser Bridge] Starting browser bridge server with Native Messaging...");
 
-    // Create browser bridge server (Native Messaging on stdin/stdout)
-    self.browserBridgeServer = [[BrowserBridgeServer alloc] initWithPort:0]; // Port 0 for Native Messaging
+    // Create browser bridge server on port 3457
+    self.browserBridgeServer = [[BrowserBridgeServer alloc] initWithPort:3457];
     self.browserBridgeServer.delegate = self;
 
     BOOL success = [self.browserBridgeServer start];
@@ -2734,16 +2734,35 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         NSLog(@"[Browser Bridge] Failed to start server");
         self.browserBridgeServer = nil;
     }
+
+    // Start native WebSocket server (replaces Node.js dependency)
+    NSLog(@"[WebSocket Bridge] Starting native WebSocket server...");
+    self.browserWebSocketServer = [[BrowserWebSocketServer alloc] initWithPort:3457];
+    self.browserWebSocketServer.delegate = self;
+
+    BOOL wsSuccess = [self.browserWebSocketServer start];
+    if (wsSuccess) {
+        NSLog(@"[WebSocket Bridge] Native WebSocket server started on port 3457");
+    } else {
+        NSLog(@"[WebSocket Bridge] Failed to start WebSocket server");
+        self.browserWebSocketServer = nil;
+    }
 }
 
 - (void)stopBrowserBridge {
-    if (!self.browserBridgeServer) {
-        return;
+    // Stop legacy Node.js bridge server
+    if (self.browserBridgeServer) {
+        NSLog(@"[Browser Bridge] Stopping browser bridge server...");
+        [self.browserBridgeServer stop];
+        self.browserBridgeServer = nil;
     }
 
-    NSLog(@"[Browser Bridge] Stopping browser bridge server...");
-    [self.browserBridgeServer stop];
-    self.browserBridgeServer = nil;
+    // Stop native WebSocket server
+    if (self.browserWebSocketServer) {
+        NSLog(@"[WebSocket Bridge] Stopping WebSocket server...");
+        [self.browserWebSocketServer stop];
+        self.browserWebSocketServer = nil;
+    }
 }
 
 #pragma mark - BrowserBridgeServerDelegate
@@ -2907,6 +2926,47 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 
     [self updatePermissionIndicators];
     self.isUpdatingSettingsStatus = NO;
+}
+
+#pragma mark - BrowserWebSocketServerDelegate
+
+- (void)browserWebSocketServerDidStart:(BrowserWebSocketServer *)server onPort:(NSUInteger)port {
+    NSLog(@"[WebSocket Bridge] Delegate: WebSocket server started on port %lu", (unsigned long)port);
+}
+
+- (void)browserWebSocketServerDidStop:(BrowserWebSocketServer *)server {
+    NSLog(@"[WebSocket Bridge] Delegate: WebSocket server stopped");
+}
+
+- (void)browserWebSocketServer:(BrowserWebSocketServer *)server
+         didReceiveToolRequest:(NSDictionary *)request
+                   fromBrowser:(NSString *)browserId {
+    NSLog(@"[WebSocket Bridge] Delegate: Received tool request from browser %@: %@", browserId, request[@"tool"]);
+
+    // Extract tool information from WebSocket request
+    NSString *requestId = request[@"id"];
+    NSString *toolName = request[@"tool"];
+    NSDictionary *params = request[@"params"] ?: @{};
+
+    // Create MCP-style params for executeToolFromWebSocket:
+    NSDictionary *mcpParams = @{
+        @"name": toolName,
+        @"arguments": params
+    };
+
+    // Execute the tool
+    NSDictionary *result = [self executeToolFromWebSocket:mcpParams];
+
+    // Prepare WebSocket response
+    NSDictionary *response = @{
+        @"type": @"tool_response",
+        @"id": requestId,
+        @"success": result[@"error"] ? @NO : @YES,
+        @"result": result
+    };
+
+    // Send response back to browser
+    [server sendResponse:response toBrowser:browserId];
 }
 
 #pragma mark - Permissions
@@ -3547,9 +3607,8 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         // ============= BROWSER TOOLS =============
 
         else if ([toolName hasPrefix:@"browser_"]) {
-            if (!self.browserBridgeServer || !self.browserBridgeServer.isRunning) {
-                return @{@"error": @"Browser bridge server not running. No browser extensions connected."};
-            }
+            // Note: Removed isRunning check - let HTTP request handle errors naturally
+            // Browser bridge server should be available at localhost:3457
 
             // Extract browser preference from arguments (optional)
             NSString *browserName = arguments[@"browser"]; // "firefox", "chrome", "edge", "safari"
@@ -3558,21 +3617,61 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
             // e.g., "browser_navigate" -> "navigate"
             NSString *action = [toolName substringFromIndex:8];
 
-            // Forward to browser bridge server with completion handler
+            // Forward to browser bridge server with direct HTTP request
             __block NSDictionary *result = nil;
             __block BOOL completed = NO;
 
-            [self.browserBridgeServer sendCommand:action
-                                          payload:arguments
-                                          browser:browserName
-                                completionHandler:^(NSDictionary *response, NSError *error) {
+            // Build HTTP POST request to http://localhost:3457/command
+            NSURL *url = [NSURL URLWithString:@"http://localhost:3457/command"];
+            NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+            request.HTTPMethod = @"POST";
+            [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+            request.timeoutInterval = 30.0;
+
+            // Build request body
+            NSMutableDictionary *body = [NSMutableDictionary dictionaryWithDictionary:@{
+                @"action": action,
+                @"payload": arguments ?: @{}
+            }];
+            if (browserName) {
+                body[@"browser"] = browserName;
+            }
+
+            NSError *serializeError = nil;
+            request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:&serializeError];
+
+            if (serializeError) {
+                return @{@"error": [NSString stringWithFormat:@"Failed to serialize request: %@", serializeError.localizedDescription]};
+            }
+
+            // Send HTTP request
+            [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
                 if (error) {
                     result = @{@"error": error.localizedDescription};
+                    completed = YES;
+                    return;
+                }
+
+                NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+                if (httpResponse.statusCode != 200) {
+                    result = @{@"error": [NSString stringWithFormat:@"HTTP %ld", (long)httpResponse.statusCode]};
+                    completed = YES;
+                    return;
+                }
+
+                // Parse JSON response
+                NSError *parseError = nil;
+                NSDictionary *responseDict = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
+
+                if (parseError) {
+                    result = @{@"error": [NSString stringWithFormat:@"Failed to parse response: %@", parseError.localizedDescription]};
+                } else if (responseDict[@"error"]) {
+                    result = @{@"error": responseDict[@"error"]};
                 } else {
-                    result = response ?: @{@"success": @YES};
+                    result = responseDict ?: @{@"success": @YES};
                 }
                 completed = YES;
-            }];
+            }] resume];
 
             // Wait for response (with timeout)
             NSDate *timeout = [NSDate dateWithTimeIntervalSinceNow:30.0];
