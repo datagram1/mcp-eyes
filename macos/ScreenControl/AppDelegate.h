@@ -5,12 +5,13 @@
 
 #import <Cocoa/Cocoa.h>
 #import "MCPServer.h"
+#import "BrowserBridgeServer.h"
 
 #ifdef DEBUG
 @class TestServer;
 #endif
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, MCPServerDelegate>
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, MCPServerDelegate, BrowserBridgeServerDelegate>
 
 // Status bar
 @property (strong, nonatomic) NSStatusItem *statusItem;
@@ -50,7 +51,14 @@
 @property (strong, nonatomic) NSTextField *statusLabel;
 @property (strong, nonatomic) NSTextField *uptimeLabel;
 
-// Browser bridge server process
+// Current application tracking
+@property (nonatomic, strong) NSString *currentAppBundleId;
+@property (nonatomic, strong) NSDictionary *currentAppBounds;
+
+// Browser bridge server (Native Messaging)
+@property (strong, nonatomic) BrowserBridgeServer *browserBridgeServer;
+
+// Legacy browser bridge process properties (deprecated - using Native Messaging now)
 @property (strong, nonatomic) NSTask *browserBridgeTask;
 @property (strong, nonatomic) NSPipe *browserBridgePipe;
 
@@ -131,5 +139,11 @@
 - (void)saveOAuthCredentialsToKeychain;
 - (void)loadOAuthCredentialsFromKeychain;
 - (void)clearOAuthCredentials;
+
+// Tool execution (exposed for MCPServer HTTP endpoint)
+- (NSDictionary *)executeToolFromWebSocket:(NSDictionary *)params;
+
+// Tool advertisement (for dynamic capability discovery)
+- (NSArray *)getAvailableTools;
 
 @end

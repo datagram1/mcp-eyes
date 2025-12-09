@@ -8,6 +8,7 @@ interface Agent {
   id: string;
   agentKey: string;
   hostname: string;
+  displayName: string | null;
   machineId: string;
   machineFingerprint: string | null;
   fingerprintRaw: Record<string, unknown> | null;
@@ -71,7 +72,10 @@ export default function AgentDetailPage({ params }: PageProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [label, setLabel] = useState('');
+  const [editDisplayNameMode, setEditDisplayNameMode] = useState(false);
+  const [displayName, setDisplayName] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showResetSecretModal, setShowResetSecretModal] = useState(false);
 
   const fetchAgent = async () => {
     try {
@@ -87,6 +91,7 @@ export default function AgentDetailPage({ params }: PageProps) {
       const data = await res.json();
       setAgent(data.agent);
       setLabel(data.agent.label || '');
+      setDisplayName(data.agent.displayName || '');
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -133,6 +138,21 @@ export default function AgentDetailPage({ params }: PageProps) {
     }
   };
 
+  const handleDisplayNameSave = async () => {
+    try {
+      const res = await fetch(`/api/agents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName }),
+      });
+      if (!res.ok) throw new Error('Failed to update friendly name');
+      await fetchAgent();
+      setEditDisplayNameMode(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    }
+  };
+
   const handleDelete = async () => {
     try {
       const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
@@ -141,6 +161,23 @@ export default function AgentDetailPage({ params }: PageProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
       setShowDeleteModal(false);
+    }
+  };
+
+  const handleResetSecret = async () => {
+    try {
+      setActionLoading('RESET_SECRET');
+      const res = await fetch(`/api/agents/${id}/reset-secret`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to reset secret');
+      setShowResetSecretModal(false);
+      // Show success message
+      setError(null);
+      alert('Agent secret reset successfully. The agent can now re-register with a new API key.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset secret failed');
+    } finally {
+      setActionLoading(null);
+      setShowResetSecretModal(false);
     }
   };
 
@@ -221,7 +258,7 @@ export default function AgentDetailPage({ params }: PageProps) {
                 onClick={() => setEditMode(true)}
                 title="Click to edit label"
               >
-                {agent.label || agent.hostname}
+                {agent.displayName || agent.hostname}
               </h1>
             )}
             <p className="text-slate-400 text-sm">
@@ -229,13 +266,6 @@ export default function AgentDetailPage({ params }: PageProps) {
             </p>
           </div>
         </div>
-
-        <button
-          onClick={() => setShowDeleteModal(true)}
-          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-        >
-          Delete Agent
-        </button>
       </div>
 
       {/* Status Badges */}
@@ -299,6 +329,27 @@ export default function AgentDetailPage({ params }: PageProps) {
               {actionLoading === 'PENDING' ? 'Unblocking...' : 'Unblock Agent'}
             </button>
           )}
+
+          {/* Separator */}
+          <div className="w-px h-8 bg-slate-600 mx-2"></div>
+
+          {/* Reset Secret Button */}
+          <button
+            onClick={() => setShowResetSecretModal(true)}
+            disabled={actionLoading !== null}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+          >
+            {actionLoading === 'RESET_SECRET' ? 'Resetting...' : 'Reset Secret'}
+          </button>
+
+          {/* Delete Button */}
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            disabled={actionLoading !== null}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+          >
+            Delete Agent
+          </button>
         </div>
       </div>
 
@@ -308,6 +359,40 @@ export default function AgentDetailPage({ params }: PageProps) {
         <div className="bg-slate-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4">Machine Information</h3>
           <dl className="space-y-3">
+            <div className="flex justify-between items-center">
+              <dt className="text-slate-400">Friendly Name</dt>
+              {editDisplayNameMode ? (
+                <dd className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder={agent.hostname}
+                    className="px-2 py-1 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                  />
+                  <button
+                    onClick={handleDisplayNameSave}
+                    className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditDisplayNameMode(false)}
+                    className="px-2 py-1 bg-slate-600 text-white text-xs rounded hover:bg-slate-500"
+                  >
+                    Cancel
+                  </button>
+                </dd>
+              ) : (
+                <dd
+                  className="text-white cursor-pointer hover:text-blue-400"
+                  onClick={() => setEditDisplayNameMode(true)}
+                  title="Click to edit friendly name"
+                >
+                  {agent.displayName || <span className="text-slate-500 italic">Not set</span>}
+                </dd>
+              )}
+            </div>
             <div className="flex justify-between">
               <dt className="text-slate-400">Hostname</dt>
               <dd className="text-white">{agent.hostname}</dd>
@@ -420,6 +505,34 @@ export default function AgentDetailPage({ params }: PageProps) {
               Hash: <code className="text-slate-300">{agent.machineFingerprint}</code>
             </p>
           )}
+        </div>
+      )}
+
+      {/* Reset Secret Confirmation Modal */}
+      {showResetSecretModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-bold text-white mb-4">Reset Agent Secret?</h3>
+            <p className="text-slate-300 mb-6">
+              This will clear the stored API key for <strong>{agent.label || agent.hostname}</strong>.
+              The agent will be able to re-register with a new API key on its next connection.
+              Use this if the agent&apos;s API key has changed (e.g., after reinstallation).
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowResetSecretModal(false)}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-500"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetSecret}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+              >
+                Reset Secret
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -7,6 +7,7 @@ interface Agent {
   id: string;
   agentKey: string;
   hostname: string;
+  displayName: string | null;
   machineId: string;
   customerId: string | null;
   licenseUuid: string | null;
@@ -292,7 +293,7 @@ export default function AgentsPage() {
                       <span className="text-2xl">{osIcons[agent.osType] || '💻'}</span>
                       <div>
                         <div className="text-white font-medium hover:text-blue-400">
-                          {agent.label || agent.hostname}
+                          {agent.displayName || agent.hostname}
                         </div>
                         <div className="text-slate-400 text-sm">
                           {agent.osType} {agent.osVersion || ''} • {agent.arch || 'unknown'}

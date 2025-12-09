@@ -34,11 +34,24 @@
 // Core functionality
 - (NSArray *)listApplications;
 - (BOOL)focusApplication:(NSString *)identifier;
+- (NSDictionary *)launchApplication:(NSString *)identifier;
+- (NSDictionary *)closeApplication:(NSString *)identifier force:(BOOL)force;
 - (NSData *)takeScreenshot;
 - (NSData *)takeScreenshotOfWindow:(CGWindowID)windowID;
+- (CGWindowID)getWindowIDForApp:(NSString *)identifier;
+- (CGWindowID)getWindowIDForCurrentApp;
 - (BOOL)clickAtX:(CGFloat)x y:(CGFloat)y rightButton:(BOOL)rightButton;
+- (BOOL)clickAbsoluteX:(CGFloat)x y:(CGFloat)y rightButton:(BOOL)rightButton;
+- (BOOL)doubleClickAtX:(CGFloat)x y:(CGFloat)y;
+- (NSDictionary *)clickElementAtIndex:(NSInteger)index;
+- (BOOL)moveMouseToX:(CGFloat)x y:(CGFloat)y;
+- (BOOL)scrollDeltaX:(int)deltaX deltaY:(int)deltaY atX:(NSNumber *)x y:(NSNumber *)y;
+- (BOOL)dragFromX:(CGFloat)startX y:(CGFloat)startY toX:(CGFloat)endX y:(CGFloat)endY;
+- (NSDictionary *)getClickableElements;
+- (NSDictionary *)getUIElements;
 - (BOOL)typeText:(NSString *)text;
 - (BOOL)pressKey:(NSString *)key;
+- (NSDictionary *)analyzeWithOCR;
 - (NSDictionary *)checkPermissions;
 
 @end

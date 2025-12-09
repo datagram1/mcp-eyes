@@ -12,6 +12,11 @@
 #import <dlfcn.h>
 #import <Vision/Vision.h>
 
+// Forward declaration for executeToolFromWebSocket: method
+@interface NSObject (ToolExecution)
+- (NSDictionary *)executeToolFromWebSocket:(NSDictionary *)params;
+@end
+
 // Dynamic loading for CGWindowListCreateImage (deprecated in macOS 15)
 typedef CGImageRef (*CGWindowListCreateImageFn)(CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption);
 static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
@@ -274,7 +279,26 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     }
 
     @try {
-        if ([path isEqualToString:@"/permissions"]) {
+        // MCP-style /tools/call endpoint (for MCP Proxy compatibility)
+        if ([path isEqualToString:@"/tools/call"]) {
+            NSString *toolName = params[@"name"];
+            NSDictionary *arguments = params[@"arguments"] ?: @{};
+            if (!toolName) {
+                return @{@"error": @"Missing 'name' parameter"};
+            }
+
+            // Route to AppDelegate's executeToolFromWebSocket: method
+            if ([self.delegate respondsToSelector:@selector(executeToolFromWebSocket:)]) {
+                NSDictionary *toolParams = @{
+                    @"name": toolName,
+                    @"arguments": arguments
+                };
+                return [(id)self.delegate executeToolFromWebSocket:toolParams];
+            } else {
+                return @{@"error": @"Tool execution not available"};
+            }
+        }
+        else if ([path isEqualToString:@"/permissions"]) {
             return [self checkPermissions];
         }
         else if ([path isEqualToString:@"/listApplications"]) {

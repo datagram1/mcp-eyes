@@ -111,7 +111,7 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { state, label, groupName, tags } = body;
+    const { state, label, groupName, tags, displayName } = body;
 
     // Build update data
     type UpdateData = {
@@ -120,6 +120,7 @@ export async function PATCH(
       label?: string;
       groupName?: string;
       tags?: string[];
+      displayName?: string;
     };
 
     const updateData: UpdateData = {};
@@ -149,6 +150,7 @@ export async function PATCH(
     if (label !== undefined) updateData.label = label;
     if (groupName !== undefined) updateData.groupName = groupName;
     if (tags !== undefined) updateData.tags = tags;
+    if (displayName !== undefined) updateData.displayName = displayName;
 
     const agent = await prisma.agent.update({
       where: { id },

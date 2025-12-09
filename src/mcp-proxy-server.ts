@@ -68,7 +68,7 @@ import { ToolRegistry } from './tool-registry';
 
 const execAsync = promisify(exec);
 
-const TOKEN_FILE = path.join(process.env.HOME || '/tmp', '.mcp-eyes-token');
+const TOKEN_FILE = path.join(process.env.HOME || '/tmp', '.screencontrol-token');
 const BROWSER_BRIDGE_PORT = parseInt(process.env.BROWSER_BRIDGE_PORT || '3457', 10);
 
 interface TokenConfig {

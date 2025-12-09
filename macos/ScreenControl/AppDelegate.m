@@ -4,6 +4,8 @@
  */
 
 #import "AppDelegate.h"
+#import "FilesystemTools.h"
+#import "ShellTools.h"
 #import <ServiceManagement/ServiceManagement.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <Security/Security.h>
@@ -856,7 +858,7 @@ extern "C" {
 
 - (NSString *)getMachineId {
     // Get hardware UUID as machine ID
-    io_service_t platformExpert = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
+    io_service_t platformExpert = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"));
     if (platformExpert) {
         CFTypeRef serialNumberAsCFString = IORegistryEntryCreateCFProperty(platformExpert, CFSTR(kIOPlatformUUIDKey), kCFAllocatorDefault, 0);
         IOObjectRelease(platformExpert);
@@ -1806,18 +1808,42 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
                     NSString *method = json[@"method"] ?: @"unknown";
                     [weakSelf debugLog:[NSString stringWithFormat:@"← REQUEST: %@", method]];
 
-                    // Send a basic response
+                    // Handle tool execution via WebSocket (WAN communication from control server)
+                    NSDictionary *result = nil;
+                    if ([method isEqualToString:@"tools/call"]) {
+                        NSDictionary *params = json[@"params"];
+                        if (params) {
+                            // Execute the tool and get the result
+                            result = [weakSelf executeToolFromWebSocket:params];
+                        } else {
+                            result = @{@"error": @"Missing params for tools/call"};
+                        }
+                    } else if ([method isEqualToString:@"tools/list"]) {
+                        // Return list of available tools for dynamic discovery
+                        NSArray *availableTools = [weakSelf getAvailableTools];
+                        NSLog(@"[Agent] Advertising %lu tools to control server via tools/list", (unsigned long)availableTools.count);
+                        result = @{@"tools": availableTools};
+                    } else {
+                        // For other request types, return a placeholder response
+                        result = @{@"status": @"received", @"method": method};
+                    }
+
+                    // Send response back via WebSocket
                     NSDictionary *response = @{
                         @"type": @"response",
                         @"id": json[@"id"] ?: @"",
-                        @"result": @{@"status": @"debug-mode"}
+                        @"result": result
                     };
                     NSData *respData = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
                     NSString *respString = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
                     NSURLSessionWebSocketMessage *respMsg = [[NSURLSessionWebSocketMessage alloc] initWithString:respString];
                     if (weakSelf.debugWebSocketTask) {
                         [weakSelf.debugWebSocketTask sendMessage:respMsg completionHandler:^(NSError *error) {
-                            // Ignore errors - just for cleanup
+                            if (error) {
+                                [weakSelf debugLog:[NSString stringWithFormat:@"⚠️ Failed to send response: %@", error.localizedDescription]];
+                            } else {
+                                [weakSelf debugLog:@"✓ Response sent"];
+                            }
                         }];
                     }
 
@@ -2687,6 +2713,57 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     });
 }
 
+#pragma mark - Browser Bridge Server
+
+- (void)startBrowserBridge {
+    if (self.browserBridgeServer && self.browserBridgeServer.isRunning) {
+        NSLog(@"[Browser Bridge] Server already running");
+        return;
+    }
+
+    NSLog(@"[Browser Bridge] Starting browser bridge server with Native Messaging...");
+
+    // Create browser bridge server (Native Messaging on stdin/stdout)
+    self.browserBridgeServer = [[BrowserBridgeServer alloc] initWithPort:0]; // Port 0 for Native Messaging
+    self.browserBridgeServer.delegate = self;
+
+    BOOL success = [self.browserBridgeServer start];
+    if (success) {
+        NSLog(@"[Browser Bridge] Server started successfully with Native Messaging");
+    } else {
+        NSLog(@"[Browser Bridge] Failed to start server");
+        self.browserBridgeServer = nil;
+    }
+}
+
+- (void)stopBrowserBridge {
+    if (!self.browserBridgeServer) {
+        return;
+    }
+
+    NSLog(@"[Browser Bridge] Stopping browser bridge server...");
+    [self.browserBridgeServer stop];
+    self.browserBridgeServer = nil;
+}
+
+#pragma mark - BrowserBridgeServerDelegate
+
+- (void)browserBridgeServerDidStart:(NSUInteger)port {
+    NSLog(@"[Browser Bridge] Delegate: Server started on port %lu", (unsigned long)port);
+}
+
+- (void)browserBridgeServerDidStop {
+    NSLog(@"[Browser Bridge] Delegate: Server stopped");
+}
+
+- (void)browserDidConnect:(BrowserType)browserType name:(NSString *)name {
+    NSLog(@"[Browser Bridge] Delegate: Browser connected - %@ (%@)", name, @(browserType));
+}
+
+- (void)browserDidDisconnect:(BrowserType)browserType {
+    NSLog(@"[Browser Bridge] Delegate: Browser disconnected - type %@", @(browserType));
+}
+
 - (void)saveTokenFile:(NSString *)apiKey port:(NSUInteger)port {
     // Save token file for MCP proxy to read
     NSString *tokenPath = [NSHomeDirectory() stringByAppendingPathComponent:@".screencontrol-token"];
@@ -3061,106 +3138,8 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     return nil;
 }
 
-- (void)startBrowserBridge {
-    if (self.browserBridgeTask && self.browserBridgeTask.isRunning) {
-        NSLog(@"Browser bridge already running");
-        return;
-    }
-
-    NSString *nodePath = [self nodeExecutablePath];
-    if (!nodePath) {
-        NSLog(@"Error: Node.js not found. Browser bridge requires Node.js.");
-        return;
-    }
-
-    NSString *bridgePath = [self browserBridgeServerPath];
-    if (!bridgePath) {
-        NSLog(@"Error: browser-bridge-server.js not found");
-        return;
-    }
-
-    NSLog(@"Starting browser bridge: %@ %@", nodePath, bridgePath);
-
-    self.browserBridgeTask = [[NSTask alloc] init];
-    self.browserBridgeTask.executableURL = [NSURL fileURLWithPath:nodePath];
-    self.browserBridgeTask.arguments = @[bridgePath];
-
-    // Set environment to include common paths
-    NSMutableDictionary *env = [[[NSProcessInfo processInfo] environment] mutableCopy];
-    env[@"PATH"] = [NSString stringWithFormat:@"/usr/local/bin:/opt/homebrew/bin:%@", env[@"PATH"] ?: @""];
-    self.browserBridgeTask.environment = env;
-
-    // Capture output for logging
-    self.browserBridgePipe = [NSPipe pipe];
-    self.browserBridgeTask.standardOutput = self.browserBridgePipe;
-    self.browserBridgeTask.standardError = self.browserBridgePipe;
-
-    // Read output asynchronously
-    [[self.browserBridgePipe fileHandleForReading] setReadabilityHandler:^(NSFileHandle *handle) {
-        NSData *data = [handle availableData];
-        if (data.length > 0) {
-            NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            NSLog(@"[Browser Bridge] %@", [output stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]);
-        }
-    }];
-
-    // Handle termination
-    __weak typeof(self) weakSelf = self;
-    self.browserBridgeTask.terminationHandler = ^(NSTask *task) {
-        NSLog(@"Browser bridge terminated with status: %d", task.terminationStatus);
-
-        // Clear the readability handler
-        [[weakSelf.browserBridgePipe fileHandleForReading] setReadabilityHandler:nil];
-
-        // Auto-restart if it crashed (non-zero exit) and app is still running
-        if (task.terminationStatus != 0 && !weakSelf.isAppTerminating) {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                NSLog(@"Restarting browser bridge after crash...");
-                [weakSelf startBrowserBridge];
-            });
-        }
-    };
-
-    NSError *error = nil;
-    if (![self.browserBridgeTask launchAndReturnError:&error]) {
-        NSLog(@"Failed to start browser bridge: %@", error.localizedDescription);
-        self.browserBridgeTask = nil;
-        return;
-    }
-
-    NSLog(@"Browser bridge started (PID: %d)", self.browserBridgeTask.processIdentifier);
-}
-
-- (void)stopBrowserBridge {
-    if (!self.browserBridgeTask || !self.browserBridgeTask.isRunning) {
-        return;
-    }
-
-    NSLog(@"Stopping browser bridge (PID: %d)", self.browserBridgeTask.processIdentifier);
-
-    // Clear termination handler to prevent auto-restart
-    self.browserBridgeTask.terminationHandler = nil;
-
-    // Clear readability handler
-    [[self.browserBridgePipe fileHandleForReading] setReadabilityHandler:nil];
-
-    // Send SIGTERM for graceful shutdown
-    [self.browserBridgeTask terminate];
-
-    // Wait briefly for graceful shutdown
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-        if (self.browserBridgeTask.isRunning) {
-            // Force kill if still running
-            kill(self.browserBridgeTask.processIdentifier, SIGKILL);
-        }
-    });
-
-    self.browserBridgeTask = nil;
-    self.browserBridgePipe = nil;
-}
-
 - (BOOL)isBrowserBridgeRunning {
-    return self.browserBridgeTask && self.browserBridgeTask.isRunning;
+    return self.browserBridgeServer && self.browserBridgeServer.isRunning;
 }
 
 #pragma mark - Debug Configuration
@@ -3220,6 +3199,399 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             [self debugConnect:nil];
         });
+    }
+}
+
+#pragma mark - WebSocket Tool Execution
+
+- (NSDictionary *)executeToolFromWebSocket:(NSDictionary *)params {
+    // Extract tool name and arguments from MCP-style request
+    NSString *toolName = params[@"name"];
+    NSDictionary *arguments = params[@"arguments"] ?: @{};
+
+    if (!toolName) {
+        return @{@"error": @"Missing tool name"};
+    }
+
+    [self debugLog:[NSString stringWithFormat:@"→ Executing tool: %@ with args: %@", toolName, arguments]];
+
+    // Route to appropriate MCPServer method
+    @try {
+        // ============= TOOL ADVERTISEMENT =============
+
+        // Handle tools/list request (for dynamic tool discovery)
+        if ([toolName isEqualToString:@"tools/list"]) {
+            NSArray *availableTools = [self getAvailableTools];
+            NSLog(@"[Agent] Advertising %lu tools to control server", (unsigned long)availableTools.count);
+            return @{@"tools": availableTools};
+        }
+
+        // ============= NATIVE MACOS TOOLS =============
+
+        // Permissions
+        if ([toolName isEqualToString:@"checkPermissions"]) {
+            return [self.mcpServer checkPermissions];
+        }
+
+        // Application management
+        else if ([toolName isEqualToString:@"listApplications"]) {
+            return @{@"applications": [self.mcpServer listApplications]};
+        }
+        else if ([toolName isEqualToString:@"focusApplication"]) {
+            NSString *identifier = arguments[@"identifier"];
+            if (!identifier) {
+                return @{@"error": @"identifier is required"};
+            }
+            BOOL success = [self.mcpServer focusApplication:identifier];
+            return @{@"success": @(success)};
+        }
+        else if ([toolName isEqualToString:@"launchApplication"]) {
+            NSString *identifier = arguments[@"identifier"];
+            if (!identifier) {
+                return @{@"error": @"identifier is required (bundle ID or app name)"};
+            }
+            return [self.mcpServer launchApplication:identifier];
+        }
+        else if ([toolName isEqualToString:@"closeApp"]) {
+            NSString *identifier = arguments[@"identifier"];
+            NSNumber *force = arguments[@"force"] ?: @NO;
+            if (!identifier) {
+                return @{@"error": @"identifier is required"};
+            }
+            return [self.mcpServer closeApplication:identifier force:force.boolValue];
+        }
+        else if ([toolName isEqualToString:@"currentApp"]) {
+            return self.currentAppBundleId ?
+                @{@"bundleId": self.currentAppBundleId, @"bounds": self.currentAppBounds ?: @{}} :
+                @{@"bundleId": [NSNull null], @"bounds": @{}};
+        }
+
+        // Screenshots (desktop_screenshot is the MCP advertised name, screenshot is the internal name)
+        else if ([toolName isEqualToString:@"screenshot"] || [toolName isEqualToString:@"desktop_screenshot"]) {
+            NSData *imageData = [self.mcpServer takeScreenshot];
+            if (!imageData) {
+                return @{@"error": @"Failed to take screenshot"};
+            }
+            NSString *base64 = [imageData base64EncodedStringWithOptions:0];
+            return @{@"image": base64, @"format": @"png"};
+        }
+        // screenshot_app is the internal name for window-specific screenshots
+        else if ([toolName isEqualToString:@"screenshot_app"]) {
+            NSString *appIdentifier = arguments[@"identifier"];
+            CGWindowID windowID = kCGNullWindowID;
+
+            if (appIdentifier) {
+                windowID = [self.mcpServer getWindowIDForApp:appIdentifier];
+            } else if (self.currentAppBundleId) {
+                windowID = [self.mcpServer getWindowIDForCurrentApp];
+            }
+
+            NSData *imageData = nil;
+            if (windowID != kCGNullWindowID) {
+                imageData = [self.mcpServer takeScreenshotOfWindow:windowID];
+            }
+
+            if (!imageData) {
+                return @{@"error": @"Failed to take screenshot. No app focused or app not found."};
+            }
+            NSString *base64 = [imageData base64EncodedStringWithOptions:0];
+            return @{@"image": base64, @"format": @"png"};
+        }
+
+        // Mouse and click actions
+        else if ([toolName isEqualToString:@"click"]) {
+            NSNumber *x = arguments[@"x"];
+            NSNumber *y = arguments[@"y"];
+            if (!x || !y) {
+                return @{@"error": @"x and y are required"};
+            }
+            NSString *button = arguments[@"button"] ?: @"left";
+            BOOL success = [self.mcpServer clickAtX:x.floatValue y:y.floatValue rightButton:[button isEqualToString:@"right"]];
+            return @{@"success": @(success)};
+        }
+        else if ([toolName isEqualToString:@"click_absolute"]) {
+            NSNumber *x = arguments[@"x"];
+            NSNumber *y = arguments[@"y"];
+            if (!x || !y) {
+                return @{@"error": @"x and y are required (absolute screen coordinates in pixels)"};
+            }
+            NSString *button = arguments[@"button"] ?: @"left";
+            BOOL success = [self.mcpServer clickAbsoluteX:x.floatValue y:y.floatValue rightButton:[button isEqualToString:@"right"]];
+            return @{@"success": @(success)};
+        }
+        else if ([toolName isEqualToString:@"doubleClick"]) {
+            NSNumber *x = arguments[@"x"];
+            NSNumber *y = arguments[@"y"];
+            if (!x || !y) {
+                return @{@"error": @"x and y are required"};
+            }
+            BOOL success = [self.mcpServer doubleClickAtX:x.floatValue y:y.floatValue];
+            return @{@"success": @(success)};
+        }
+        else if ([toolName isEqualToString:@"clickElement"]) {
+            NSNumber *elementIndex = arguments[@"elementIndex"];
+            if (!elementIndex) {
+                return @{@"error": @"elementIndex is required"};
+            }
+            return [self.mcpServer clickElementAtIndex:elementIndex.integerValue];
+        }
+        else if ([toolName isEqualToString:@"moveMouse"]) {
+            NSNumber *x = arguments[@"x"];
+            NSNumber *y = arguments[@"y"];
+            if (!x || !y) {
+                return @{@"error": @"x and y are required"};
+            }
+            BOOL success = [self.mcpServer moveMouseToX:x.floatValue y:y.floatValue];
+            return @{@"success": @(success)};
+        }
+        else if ([toolName isEqualToString:@"getMousePosition"]) {
+            CGPoint mouseLocation = [NSEvent mouseLocation];
+            NSScreen *mainScreen = [NSScreen mainScreen];
+            CGFloat screenHeight = mainScreen.frame.size.height;
+            return @{@"x": @(mouseLocation.x), @"y": @(screenHeight - mouseLocation.y)};
+        }
+
+        // Scroll and drag
+        else if ([toolName isEqualToString:@"scroll"]) {
+            NSNumber *deltaX = arguments[@"deltaX"] ?: @0;
+            NSNumber *deltaY = arguments[@"deltaY"] ?: @0;
+            NSNumber *x = arguments[@"x"];
+            NSNumber *y = arguments[@"y"];
+            BOOL success = [self.mcpServer scrollDeltaX:deltaX.intValue deltaY:deltaY.intValue atX:x y:y];
+            return @{@"success": @(success)};
+        }
+        else if ([toolName isEqualToString:@"scrollMouse"]) {
+            NSString *direction = arguments[@"direction"];
+            NSNumber *amount = arguments[@"amount"] ?: @3;
+            if (!direction) {
+                return @{@"error": @"direction is required (up or down)"};
+            }
+            int deltaY = [direction isEqualToString:@"up"] ? amount.intValue : -amount.intValue;
+            BOOL success = [self.mcpServer scrollDeltaX:0 deltaY:deltaY atX:nil y:nil];
+            return @{@"success": @(success), @"direction": direction, @"amount": amount};
+        }
+        else if ([toolName isEqualToString:@"drag"]) {
+            NSNumber *startX = arguments[@"startX"];
+            NSNumber *startY = arguments[@"startY"];
+            NSNumber *endX = arguments[@"endX"];
+            NSNumber *endY = arguments[@"endY"];
+            if (!startX || !startY || !endX || !endY) {
+                return @{@"error": @"startX, startY, endX, and endY are required"};
+            }
+            BOOL success = [self.mcpServer dragFromX:startX.floatValue y:startY.floatValue toX:endX.floatValue y:endY.floatValue];
+            return @{@"success": @(success)};
+        }
+
+        // UI elements
+        else if ([toolName isEqualToString:@"getClickableElements"]) {
+            return [self.mcpServer getClickableElements];
+        }
+        else if ([toolName isEqualToString:@"getUIElements"]) {
+            return [self.mcpServer getUIElements];
+        }
+
+        // Keyboard input
+        else if ([toolName isEqualToString:@"typeText"]) {
+            NSString *text = arguments[@"text"];
+            if (!text) {
+                return @{@"error": @"text is required"};
+            }
+            BOOL success = [self.mcpServer typeText:text];
+            return @{@"success": @(success)};
+        }
+        else if ([toolName isEqualToString:@"pressKey"]) {
+            NSString *key = arguments[@"key"];
+            if (!key) {
+                return @{@"error": @"key is required"};
+            }
+            BOOL success = [self.mcpServer pressKey:key];
+            return @{@"success": @(success)};
+        }
+
+        // OCR and analysis
+        else if ([toolName isEqualToString:@"analyzeWithOCR"]) {
+            return [self.mcpServer analyzeWithOCR];
+        }
+
+        // Utility
+        else if ([toolName isEqualToString:@"wait"]) {
+            NSNumber *milliseconds = arguments[@"milliseconds"] ?: @1000;
+            [NSThread sleepForTimeInterval:milliseconds.doubleValue / 1000.0];
+            return @{@"success": @YES, @"waited_ms": milliseconds};
+        }
+
+        // ============= FILESYSTEM TOOLS =============
+
+        else if ([toolName isEqualToString:@"fs_list"]) {
+            NSString *fsPath = arguments[@"path"];
+            if (!fsPath) {
+                return @{@"error": @"path is required"};
+            }
+            BOOL recursive = [arguments[@"recursive"] boolValue];
+            NSInteger maxDepth = [arguments[@"max_depth"] integerValue] ?: 3;
+            return [self.mcpServer.filesystemTools listDirectory:fsPath recursive:recursive maxDepth:maxDepth];
+        }
+        else if ([toolName isEqualToString:@"fs_read"]) {
+            NSString *fsPath = arguments[@"path"];
+            if (!fsPath) {
+                return @{@"error": @"path is required"};
+            }
+            NSInteger maxBytes = [arguments[@"max_bytes"] integerValue] ?: 131072;
+            return [self.mcpServer.filesystemTools readFile:fsPath maxBytes:maxBytes];
+        }
+        else if ([toolName isEqualToString:@"fs_read_range"]) {
+            NSString *fsPath = arguments[@"path"];
+            NSNumber *startLine = arguments[@"start_line"];
+            NSNumber *endLine = arguments[@"end_line"];
+            if (!fsPath || !startLine || !endLine) {
+                return @{@"error": @"path, start_line, and end_line are required"};
+            }
+            return [self.mcpServer.filesystemTools readFileRange:fsPath
+                                                       startLine:[startLine integerValue]
+                                                         endLine:[endLine integerValue]];
+        }
+        else if ([toolName isEqualToString:@"fs_write"]) {
+            NSString *fsPath = arguments[@"path"];
+            NSString *content = arguments[@"content"];
+            if (!fsPath || !content) {
+                return @{@"error": @"path and content are required"};
+            }
+            BOOL createDirs = arguments[@"create_dirs"] ? [arguments[@"create_dirs"] boolValue] : YES;
+            NSString *mode = arguments[@"mode"] ?: @"overwrite";
+            return [self.mcpServer.filesystemTools writeFile:fsPath content:content createDirs:createDirs mode:mode];
+        }
+        else if ([toolName isEqualToString:@"fs_delete"]) {
+            NSString *fsPath = arguments[@"path"];
+            if (!fsPath) {
+                return @{@"error": @"path is required"};
+            }
+            BOOL recursive = [arguments[@"recursive"] boolValue];
+            return [self.mcpServer.filesystemTools deletePath:fsPath recursive:recursive];
+        }
+        else if ([toolName isEqualToString:@"fs_move"]) {
+            NSString *fromPath = arguments[@"from"];
+            NSString *toPath = arguments[@"to"];
+            if (!fromPath || !toPath) {
+                return @{@"error": @"from and to are required"};
+            }
+            return [self.mcpServer.filesystemTools movePath:fromPath toPath:toPath];
+        }
+        else if ([toolName isEqualToString:@"fs_search"]) {
+            NSString *basePath = arguments[@"base"];
+            if (!basePath) {
+                return @{@"error": @"base is required"};
+            }
+            NSString *glob = arguments[@"glob"] ?: @"**/*";
+            NSInteger maxResults = [arguments[@"max_results"] integerValue] ?: 200;
+            return [self.mcpServer.filesystemTools searchFiles:basePath glob:glob maxResults:maxResults];
+        }
+        else if ([toolName isEqualToString:@"fs_grep"]) {
+            NSString *basePath = arguments[@"base"];
+            NSString *pattern = arguments[@"pattern"];
+            if (!basePath || !pattern) {
+                return @{@"error": @"base and pattern are required"};
+            }
+            NSString *glob = arguments[@"glob"];
+            NSInteger maxMatches = [arguments[@"max_matches"] integerValue] ?: 200;
+            return [self.mcpServer.filesystemTools grepFiles:basePath pattern:pattern glob:glob maxMatches:maxMatches];
+        }
+        else if ([toolName isEqualToString:@"fs_patch"]) {
+            NSString *fsPath = arguments[@"path"];
+            NSArray *operations = arguments[@"operations"];
+            if (!fsPath || !operations) {
+                return @{@"error": @"path and operations are required"};
+            }
+            BOOL dryRun = [arguments[@"dry_run"] boolValue];
+            return [self.mcpServer.filesystemTools patchFile:fsPath operations:operations dryRun:dryRun];
+        }
+
+        // ============= SHELL TOOLS =============
+
+        else if ([toolName isEqualToString:@"shell_exec"]) {
+            NSString *command = arguments[@"command"];
+            if (!command) {
+                return @{@"error": @"command is required"};
+            }
+            NSString *cwd = arguments[@"cwd"];
+            NSTimeInterval timeout = [arguments[@"timeout_seconds"] doubleValue] ?: 600;
+            BOOL captureStderr = arguments[@"capture_stderr"] ? [arguments[@"capture_stderr"] boolValue] : YES;
+            return [self.mcpServer.shellTools executeCommand:command cwd:cwd timeoutSeconds:timeout captureStderr:captureStderr];
+        }
+        else if ([toolName isEqualToString:@"shell_start_session"]) {
+            NSString *command = arguments[@"command"];
+            if (!command) {
+                return @{@"error": @"command is required"};
+            }
+            NSString *cwd = arguments[@"cwd"];
+            NSDictionary *env = arguments[@"env"];
+            BOOL captureStderr = arguments[@"capture_stderr"] ? [arguments[@"capture_stderr"] boolValue] : YES;
+            return [self.mcpServer.shellTools startSession:command cwd:cwd env:env captureStderr:captureStderr];
+        }
+        else if ([toolName isEqualToString:@"shell_send_input"]) {
+            NSString *sessionId = arguments[@"session_id"];
+            NSString *input = arguments[@"input"];
+            if (!sessionId || !input) {
+                return @{@"error": @"session_id and input are required"};
+            }
+            return [self.mcpServer.shellTools sendInput:sessionId input:input];
+        }
+        else if ([toolName isEqualToString:@"shell_stop_session"]) {
+            NSString *sessionId = arguments[@"session_id"];
+            if (!sessionId) {
+                return @{@"error": @"session_id is required"};
+            }
+            NSString *signal = arguments[@"signal"] ?: @"TERM";
+            return [self.mcpServer.shellTools stopSession:sessionId signal:signal];
+        }
+
+        // ============= BROWSER TOOLS =============
+
+        else if ([toolName hasPrefix:@"browser_"]) {
+            if (!self.browserBridgeServer || !self.browserBridgeServer.isRunning) {
+                return @{@"error": @"Browser bridge server not running. No browser extensions connected."};
+            }
+
+            // Extract browser preference from arguments (optional)
+            NSString *browserName = arguments[@"browser"]; // "firefox", "chrome", "edge", "safari"
+
+            // Remove "browser_" prefix to get the action name
+            // e.g., "browser_navigate" -> "navigate"
+            NSString *action = [toolName substringFromIndex:8];
+
+            // Forward to browser bridge server with completion handler
+            __block NSDictionary *result = nil;
+            __block BOOL completed = NO;
+
+            [self.browserBridgeServer sendCommand:action
+                                          payload:arguments
+                                          browser:browserName
+                                completionHandler:^(NSDictionary *response, NSError *error) {
+                if (error) {
+                    result = @{@"error": error.localizedDescription};
+                } else {
+                    result = response ?: @{@"success": @YES};
+                }
+                completed = YES;
+            }];
+
+            // Wait for response (with timeout)
+            NSDate *timeout = [NSDate dateWithTimeIntervalSinceNow:30.0];
+            while (!completed && [timeout timeIntervalSinceNow] > 0) {
+                [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+            }
+
+            if (!completed) {
+                return @{@"error": @"Browser command timed out after 30 seconds"};
+            }
+
+            return result;
+        }
+
+        else {
+            return @{@"error": [NSString stringWithFormat:@"Unknown tool: %@", toolName]};
+        }
+    } @catch (NSException *exception) {
+        return @{@"error": [NSString stringWithFormat:@"Tool execution failed: %@", exception.reason]};
     }
 }
 
@@ -3287,6 +3659,252 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     [pasteboard setString:mcpUrl forType:NSPasteboardTypeString];
 
     [self debugLog:[NSString stringWithFormat:@"MCP URL copied to clipboard: %@", mcpUrl]];
+}
+
+#pragma mark - Tool Advertisement (for Control Server)
+
+- (NSArray *)getAvailableTools {
+    NSMutableArray *tools = [NSMutableArray array];
+
+    // Check if browser tools should be included
+    BOOL includeBrowserTools = (self.browserBridgeServer && self.browserBridgeServer.isRunning);
+
+    NSLog(@"[Agent] Building tool list - Browser bridge running: %@", includeBrowserTools ? @"YES" : @"NO");
+
+    // Load tools config if not already loaded
+    if (!self.toolsConfig) {
+        [self loadToolsConfig];
+    }
+
+    if (!self.toolsConfig) {
+        NSLog(@"[Agent] WARNING: toolsConfig not available, returning empty tool list");
+        return [tools copy];
+    }
+
+    // toolsConfig structure: {categoryId: {enabled: YES, tools: {toolName: YES, ...}}, ...}
+    // Note: categories are the direct keys of toolsConfig (not under a "categories" key)
+    NSDictionary *categoriesDict = self.toolsConfig;
+
+    // Iterate through categories
+    for (NSString *categoryId in [categoriesDict allKeys]) {
+        NSDictionary *category = categoriesDict[categoryId];
+        NSArray *toolNames = category[@"tools"];
+
+        // Skip browser category if bridge not running
+        if ([categoryId isEqualToString:@"browser"] && !includeBrowserTools) {
+            NSLog(@"[Agent] Skipping browser tools - bridge not available");
+            continue;
+        }
+
+        // Add each tool in this category
+        for (NSString *toolName in toolNames) {
+            NSDictionary *toolDef = [self createToolDefinition:toolName category:categoryId];
+            if (toolDef) {
+                [tools addObject:toolDef];
+            }
+        }
+    }
+
+    NSLog(@"[Agent] Built %lu tool definitions", (unsigned long)tools.count);
+    return [tools copy];
+}
+
+- (NSDictionary *)createToolDefinition:(NSString *)toolName category:(NSString *)categoryId {
+    // Create MCP-format tool definition
+    NSMutableDictionary *tool = [NSMutableDictionary dictionary];
+
+    tool[@"name"] = toolName;
+    tool[@"description"] = [self getToolDescription:toolName];
+
+    // Build input schema
+    NSMutableDictionary *inputSchema = [NSMutableDictionary dictionary];
+    inputSchema[@"type"] = @"object";
+    inputSchema[@"properties"] = [self getToolProperties:toolName];
+
+    NSArray *required = [self getToolRequiredFields:toolName];
+    if (required.count > 0) {
+        inputSchema[@"required"] = required;
+    }
+
+    tool[@"inputSchema"] = inputSchema;
+
+    return [tool copy];
+}
+
+- (NSString *)getToolDescription:(NSString *)toolName {
+    // Map tool names to descriptions
+    NSDictionary *descriptions = @{
+        // Desktop tools
+        @"desktop_screenshot": @"Take a screenshot of the entire desktop or a specific window",
+        @"mouse_click": @"Click at specific screen coordinates",
+        @"mouse_move": @"Move mouse to specific screen coordinates",
+        @"mouse_drag": @"Drag mouse from one position to another",
+        @"mouse_scroll": @"Scroll the mouse wheel",
+        @"keyboard_type": @"Type text using the keyboard",
+        @"keyboard_press": @"Press a specific key",
+        @"keyboard_shortcut": @"Execute a keyboard shortcut (e.g., Cmd+C)",
+        @"window_list": @"List all open windows",
+        @"window_focus": @"Focus a specific window",
+        @"window_move": @"Move a window to specific coordinates",
+        @"window_resize": @"Resize a window",
+        @"app_launch": @"Launch an application",
+        @"app_quit": @"Quit an application",
+        @"clipboard_read": @"Read text from clipboard",
+        @"clipboard_write": @"Write text to clipboard",
+
+        // Browser tools
+        @"browser_navigate": @"Navigate browser to a URL",
+        @"browser_click": @"Click an element in the browser by selector or text",
+        @"browser_fill": @"Fill a form field in the browser",
+        @"browser_screenshot": @"Take a screenshot of the browser viewport or full page",
+        @"browser_get_text": @"Get visible text content from browser",
+        @"browser_get_elements": @"Get elements matching a selector",
+        @"browser_select": @"Select an option from a dropdown",
+        @"browser_wait": @"Wait for an element or condition",
+        @"browser_back": @"Navigate back in browser history",
+        @"browser_forward": @"Navigate forward in browser history",
+        @"browser_refresh": @"Refresh the current page",
+        @"browser_tabs": @"List or manage browser tabs",
+        @"browser_evaluate": @"Execute JavaScript in the browser console",
+        @"browser_getTabs": @"Get list of all open tabs",
+        @"browser_getActiveTab": @"Get the currently active tab",
+        @"browser_switchTab": @"Switch to a specific tab",
+        @"browser_closeTab": @"Close a specific tab",
+        @"browser_get_visible_html": @"Get the HTML content of the current page",
+        @"browser_go_back": @"Navigate to previous page",
+        @"browser_go_forward": @"Navigate to next page",
+        @"browser_listConnected": @"List all connected browsers",
+        @"browser_setDefaultBrowser": @"Set the default browser for commands"
+    };
+
+    NSString *description = descriptions[toolName];
+    return description ?: [NSString stringWithFormat:@"Execute %@ tool", toolName];
+}
+
+- (NSDictionary *)getToolProperties:(NSString *)toolName {
+    // Common properties that appear in most tools
+    NSMutableDictionary *properties = [NSMutableDictionary dictionary];
+
+    // Add agentId for all tools
+    properties[@"agentId"] = @{
+        @"type": @"string",
+        @"description": @"Target agent ID (optional)"
+    };
+
+    // Tool-specific properties
+    if ([toolName isEqualToString:@"desktop_screenshot"]) {
+        properties[@"format"] = @{@"type": @"string", @"enum": @[@"png", @"jpeg"]};
+        properties[@"quality"] = @{@"type": @"number", @"description": @"JPEG quality (0-100)"};
+    }
+    else if ([toolName isEqualToString:@"mouse_click"]) {
+        properties[@"x"] = @{@"type": @"number"};
+        properties[@"y"] = @{@"type": @"number"};
+        properties[@"button"] = @{@"type": @"string", @"enum": @[@"left", @"right", @"middle"]};
+        properties[@"clickCount"] = @{@"type": @"number", @"description": @"1 for single, 2 for double"};
+    }
+    else if ([toolName isEqualToString:@"mouse_move"]) {
+        properties[@"x"] = @{@"type": @"number"};
+        properties[@"y"] = @{@"type": @"number"};
+    }
+    else if ([toolName isEqualToString:@"mouse_drag"]) {
+        properties[@"x1"] = @{@"type": @"number"};
+        properties[@"y1"] = @{@"type": @"number"};
+        properties[@"x2"] = @{@"type": @"number"};
+        properties[@"y2"] = @{@"type": @"number"};
+    }
+    else if ([toolName isEqualToString:@"mouse_scroll"]) {
+        properties[@"deltaX"] = @{@"type": @"number"};
+        properties[@"deltaY"] = @{@"type": @"number"};
+    }
+    else if ([toolName isEqualToString:@"keyboard_type"]) {
+        properties[@"text"] = @{@"type": @"string"};
+    }
+    else if ([toolName isEqualToString:@"keyboard_press"]) {
+        properties[@"key"] = @{@"type": @"string"};
+    }
+    else if ([toolName isEqualToString:@"keyboard_shortcut"]) {
+        properties[@"keys"] = @{@"type": @"string", @"description": @"e.g., 'Cmd+C' or 'Ctrl+Alt+Delete'"};
+    }
+    else if ([toolName isEqualToString:@"window_focus"]) {
+        properties[@"windowId"] = @{@"type": @"string"};
+    }
+    else if ([toolName isEqualToString:@"app_launch"]) {
+        properties[@"bundleId"] = @{@"type": @"string", @"description": @"e.g., 'com.apple.Safari'"};
+    }
+    else if ([toolName isEqualToString:@"clipboard_write"]) {
+        properties[@"text"] = @{@"type": @"string"};
+    }
+    else if ([toolName hasPrefix:@"browser_"]) {
+        // Browser tool properties
+        properties[@"browser"] = @{@"type": @"string", @"description": @"Target browser (firefox, chrome, edge, safari)"};
+
+        if ([toolName isEqualToString:@"browser_navigate"]) {
+            properties[@"url"] = @{@"type": @"string"};
+        }
+        else if ([toolName isEqualToString:@"browser_click"]) {
+            properties[@"selector"] = @{@"type": @"string"};
+            properties[@"text"] = @{@"type": @"string"};
+            properties[@"index"] = @{@"type": @"number"};
+        }
+        else if ([toolName isEqualToString:@"browser_fill"]) {
+            properties[@"selector"] = @{@"type": @"string"};
+            properties[@"value"] = @{@"type": @"string"};
+        }
+        else if ([toolName isEqualToString:@"browser_screenshot"]) {
+            properties[@"fullPage"] = @{@"type": @"boolean"};
+            properties[@"selector"] = @{@"type": @"string"};
+        }
+        else if ([toolName isEqualToString:@"browser_get_text"]) {
+            properties[@"selector"] = @{@"type": @"string"};
+        }
+        else if ([toolName isEqualToString:@"browser_evaluate"]) {
+            properties[@"script"] = @{@"type": @"string", @"description": @"JavaScript code to execute"};
+        }
+        else if ([toolName isEqualToString:@"browser_switchTab"]) {
+            properties[@"tabId"] = @{@"type": @"number"};
+        }
+        else if ([toolName isEqualToString:@"browser_closeTab"]) {
+            properties[@"tabId"] = @{@"type": @"number"};
+        }
+    }
+
+    return [properties copy];
+}
+
+- (NSArray *)getToolRequiredFields:(NSString *)toolName {
+    // Define required fields for each tool
+    if ([toolName isEqualToString:@"mouse_click"]) {
+        return @[@"x", @"y"];
+    }
+    else if ([toolName isEqualToString:@"mouse_move"]) {
+        return @[@"x", @"y"];
+    }
+    else if ([toolName isEqualToString:@"mouse_drag"]) {
+        return @[@"x1", @"y1", @"x2", @"y2"];
+    }
+    else if ([toolName isEqualToString:@"keyboard_type"]) {
+        return @[@"text"];
+    }
+    else if ([toolName isEqualToString:@"keyboard_press"]) {
+        return @[@"key"];
+    }
+    else if ([toolName isEqualToString:@"keyboard_shortcut"]) {
+        return @[@"keys"];
+    }
+    else if ([toolName isEqualToString:@"clipboard_write"]) {
+        return @[@"text"];
+    }
+    else if ([toolName isEqualToString:@"browser_navigate"]) {
+        return @[@"url"];
+    }
+    else if ([toolName isEqualToString:@"browser_fill"]) {
+        return @[@"selector", @"value"];
+    }
+    else if ([toolName isEqualToString:@"browser_evaluate"]) {
+        return @[@"script"];
+    }
+
+    return @[];
 }
 
 @end

@@ -180,7 +180,7 @@ model Agent {
   // Status
   status            AgentStatus @default(OFFLINE)
   state             AgentState  @default(PENDING)
-  powerState        PowerState  @default(PASSIVE)
+  powerState        PowerState  @default(ACTIVE)
   isScreenLocked    Boolean     @default(false)
   currentTask       String?
   ipAddress         String?

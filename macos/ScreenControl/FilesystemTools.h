@@ -89,7 +89,7 @@
 /**
  * Find files by pattern (glob)
  * @param basePath Base directory for search
- * @param globPattern Glob pattern (e.g., "*.txt", "**\/*.js")
+ * @param globPattern Glob pattern (e.g., "*.txt", "** / *.js" without spaces)
  * @param maxResults Maximum number of results (default: 200)
  * @return Dictionary with matches array containing path and type
  */

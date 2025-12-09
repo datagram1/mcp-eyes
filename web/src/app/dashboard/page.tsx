@@ -21,9 +21,7 @@ async function getDashboardData(userId: string) {
     }),
     prisma.agent.findMany({
       where: {
-        license: {
-          userId,
-        },
+        ownerUserId: userId,
       },
       include: {
         license: true,
@@ -39,9 +37,7 @@ async function getDashboardData(userId: string) {
     prisma.commandLog.findMany({
       where: {
         agent: {
-          license: {
-            userId,
-          },
+          ownerUserId: userId,
         },
       },
       include: {

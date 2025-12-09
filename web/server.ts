@@ -62,18 +62,30 @@ app.prepare().then(() => {
 
   // Handle WebSocket connections
   wss.on('connection', (ws: WebSocket, req) => {
+    // Enable TCP keepalive to help maintain NAT entries
+    // @ts-ignore - accessing underlying socket
+    const socket = (ws as any)._socket;
+    if (socket) {
+      socket.setKeepAlive(true, 10000); // 10 second keepalive interval
+    }
     handleAgentConnection(ws, req, agentRegistry);
   });
 
-  // Heartbeat interval for connected agents
+  // Heartbeat interval for connected agents - sends both:
+  // 1. WebSocket protocol ping frames (for NAT/firewall keepalive)
+  // 2. Application-level ping messages (for agent logic)
+  // Using 10-second interval to handle aggressive NAT timeouts (some routers have 60s)
   const heartbeatInterval = setInterval(() => {
     const agents = agentRegistry.getAllAgents();
     for (const agent of agents) {
       if (agent.socket.readyState === WebSocket.OPEN) {
+        // Send WebSocket protocol-level ping frame (keeps NAT tables alive)
+        agent.socket.ping();
+        // Send application-level ping message (for agent monitoring)
         agent.socket.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
       }
     }
-  }, 15000);
+  }, 10000);
 
   // Cleanup on server close
   server.on('close', () => {
