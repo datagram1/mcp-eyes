@@ -5,12 +5,14 @@
  * DELETE /api/debug/agents - Delete all mock agents
  *
  * Only available in debug mode (development or DEBUG_MODE=true)
+ * SECURITY: Only accessible from LAN networks (192.168.10.x, 192.168.11.x)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { isDebugMode, isDebugUser, generateMockMachineId, generateMockFingerprint, TEST_AGENT_CONFIGS } from '@/lib/debug';
+import { isLANRequest, getClientIP } from '@/lib/ip-security';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 
@@ -67,6 +69,16 @@ async function getOrCreateDebugLicense(userId: string) {
  * POST /api/debug/agents - Create mock agent
  */
 export async function POST(request: NextRequest) {
+  // Security: Check IP address first
+  if (!isLANRequest(request)) {
+    const clientIP = getClientIP(request);
+    console.warn(`[Debug API] Blocked request from non-LAN IP: ${clientIP}`);
+    return NextResponse.json(
+      { error: 'Access denied - debug API only accessible from LAN (192.168.10.x, 192.168.11.x)' },
+      { status: 403 }
+    );
+  }
+
   // Check debug mode
   if (!isDebugMode()) {
     return NextResponse.json(
@@ -181,7 +193,17 @@ export async function POST(request: NextRequest) {
 /**
  * DELETE /api/debug/agents - Delete all mock agents
  */
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  // Security: Check IP address first
+  if (!isLANRequest(request)) {
+    const clientIP = getClientIP(request);
+    console.warn(`[Debug API] Blocked request from non-LAN IP: ${clientIP}`);
+    return NextResponse.json(
+      { error: 'Access denied - debug API only accessible from LAN (192.168.10.x, 192.168.11.x)' },
+      { status: 403 }
+    );
+  }
+
   // Check debug mode
   if (!isDebugMode()) {
     return NextResponse.json(

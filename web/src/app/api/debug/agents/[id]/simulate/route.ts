@@ -4,12 +4,14 @@
  * POST /api/debug/agents/[id]/simulate - Simulate agent status changes
  *
  * Only available in debug mode (development or DEBUG_MODE=true)
+ * SECURITY: Only accessible from LAN networks (192.168.10.x, 192.168.11.x)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { prisma } from '@/lib/prisma';
 import { isDebugMode, isDebugUser } from '@/lib/debug';
+import { isLANRequest, getClientIP } from '@/lib/ip-security';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +28,16 @@ export async function POST(
   request: NextRequest,
   context: RouteContext
 ) {
+  // Security: Check IP address first
+  if (!isLANRequest(request)) {
+    const clientIP = getClientIP(request);
+    console.warn(`[Debug API] Blocked request from non-LAN IP: ${clientIP}`);
+    return NextResponse.json(
+      { error: 'Access denied - debug API only accessible from LAN (192.168.10.x, 192.168.11.x)' },
+      { status: 403 }
+    );
+  }
+
   // Check debug mode
   if (!isDebugMode()) {
     return NextResponse.json(

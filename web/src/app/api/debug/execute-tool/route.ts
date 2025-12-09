@@ -3,10 +3,13 @@
  *
  * Only accessible when DEBUG_MODE=true with valid DEBUG_API_KEY
  * Allows direct tool execution on connected agents for testing
+ *
+ * SECURITY: Only accessible from LAN networks (192.168.10.x, 192.168.11.x)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { agentRegistry } from '@/lib/control-server';
+import { isLANRequest, getClientIP } from '@/lib/ip-security';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +36,16 @@ function checkDebugAuth(request: NextRequest): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  // Security: Check IP address first
+  if (!isLANRequest(request)) {
+    const clientIP = getClientIP(request);
+    console.warn(`[Debug API] Blocked request from non-LAN IP: ${clientIP}`);
+    return NextResponse.json(
+      { error: 'Access denied - debug API only accessible from LAN (192.168.10.x, 192.168.11.x)' },
+      { status: 403 }
+    );
+  }
+
   // Security: Check debug auth
   if (!checkDebugAuth(request)) {
     return NextResponse.json(
@@ -109,6 +122,16 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  // Security: Check IP address first
+  if (!isLANRequest(request)) {
+    const clientIP = getClientIP(request);
+    console.warn(`[Debug API] Blocked request from non-LAN IP: ${clientIP}`);
+    return NextResponse.json(
+      { error: 'Access denied - debug API only accessible from LAN (192.168.10.x, 192.168.11.x)' },
+      { status: 403 }
+    );
+  }
+
   // Security: Check debug auth
   if (!checkDebugAuth(request)) {
     return NextResponse.json(
