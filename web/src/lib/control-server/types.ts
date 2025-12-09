@@ -113,7 +113,7 @@ export interface PendingRequest {
 
 // Messages FROM agent TO control server
 export interface AgentMessage {
-  type: 'register' | 'response' | 'pong' | 'error' | 'heartbeat' | 'state_change';
+  type: 'register' | 'response' | 'pong' | 'error' | 'heartbeat' | 'state_change' | 'tools_changed';
   id?: string;
 
   // Registration data
@@ -136,6 +136,10 @@ export interface AgentMessage {
   powerState?: PowerState;
   isScreenLocked?: boolean;
   currentTask?: string;
+
+  // Tools changed notification data
+  browserBridgeRunning?: boolean;
+  timestamp?: number;
 }
 
 // Messages FROM control server TO agent

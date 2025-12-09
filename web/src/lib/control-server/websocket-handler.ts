@@ -159,6 +159,21 @@ export function handleAgentConnection(
           }
           break;
 
+        case 'tools_changed':
+          if (agent) {
+            const agentId = agent.id;
+            const agentName = agent.machineName || agent.machineId;
+            console.log(
+              `[WS] Tools changed notification from ${agentName} ` +
+              `(browserBridge: ${msg.browserBridgeRunning ? 'running' : 'stopped'})`
+            );
+            // Re-fetch agent capabilities to get updated tool list (including/excluding browser tools)
+            registry.fetchAgentCapabilities(agentId).catch((err) => {
+              console.error(`[WS] Failed to re-fetch capabilities for ${agentId}:`, err);
+            });
+          }
+          break;
+
         default:
           console.warn(`[WS] Unknown message type: ${msg.type}`);
       }

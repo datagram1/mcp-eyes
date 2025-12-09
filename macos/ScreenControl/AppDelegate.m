@@ -1682,6 +1682,37 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     }];
 }
 
+- (void)debugNotifyToolsChanged {
+    if (!self.debugWebSocketTask || !self.debugIsConnected) return;
+
+    NSDictionary *message = @{
+        @"type": @"tools_changed",
+        @"timestamp": @([[NSDate date] timeIntervalSince1970] * 1000),
+        @"browserBridgeRunning": @(self.browserBridgeServer && self.browserBridgeServer.isRunning)
+    };
+
+    NSError *error;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:message options:0 error:&error];
+    if (error) {
+        NSLog(@"[Agent] ERROR serializing tools_changed message: %@", error);
+        return;
+    }
+
+    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+
+    NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
+    __weak typeof(self) weakSelf = self;
+    [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *sendError) {
+        if (!weakSelf) return;
+        if (sendError) {
+            NSLog(@"[Agent] ERROR sending tools_changed notification: %@", sendError.localizedDescription);
+        } else {
+            NSLog(@"[Agent] → TOOLS_CHANGED notification sent (browserBridge: %@)",
+                  weakSelf.browserBridgeServer && weakSelf.browserBridgeServer.isRunning ? @"running" : @"stopped");
+        }
+    }];
+}
+
 - (void)debugReceiveMessage {
     if (!self.debugWebSocketTask) return;
 
@@ -2769,18 +2800,26 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 
 - (void)browserBridgeServerDidStart:(NSUInteger)port {
     NSLog(@"[Browser Bridge] Delegate: Server started on port %lu", (unsigned long)port);
+    // Notify control server that tools have changed (browser tools now available)
+    [self debugNotifyToolsChanged];
 }
 
 - (void)browserBridgeServerDidStop {
     NSLog(@"[Browser Bridge] Delegate: Server stopped");
+    // Notify control server that tools have changed (browser tools no longer available)
+    [self debugNotifyToolsChanged];
 }
 
 - (void)browserDidConnect:(BrowserType)browserType name:(NSString *)name {
     NSLog(@"[Browser Bridge] Delegate: Browser connected - %@ (%@)", name, @(browserType));
+    // Notify control server that tools have changed (browser extension connected)
+    [self debugNotifyToolsChanged];
 }
 
 - (void)browserDidDisconnect:(BrowserType)browserType {
     NSLog(@"[Browser Bridge] Delegate: Browser disconnected - type %@", @(browserType));
+    // Notify control server that tools have changed (browser extension disconnected)
+    [self debugNotifyToolsChanged];
 }
 
 - (void)saveTokenFile:(NSString *)apiKey port:(NSUInteger)port {
