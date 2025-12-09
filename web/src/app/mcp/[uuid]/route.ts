@@ -362,6 +362,16 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
 
       for (const dbAgent of agentsForTools) {
         const connectedAgent = agentRegistry.getAgent(dbAgent.id);
+
+        // If tools haven't been fetched yet, fetch them now (synchronously)
+        if (connectedAgent && (!connectedAgent.tools || connectedAgent.tools.length === 0)) {
+          logMcp('FETCHING TOOLS FOR AGENT', {
+            agentId: dbAgent.id,
+            hostname: dbAgent.hostname,
+          });
+          await agentRegistry.fetchAgentCapabilities(connectedAgent.id);
+        }
+
         if (connectedAgent?.tools && connectedAgent.tools.length > 0) {
           connectedAgent.tools.forEach(tool => {
             agentToolsMap.set(tool.name, tool);
