@@ -1,5 +1,5 @@
 /**
- * MCP Eyes - Injected Script (runs in page context)
+ * ScreenControl - Injected Script (runs in page context)
  *
  * This script is injected into the page's JavaScript context using the Tampermonkey strategy.
  * It has full access to the page's DOM and JavaScript environment.
@@ -2322,7 +2322,7 @@
         });
       } catch (e) {
         // Cross-origin iframe - can't access
-        console.log(`[MCP Eyes] Cannot access iframe ${index}: ${e.message}`);
+        console.log(`[ScreenControl] Cannot access iframe ${index}: ${e.message}`);
       }
     });
   }
@@ -3199,7 +3199,7 @@
   // Message handler for communication with content script
   window.addEventListener('message', async function(event) {
     // Only accept messages from our content script
-    if (event.source !== window || !event.data || event.data.source !== 'mcp-eyes-content') {
+    if (event.source !== window || !event.data || event.data.source !== 'screencontrol-content') {
       return;
     }
 
@@ -3349,7 +3349,7 @@
 
     // Send response back to content script
     window.postMessage({
-      source: 'mcp-eyes-injected',
+      source: 'screencontrol-injected',
       requestId,
       response
     }, '*');
@@ -3357,9 +3357,9 @@
 
   // Signal that injected script is ready
   window.postMessage({
-    source: 'mcp-eyes-injected',
+    source: 'screencontrol-injected',
     action: 'ready'
   }, '*');
 
-  console.log('[MCP Eyes] Injected script loaded');
+  console.log('[ScreenControl] Injected script loaded');
 })();

@@ -61,12 +61,33 @@
 
     // Create task
     self.nodeTask = [[NSTask alloc] init];
-    self.nodeTask.launchPath = nodePath;
+
+    // Resolve symlinks to get the real path (NSTask needs this for security)
+    NSString *resolvedNodePath = [[NSFileManager defaultManager] destinationOfSymbolicLinkAtPath:nodePath error:NULL];
+    if (resolvedNodePath && ![resolvedNodePath isAbsolutePath]) {
+        // If it's a relative link, resolve it relative to the symlink's directory
+        NSString *nodeDir = [nodePath stringByDeletingLastPathComponent];
+        resolvedNodePath = [[nodeDir stringByAppendingPathComponent:resolvedNodePath] stringByStandardizingPath];
+    }
+    NSString *finalNodePath = resolvedNodePath ?: nodePath;
+
+    NSLog(@"[BrowserBridge] Using Node.js path: %@ (resolved from: %@)", finalNodePath, nodePath);
+
+    // Use modern executableURL API instead of deprecated launchPath
+    NSURL *nodeURL = [NSURL fileURLWithPath:finalNodePath];
+    self.nodeTask.executableURL = nodeURL;
     self.nodeTask.arguments = @[serverScriptPath];
 
     // Set working directory to project root
     NSString *projectRoot = [serverScriptPath stringByDeletingLastPathComponent];
-    self.nodeTask.currentDirectoryPath = projectRoot;
+    NSURL *workingDirURL = [NSURL fileURLWithPath:projectRoot];
+    self.nodeTask.currentDirectoryURL = workingDirURL;
+
+    // Set environment variables
+    NSMutableDictionary *environment = [NSMutableDictionary dictionaryWithDictionary:[[NSProcessInfo processInfo] environment]];
+    environment[@"PORT"] = [NSString stringWithFormat:@"%lu", (unsigned long)self.port];
+    environment[@"PATH"] = @"/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+    self.nodeTask.environment = environment;
 
     // Set up output pipes for monitoring
     self.outputPipe = [NSPipe pipe];
@@ -79,8 +100,16 @@
     [self monitorOutput:self.errorPipe.fileHandleForReading label:@"STDERR"];
 
     // Launch task
+    NSError *launchError = nil;
     @try {
-        [self.nodeTask launch];
+        BOOL success = [self.nodeTask launchAndReturnError:&launchError];
+        if (!success) {
+            NSLog(@"[BrowserBridge] Failed to launch Node.js: %@", launchError);
+            self.nodeTask = nil;
+            self.isRunning = NO;
+            return NO;
+        }
+
         self.isRunning = YES;
 
         NSLog(@"[BrowserBridge] Node.js server started with PID %d", self.nodeTask.processIdentifier);
@@ -92,7 +121,7 @@
 
         return YES;
     } @catch (NSException *exception) {
-        NSLog(@"[BrowserBridge] Failed to launch Node.js: %@", exception);
+        NSLog(@"[BrowserBridge] Failed to launch Node.js (exception): %@", exception);
         self.nodeTask = nil;
         self.isRunning = NO;
         return NO;

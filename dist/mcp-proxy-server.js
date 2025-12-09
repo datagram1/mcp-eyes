@@ -65,7 +65,7 @@ const tool_registry_1 = require("./tool-registry");
 // NOTE: FilesystemTools and ShellTools are no longer imported here.
 // The proxy now relays these to the MCPEyes.app HTTP server which has native implementations.
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
-const TOKEN_FILE = path_1.default.join(process.env.HOME || '/tmp', '.mcp-eyes-token');
+const TOKEN_FILE = path_1.default.join(process.env.HOME || '/tmp', '.screencontrol-token');
 const BROWSER_BRIDGE_PORT = parseInt(process.env.BROWSER_BRIDGE_PORT || '3457', 10);
 function loadTokenConfig() {
     try {

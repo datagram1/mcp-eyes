@@ -6,12 +6,13 @@
 #import <Cocoa/Cocoa.h>
 #import "MCPServer.h"
 #import "BrowserBridgeServer.h"
+#import "BrowserWebSocketServer.h"
 
 #ifdef DEBUG
 @class TestServer;
 #endif
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, MCPServerDelegate, BrowserBridgeServerDelegate>
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, MCPServerDelegate, BrowserBridgeServerDelegate, BrowserWebSocketServerDelegate>
 
 // Status bar
 @property (strong, nonatomic) NSStatusItem *statusItem;
@@ -55,8 +56,11 @@
 @property (nonatomic, strong) NSString *currentAppBundleId;
 @property (nonatomic, strong) NSDictionary *currentAppBounds;
 
-// Browser bridge server (Native Messaging)
+// Browser bridge server (Node.js - deprecated, use WebSocket server instead)
 @property (strong, nonatomic) BrowserBridgeServer *browserBridgeServer;
+
+// Browser WebSocket server (Native replacement for Node.js bridge)
+@property (strong, nonatomic) BrowserWebSocketServer *browserWebSocketServer;
 
 // Legacy browser bridge process properties (deprecated - using Native Messaging now)
 @property (strong, nonatomic) NSTask *browserBridgeTask;

@@ -1,9 +1,9 @@
 #!/opt/homebrew/bin/node
 
 /**
- * MCP Eyes Native Messaging Host
+ * ScreenControl Native Messaging Host
  *
- * This script acts as a bridge between the browser extension and the MCP Eyes native app.
+ * This script acts as a bridge between the browser extension and the ScreenControl native app.
  * It receives JSON messages from the extension via stdin and sends responses via stdout.
  *
  * Communicates with MCPEyes.app via HTTP on localhost:3456
@@ -18,8 +18,8 @@ const path = require('path');
 const http = require('http');
 
 // Configuration
-const TOKEN_FILE = path.join(process.env.HOME || '/tmp', '.mcp-eyes-token');
-const LOG_FILE = process.env.MCP_EYES_LOG || '/tmp/mcp-eyes-bridge.log';
+const TOKEN_FILE = path.join(process.env.HOME || '/tmp', '.screencontrol-token');
+const LOG_FILE = process.env.MCP_EYES_LOG || '/tmp/screencontrol-bridge.log';
 const DEBUG = true;
 
 function log(...args) {
@@ -130,7 +130,7 @@ function writeMessage(message) {
 }
 
 /**
- * Make HTTP request to MCP Eyes native app
+ * Make HTTP request to ScreenControl native app
  */
 function httpRequest(config, method, endpoint, body) {
   return new Promise((resolve, reject) => {
@@ -182,7 +182,7 @@ function httpRequest(config, method, endpoint, body) {
 }
 
 /**
- * MCP Eyes HTTP Connection
+ * ScreenControl HTTP Connection
  */
 class McpEyesConnection {
   constructor() {
@@ -200,7 +200,7 @@ class McpEyesConnection {
     // Test connection with health check
     try {
       const result = await httpRequest(this.config, 'GET', '/health', null);
-      log('Connected to MCP Eyes:', result);
+      log('Connected to ScreenControl:', result);
       this.connected = true;
       return true;
     } catch (err) {
@@ -211,7 +211,7 @@ class McpEyesConnection {
 
   async send(message) {
     if (!this.connected || !this.config) {
-      return { error: 'Not connected to MCP Eyes' };
+      return { error: 'Not connected to ScreenControl' };
     }
 
     const { action, payload, requestId } = message;
@@ -258,7 +258,7 @@ class McpEyesConnection {
           result = await httpRequest(this.config, 'GET', '/permissions', null);
           break;
 
-        // Browser-specific actions - these are handled by content script, not MCP Eyes
+        // Browser-specific actions - these are handled by content script, not ScreenControl
         case 'getPageInfo':
         case 'getPageContext':
         case 'clickElement':
@@ -281,7 +281,7 @@ class McpEyesConnection {
 
       return { requestId, response: result };
     } catch (err) {
-      log('Error sending to MCP Eyes:', err.message);
+      log('Error sending to ScreenControl:', err.message);
       return { requestId, error: err.message };
     }
   }
@@ -296,7 +296,7 @@ class McpEyesConnection {
  * Main entry point
  */
 async function main() {
-  log('MCP Eyes Native Host starting...');
+  log('ScreenControl Native Host starting...');
 
   process.stdin.setEncoding(null);
 
@@ -368,7 +368,7 @@ async function main() {
     }
   }
 
-  log('MCP Eyes Native Host exiting');
+  log('ScreenControl Native Host exiting');
 }
 
 // Handle uncaught errors

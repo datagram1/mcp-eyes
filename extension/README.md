@@ -1,10 +1,10 @@
-# MCP Eyes Browser Extension
+# ScreenControl Browser Extension
 
-Browser extension that enables LLM-driven web automation with mcp_eyes.
+Browser extension that enables LLM-driven web automation with screencontrol.
 
 ## Overview
 
-This extension bridges the gap between mcp_eyes (MCP server) and your web browser, allowing AI assistants to:
+This extension bridges the gap between screencontrol (MCP server) and your web browser, allowing AI assistants to:
 
 - **See the page**: Get all interactive elements (buttons, links, inputs) with their screen coordinates
 - **Control naturally**: Move mouse and click at specific coordinates (appears human-like)
@@ -38,7 +38,7 @@ This extension bridges the gap between mcp_eyes (MCP server) and your web browse
 
 ### 2. Install the Native Messaging Host
 
-The native messaging host allows the extension to communicate with mcp_eyes.
+The native messaging host allows the extension to communicate with screencontrol.
 
 ```bash
 cd extension/native-host
@@ -56,8 +56,8 @@ For Firefox only:
 
 The extension should now be connected. You can verify by checking the browser console for:
 ```
-[MCP Eyes] Content script loaded
-[MCP Eyes] Connected to native host
+[ScreenControl] Content script loaded
+[ScreenControl] Connected to native host
 ```
 
 ## How It Works
@@ -66,13 +66,13 @@ The extension should now be connected. You can verify by checking the browser co
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                       MCP Eyes Server                            │
+│                       ScreenControl Server                            │
 │  (Your AI assistant communicates via MCP protocol)              │
 └─────────────────────────┬───────────────────────────────────────┘
                           │ Unix Socket / File Queue
 ┌─────────────────────────▼───────────────────────────────────────┐
 │                  Native Messaging Host                           │
-│  (mcp-eyes-bridge.js - translates between MCP and extension)   │
+│  (screencontrol-bridge.js - translates between MCP and extension)   │
 └─────────────────────────┬───────────────────────────────────────┘
                           │ Native Messaging (stdin/stdout JSON)
 ┌─────────────────────────▼───────────────────────────────────────┐
@@ -93,8 +93,8 @@ The extension should now be connected. You can verify by checking the browser co
 
 **Natural Mode** (Default for bot-detection sites):
 1. Extension reports element screen coordinates
-2. mcp_eyes moves the actual mouse cursor to that position
-3. mcp_eyes performs a real mouse click
+2. screencontrol moves the actual mouse cursor to that position
+3. screencontrol performs a real mouse click
 4. Appears completely human to the website
 
 **Silent Mode** (Fast automation):
@@ -104,7 +104,7 @@ The extension should now be connected. You can verify by checking the browser co
 
 ## Available Tools
 
-When using mcp_eyes with this extension, you get these tools:
+When using screencontrol with this extension, you get these tools:
 
 | Tool | Description |
 |------|-------------|
@@ -126,7 +126,7 @@ User: "Add the blue widget to my cart on the current page"
 AI uses: browser_findClickTarget(text: "Add to Cart")
 → Returns: screenRect: { centerX: 845, centerY: 412 }
 
-AI uses: moveMouse(x: 0.845, y: 0.412)  // mcp_eyes moves real mouse
+AI uses: moveMouse(x: 0.845, y: 0.412)  // screencontrol moves real mouse
 AI uses: click()                         // Real mouse click
 ```
 
@@ -157,14 +157,14 @@ AI uses: browser_clickElement(selector: "#submit-btn")
 The native messaging host script may have an error. Check the log:
 ```bash
 export MCP_EYES_DEBUG=1
-cat /tmp/mcp-eyes-bridge.log
+cat /tmp/screencontrol-bridge.log
 ```
 
 ### Safari not working
 
 Safari uses AppleScript instead of an extension. Make sure:
 1. Safari > Develop > Allow JavaScript from Apple Events is enabled
-2. mcp_eyes has accessibility permissions
+2. screencontrol has accessibility permissions
 
 ## Development
 
@@ -192,5 +192,5 @@ cp shared/*.js firefox/
 
 - The extension has access to all web pages (`<all_urls>` permission)
 - It can execute arbitrary JavaScript in page contexts
-- Native messaging only works with the registered mcp_eyes host
+- Native messaging only works with the registered screencontrol host
 - Don't use this for automation on sites where such automation is prohibited

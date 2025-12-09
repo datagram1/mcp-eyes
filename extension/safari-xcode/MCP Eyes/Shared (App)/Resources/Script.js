@@ -2,9 +2,9 @@ function show(platform, enabled, useSettingsInsteadOfPreferences) {
     document.body.classList.add(`platform-${platform}`);
 
     if (useSettingsInsteadOfPreferences) {
-        document.getElementsByClassName('platform-mac state-on')[0].innerText = "MCP Eyes’s extension is currently on. You can turn it off in the Extensions section of Safari Settings.";
-        document.getElementsByClassName('platform-mac state-off')[0].innerText = "MCP Eyes’s extension is currently off. You can turn it on in the Extensions section of Safari Settings.";
-        document.getElementsByClassName('platform-mac state-unknown')[0].innerText = "You can turn on MCP Eyes’s extension in the Extensions section of Safari Settings.";
+        document.getElementsByClassName('platform-mac state-on')[0].innerText = "ScreenControl’s extension is currently on. You can turn it off in the Extensions section of Safari Settings.";
+        document.getElementsByClassName('platform-mac state-off')[0].innerText = "ScreenControl’s extension is currently off. You can turn it on in the Extensions section of Safari Settings.";
+        document.getElementsByClassName('platform-mac state-unknown')[0].innerText = "You can turn on ScreenControl’s extension in the Extensions section of Safari Settings.";
         document.getElementsByClassName('platform-mac open-preferences')[0].innerText = "Quit and Open Safari Settings…";
     }
 

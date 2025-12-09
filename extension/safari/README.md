@@ -1,6 +1,6 @@
-# MCP Eyes Safari Extension
+# ScreenControl Safari Extension
 
-This folder contains the Safari Web Extension source files for MCP Eyes.
+This folder contains the Safari Web Extension source files for ScreenControl.
 
 ## Building the Safari Extension
 
@@ -10,10 +10,10 @@ Safari Web Extensions must be packaged through Xcode. Follow these steps:
 
 ```bash
 # In Terminal, navigate to the extension/safari folder
-cd /path/to/mcp-eyes/extension/safari
+cd /path/to/screencontrol/extension/safari
 
 # Use Safari's extension converter (requires Xcode installed)
-xcrun safari-web-extension-converter . --project-location ../safari-xcode --app-name "MCP Eyes" --bundle-identifier com.mcpeyes.safari
+xcrun safari-web-extension-converter . --project-location ../safari-xcode --app-name "ScreenControl" --bundle-identifier com.screencontrol.safari
 ```
 
 ### 2. Open and Build in Xcode
@@ -26,13 +26,13 @@ xcrun safari-web-extension-converter . --project-location ../safari-xcode --app-
 ### 3. Enable in Safari
 
 1. Open Safari > Preferences > Extensions
-2. Enable "MCP Eyes" extension
+2. Enable "ScreenControl" extension
 3. Grant required permissions when prompted
 
 ## Files
 
 - `manifest.json` - Extension manifest (Safari Web Extension format)
-- `background.js` - Background script handling WebSocket connection to MCP Eyes
+- `background.js` - Background script handling WebSocket connection to ScreenControl
 - `content.js` - Content script injected into web pages
 - `injected.js` - Page-level script for DOM manipulation
 
@@ -46,4 +46,4 @@ xcrun safari-web-extension-converter . --project-location ../safari-xcode --app-
 
 - Safari requires extensions to be signed with a valid Apple Developer certificate
 - For development, you can enable "Allow Unsigned Extensions" in Safari's Develop menu
-- The extension connects to the MCP Eyes browser bridge on `ws://127.0.0.1:3457`
+- The extension connects to the ScreenControl browser bridge on `ws://127.0.0.1:3457`

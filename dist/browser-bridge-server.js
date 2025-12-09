@@ -233,6 +233,32 @@ class BrowserBridgeServer {
                 return;
             }
         }
+        // Execute command on browser
+        if (path === '/command' && req.method === 'POST') {
+            try {
+                const chunks = [];
+                for await (const chunk of req) {
+                    chunks.push(chunk);
+                }
+                const { action, payload, browser } = JSON.parse(Buffer.concat(chunks).toString());
+                if (!action) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Missing required field: action' }));
+                    return;
+                }
+                console.log(`[Browser Bridge] HTTP command: ${action} for browser: ${browser || 'default'}`);
+                const result = await this.sendToExtension(action, payload || {}, browser);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, result }));
+                return;
+            }
+            catch (err) {
+                console.error('[Browser Bridge] Command error:', err);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: err.message }));
+                return;
+            }
+        }
         // All browser endpoints require POST with JSON body
         if (!path.startsWith('/browser/')) {
             res.writeHead(404, { 'Content-Type': 'application/json' });

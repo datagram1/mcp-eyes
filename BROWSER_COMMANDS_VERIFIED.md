@@ -295,7 +295,7 @@ Testing answerQuestions                     ... ✅ PASS
 ### To Use Improved Error Messages
 Reload the Firefox extension:
 1. Go to `about:debugging`
-2. Click "Reload" next to MCP Eyes extension
+2. Click "Reload" next to ScreenControl extension
 
 ### Optional Enhancements
 - Add executeScript fallback for CSP pages

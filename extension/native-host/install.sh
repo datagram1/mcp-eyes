@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# MCP Eyes Native Messaging Host Installer
+# ScreenControl Native Messaging Host Installer
 #
 # This script installs the native messaging host for Chrome and/or Firefox on macOS.
 # It creates the necessary manifest files and symlinks.
@@ -119,7 +119,7 @@ install_chrome() {
     cat > "$manifest" << EOF
 {
   "name": "$HOST_NAME",
-  "description": "MCP Eyes Browser Bridge - Native messaging host for LLM-driven web automation",
+  "description": "ScreenControl Browser Bridge - Native messaging host for LLM-driven web automation",
   "path": "$HOST_SCRIPT",
   "type": "stdio",
   "allowed_origins": [
@@ -155,7 +155,7 @@ install_firefox() {
     cat > "$manifest" << EOF
 {
   "name": "$HOST_NAME",
-  "description": "MCP Eyes Browser Bridge - Native messaging host for LLM-driven web automation",
+  "description": "ScreenControl Browser Bridge - Native messaging host for LLM-driven web automation",
   "path": "$HOST_SCRIPT",
   "type": "stdio",
   "allowed_extensions": [
@@ -187,7 +187,7 @@ verify_node() {
 
 # Show usage
 usage() {
-    echo "MCP Eyes Native Messaging Host Installer"
+    echo "ScreenControl Native Messaging Host Installer"
     echo ""
     echo "Usage: $0 [browser] [chrome-extension-id]"
     echo ""

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MCP Eyes Browser Bridge",
+  "name": "ScreenControl Browser Bridge",
   "version": "1.0.0",
-  "description": "Browser bridge for MCP Eyes - enables LLM-driven web automation with natural mouse/keyboard control",
+  "description": "Browser bridge for ScreenControl - enables LLM-driven web automation with natural mouse/keyboard control",
 
   "permissions": [
     "activeTab",

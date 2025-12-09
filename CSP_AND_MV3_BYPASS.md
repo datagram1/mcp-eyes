@@ -1,12 +1,12 @@
 # CSP and Chrome MV3 Bypass Strategy
 
-**How MCP Eyes Extension Achieves Full Browser Automation**
+**How ScreenControl Extension Achieves Full Browser Automation**
 
 ---
 
 ## Executive Summary
 
-The MCP Eyes browser extension uses **Tampermonkey-style early injection** to bypass two major restrictions:
+The ScreenControl browser extension uses **Tampermonkey-style early injection** to bypass two major restrictions:
 
 1. **Content Security Policy (CSP)** - Used by YouTube, Gmail, Google Docs, etc.
 2. **Chrome Manifest V3 (MV3)** - Google's anti-automation restrictions
@@ -382,7 +382,7 @@ document.querySelector('button').click();  // Full access!
 - ✅ Development tools
 - ✅ Testing frameworks
 - ✅ Productivity enhancements
-- ✅ AI assistants (like MCP Eyes!)
+- ✅ AI assistants (like ScreenControl!)
 
 ### User Consent Required
 
@@ -415,7 +415,7 @@ CSP was **not** designed to block:
 
 | Tool | CSP Bypass | MV3 Compatible | Method |
 |------|-----------|----------------|--------|
-| **MCP Eyes** | ✅ Yes | ✅ Yes | Early injection |
+| **ScreenControl** | ✅ Yes | ✅ Yes | Early injection |
 | **Tampermonkey** | ✅ Yes | ✅ Yes | Early injection |
 | **Greasemonkey** | ✅ Yes | ✅ Yes | Early injection |
 | **Selenium** | ❌ No | N/A | External driver |
@@ -423,7 +423,7 @@ CSP was **not** designed to block:
 | **Playwright** | ✅ Yes | N/A | Browser automation API |
 | **Standard Extensions** | ❌ No | ❌ No | Normal content scripts |
 
-**MCP Eyes uses the same proven technique as Tampermonkey** - the most popular userscript manager with 10M+ users.
+**ScreenControl uses the same proven technique as Tampermonkey** - the most popular userscript manager with 10M+ users.
 
 ---
 

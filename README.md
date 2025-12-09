@@ -2062,7 +2062,7 @@ await mcpClient.callTool('browser_setDefaultBrowser', { browser: 'chrome' });
 - Extension may not be fully loaded or content scripts not injected
 - Refresh the target browser tab
 - Check that extension is installed and enabled in browser settings
-- Verify WebSocket connection in browser console (should show "MCP Eyes WebSocket connected")
+- Verify WebSocket connection in browser console (should show "ScreenControl WebSocket connected")
 
 ### Permission denied errors
 - Grant Accessibility permission to your MCP client

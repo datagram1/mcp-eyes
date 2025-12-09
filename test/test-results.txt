@@ -1,0 +1,108 @@
+========================================
+Browser Command Test Results
+Tue  9 Dec 2025 01:23:28 GMT
+========================================
+
+=== TAB MANAGEMENT ===
+❌ FAILED (exit 7)
+  getTabs: FAILED
+❌ FAILED (exit 7)
+  getActiveTab: FAILED
+❌ FAILED (exit 7)
+  createTab: FAILED
+❌ FAILED (exit 7)
+  focusTab: FAILED
+❌ FAILED (exit 7)
+  closeTab: FAILED
+
+=== NAVIGATION ===
+❌ FAILED (exit 7)
+  navigate: FAILED
+❌ FAILED (exit 7)
+  goBack: FAILED
+❌ FAILED (exit 7)
+  goForward: FAILED
+
+=== CONTENT EXTRACTION ===
+❌ FAILED (exit 7)
+  getPageInfo: FAILED
+❌ FAILED (exit 7)
+  getVisibleText: FAILED
+❌ FAILED (exit 7)
+  getVisibleHtml: FAILED
+❌ FAILED (exit 7)
+  screenshot: FAILED
+❌ FAILED (exit 7)
+  getUIElements: FAILED
+❌ FAILED (exit 7)
+  inspectCurrentPage: FAILED
+❌ FAILED (exit 7)
+  getInteractiveElements: FAILED
+❌ FAILED (exit 7)
+  getPageContext: FAILED
+
+=== INTERACTION ===
+❌ FAILED (exit 7)
+  clickElement: FAILED
+❌ FAILED (exit 7)
+  fillElement: FAILED
+❌ FAILED (exit 7)
+  selectOption: FAILED
+❌ FAILED (exit 7)
+  scrollTo: FAILED
+❌ FAILED (exit 7)
+  executeScript: FAILED
+❌ FAILED (exit 7)
+  hover: FAILED
+❌ FAILED (exit 7)
+  drag: FAILED
+❌ FAILED (exit 7)
+  pressKey: FAILED
+❌ FAILED (exit 7)
+  clickByText: FAILED
+
+=== FORM HANDLING ===
+❌ FAILED (exit 7)
+  getFormData: FAILED
+❌ FAILED (exit 7)
+  getFormStructure: FAILED
+❌ FAILED (exit 7)
+  fillFormField: FAILED
+❌ FAILED (exit 7)
+  answerQuestions: FAILED
+
+=== DEBUG/MONITORING ===
+❌ FAILED (exit 7)
+  getConsoleLogs: FAILED
+❌ FAILED (exit 7)
+  getNetworkRequests: FAILED
+❌ FAILED (exit 7)
+  getLocalStorage: FAILED
+❌ FAILED (exit 7)
+  getCookies: FAILED
+❌ FAILED (exit 7)
+  listInteractiveElements: FAILED
+❌ FAILED (exit 7)
+  clickElementWithDebug: FAILED
+❌ FAILED (exit 7)
+  findElementWithDebug: FAILED
+❌ FAILED (exit 7)
+  getDropdownOptions: FAILED
+
+=== UTILITY ===
+❌ FAILED (exit 7)
+  findTabByUrl: FAILED
+❌ FAILED (exit 7)
+  waitForSelector: FAILED
+❌ FAILED (exit 7)
+  waitForPageLoad: FAILED
+❌ FAILED (exit 7)
+  isElementVisible: FAILED
+❌ FAILED (exit 7)
+  getElementForNativeInput: FAILED
+❌ FAILED (exit 7)
+  setWatchMode: FAILED
+
+========================================
+Test complete! Results saved to test-results.txt
+========================================

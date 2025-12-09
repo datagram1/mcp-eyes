@@ -1,5 +1,5 @@
 /**
- * MCP Eyes - Content Script
+ * ScreenControl - Content Script
  *
  * Runs in an isolated context but can access the DOM.
  * Bridges between:
@@ -62,7 +62,7 @@
       pendingRequests.set(requestId, { resolve, reject, timeout });
 
       window.postMessage({
-        source: 'mcp-eyes-content',
+        source: 'screencontrol-content',
         action,
         payload,
         requestId
@@ -77,14 +77,14 @@
     if (event.source !== window || !event.data) return;
 
     // Handle ready signal
-    if (event.data.source === 'mcp-eyes-injected' && event.data.action === 'ready') {
+    if (event.data.source === 'screencontrol-injected' && event.data.action === 'ready') {
       injectedScriptReady = true;
-      console.log('[MCP Eyes] Injected script is ready');
+      console.log('[ScreenControl] Injected script is ready');
       return;
     }
 
     // Handle responses
-    if (event.data.source === 'mcp-eyes-injected' && event.data.requestId) {
+    if (event.data.source === 'screencontrol-injected' && event.data.requestId) {
       const pending = pendingRequests.get(event.data.requestId);
       if (pending) {
         clearTimeout(pending.timeout);
@@ -342,7 +342,7 @@
         });
       }
     } catch (error) {
-      console.error('[MCP Eyes] Error notifying DOM change:', error);
+      console.error('[ScreenControl] Error notifying DOM change:', error);
     }
   }
 
@@ -444,7 +444,7 @@
    */
   function setWatchMode(enabled) {
     watchModeEnabled = enabled;
-    console.log(`[MCP Eyes] Watch mode ${enabled ? 'enabled' : 'disabled'}`);
+    console.log(`[ScreenControl] Watch mode ${enabled ? 'enabled' : 'disabled'}`);
 
     if (enabled) {
       // Send initial state
@@ -469,7 +469,7 @@
       notifyPageLoaded();
     }
 
-    console.log('[MCP Eyes] Content script loaded');
+    console.log('[ScreenControl] Content script loaded');
   }
 
   /**
@@ -484,7 +484,7 @@
         title: document.title
       }
     }).catch(err => {
-      console.log('[MCP Eyes] Could not notify page load:', err.message);
+      console.log('[ScreenControl] Could not notify page load:', err.message);
     });
   }
 
