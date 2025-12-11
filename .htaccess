@@ -1,0 +1,4 @@
+# Deny access to .env files
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>
