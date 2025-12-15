@@ -2087,7 +2087,11 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
             @"analyzeWithOCR",
             @"checkPermissions",
             @"closeApp",
-            @"wait"
+            @"wait",
+            @"system_info",
+            @"window_list",
+            @"clipboard_read",
+            @"clipboard_write"
         ],
         @"browser": @[
             @"browser_listConnected",
@@ -2249,7 +2253,11 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
             @"analyzeWithOCR",
             @"checkPermissions",
             @"closeApp",
-            @"wait"
+            @"wait",
+            @"system_info",
+            @"window_list",
+            @"clipboard_read",
+            @"clipboard_write"
         ],
         @"browser": @[
             @"browser_listConnected",
@@ -3613,6 +3621,96 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
             NSNumber *milliseconds = arguments[@"milliseconds"] ?: @1000;
             [NSThread sleepForTimeInterval:milliseconds.doubleValue / 1000.0];
             return @{@"success": @YES, @"waited_ms": milliseconds};
+        }
+
+        // ============= SYSTEM INFO =============
+        else if ([toolName isEqualToString:@"system_info"]) {
+            NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+            NSOperatingSystemVersion osVersion = processInfo.operatingSystemVersion;
+
+            unsigned long long physicalMemory = processInfo.physicalMemory;
+            double memoryGB = physicalMemory / (1024.0 * 1024.0 * 1024.0);
+
+            NSUInteger cpuCount = processInfo.processorCount;
+            NSUInteger activeCPUs = processInfo.activeProcessorCount;
+
+            return @{
+                @"hostname": processInfo.hostName,
+                @"os": @"macOS",
+                @"osVersion": [NSString stringWithFormat:@"%ld.%ld.%ld",
+                              (long)osVersion.majorVersion,
+                              (long)osVersion.minorVersion,
+                              (long)osVersion.patchVersion],
+                @"osBuild": [[NSProcessInfo processInfo] operatingSystemVersionString],
+                @"cpuCores": @(cpuCount),
+                @"activeCpuCores": @(activeCPUs),
+                @"memoryGB": @(memoryGB),
+                @"memoryBytes": @(physicalMemory),
+                @"systemUptime": @(processInfo.systemUptime),
+                @"userName": NSUserName(),
+                @"homeDirectory": NSHomeDirectory()
+            };
+        }
+
+        // ============= WINDOW LIST =============
+        else if ([toolName isEqualToString:@"window_list"]) {
+            NSMutableArray *windows = [NSMutableArray array];
+
+            CFArrayRef windowList = CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+                kCGNullWindowID
+            );
+
+            if (windowList) {
+                NSArray *windowArray = (__bridge_transfer NSArray *)windowList;
+                for (NSDictionary *window in windowArray) {
+                    NSString *ownerName = window[(NSString *)kCGWindowOwnerName];
+                    NSString *windowName = window[(NSString *)kCGWindowName];
+                    NSNumber *windowID = window[(NSString *)kCGWindowNumber];
+                    NSNumber *layer = window[(NSString *)kCGWindowLayer];
+                    NSDictionary *bounds = window[(NSString *)kCGWindowBounds];
+
+                    if (!ownerName || [layer intValue] < 0) continue;
+
+                    NSMutableDictionary *windowInfo = [NSMutableDictionary dictionary];
+                    windowInfo[@"id"] = windowID;
+                    windowInfo[@"app"] = ownerName;
+                    if (windowName && windowName.length > 0) {
+                        windowInfo[@"title"] = windowName;
+                    }
+                    if (bounds) {
+                        windowInfo[@"bounds"] = bounds;
+                    }
+                    windowInfo[@"layer"] = layer;
+
+                    [windows addObject:windowInfo];
+                }
+            }
+
+            return @{@"windows": windows, @"count": @(windows.count)};
+        }
+
+        // ============= CLIPBOARD =============
+        else if ([toolName isEqualToString:@"clipboard_read"]) {
+            NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+            NSString *text = [pasteboard stringForType:NSPasteboardTypeString];
+            if (text) {
+                return @{@"text": text, @"success": @YES};
+            } else {
+                NSArray *types = [pasteboard types];
+                return @{@"text": [NSNull null], @"availableTypes": types, @"message": @"No text content in clipboard"};
+            }
+        }
+        else if ([toolName isEqualToString:@"clipboard_write"]) {
+            NSString *text = arguments[@"text"];
+            if (!text) {
+                return @{@"error": @"text is required"};
+            }
+
+            NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+            [pasteboard clearContents];
+            BOOL success = [pasteboard setString:text forType:NSPasteboardTypeString];
+            return @{@"success": @(success)};
         }
 
         // ============= FILESYSTEM TOOLS =============
