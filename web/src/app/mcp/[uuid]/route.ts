@@ -16,6 +16,7 @@ import { hashToken, isTokenExpired, validateTokenAudience } from '@/lib/oauth';
 import { RateLimiters, getClientIp, rateLimitExceeded } from '@/lib/rate-limit';
 import { v4 as uuidv4 } from 'uuid';
 import { agentRegistry } from '@/lib/control-server';
+import { sseManager } from '@/lib/mcp-sse-manager';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,9 @@ interface RouteParams {
 
 // MCP Server capabilities
 const MCP_CAPABILITIES = {
-  tools: {},
+  tools: {
+    listChanged: true
+  },
   resources: {},
   prompts: {},
 };
@@ -252,6 +255,9 @@ export async function POST(request: NextRequest, context: RouteParams): Promise<
     id: id ?? 'NOTIFICATION (no id)',
     method,
     params: params || {},
+    clientIp,
+    userAgent: request.headers.get('user-agent') || 'unknown',
+    connectionId: validation.connectionId,
   });
 
   // Check if this is a notification (no id field = no response expected)
@@ -268,9 +274,13 @@ export async function POST(request: NextRequest, context: RouteParams): Promise<
       method,
       responseKeys: Object.keys(response || {}),
       isNotification,
-      // Log full response for tools/list to debug
-      fullResponse: method === 'tools/list' ? JSON.stringify(response, null, 2) : undefined,
+      // For tools/list, log count and first/last 10 tool names
+      toolCount: method === 'tools/list' && response && 'tools' in response && response.tools ? (response.tools as any[]).length : undefined,
+      firstTools: method === 'tools/list' && response && 'tools' in response && response.tools ? (response.tools as any[]).slice(0, 10).map((t: any) => t.name) : undefined,
+      lastTools: method === 'tools/list' && response && 'tools' in response && response.tools ? (response.tools as any[]).slice(-10).map((t: any) => t.name) : undefined,
     });
+
+
 
     // Log request
     await logRequest(validation.connectionId, method, params, true, Date.now() - startTime, request);
@@ -1510,6 +1520,7 @@ function jsonRpcError(id: string | number | null, code: number, message: string)
 export async function GET(request: NextRequest, context: RouteParams): Promise<Response> {
   const { uuid } = await context.params;
   const clientIp = getClientIp(request);
+  const userAgent = request.headers.get('user-agent') || 'unknown';
 
   // Rate limit unauthenticated requests by IP
   const unauthRateLimit = RateLimiters.mcpUnauthenticated(clientIp);
@@ -1547,12 +1558,41 @@ export async function GET(request: NextRequest, context: RouteParams): Promise<R
     return rateLimitExceeded(connRateLimit);
   }
 
+  logMcp('SSE CONNECT', {
+    endpointUuid: uuid,
+    connectionId: validation.connectionId,
+    userId: validation.userId,
+    clientIp,
+    userAgent,
+  });
+
   // Create SSE stream
   const sessionId = uuidv4();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     start(controller) {
+      const connectedAt = new Date();
+      const connectionInfo = {
+        sessionId,
+        controller,
+        encoder,
+        connectionId: validation.connectionId,
+        endpointUuid: uuid,
+        connectedAt,
+      };
+
+      sseManager.addConnection(sessionId, connectionInfo);
+      logMcp('SSE CONNECTED', {
+        sessionId,
+        endpointUuid: uuid,
+        connectionId: validation.connectionId,
+        connectedAt: connectedAt.toISOString(),
+        totalConnections: sseManager.getConnectionCount(),
+        endpointConnections: sseManager.getConnectionCount(uuid),
+        userAgent,
+      });
+
       // Send initial connection event
       const event = 'data: ' + JSON.stringify({
         jsonrpc: '2.0',
@@ -1560,6 +1600,18 @@ export async function GET(request: NextRequest, context: RouteParams): Promise<R
         params: {},
       }) + '\n\n';
       controller.enqueue(encoder.encode(event));
+      // Immediately signal that tools may have changed so clients refresh their cache
+      const toolsChangedEvent = 'data: ' + JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/tools/list_changed',
+      }) + '\n\n';
+      controller.enqueue(encoder.encode(toolsChangedEvent));
+      logMcp('SSE PUSH LIST_CHANGED', {
+        sessionId,
+        endpointUuid: uuid,
+        connectionId: validation.connectionId,
+        reason: 'initial_connect_force_refresh',
+      });
 
       // Keep connection alive
       const pingInterval = setInterval(() => {
@@ -1571,9 +1623,30 @@ export async function GET(request: NextRequest, context: RouteParams): Promise<R
         }
       }, 30000);
 
+      let cleanedUp = false;
+      let abortHandler: () => void;
+      const cleanup = (reason: string) => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        clearInterval(pingInterval);
+        request.signal.removeEventListener('abort', abortHandler);
+        sseManager.removeConnection(sessionId);
+        logMcp('SSE DISCONNECTED', {
+          sessionId,
+          endpointUuid: uuid,
+          connectionId: validation.connectionId,
+          reason,
+          remainingConnections: sseManager.getConnectionCount(),
+          remainingEndpointConnections: sseManager.getConnectionCount(uuid),
+        });
+      };
+
+      abortHandler = () => cleanup('client_aborted');
+      request.signal.addEventListener('abort', abortHandler);
+
       // Cleanup on close
       (request as any)._cleanup = () => {
-        clearInterval(pingInterval);
+        cleanup('stream_cancelled');
       };
     },
     cancel() {

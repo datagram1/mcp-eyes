@@ -20,6 +20,8 @@ import {
   MCPPrompt,
 } from './types';
 import { NetworkUtils } from './network';
+import { broadcastMCPNotification } from '../mcp-sse-manager';
+import { prisma } from '../prisma';
 import {
   findOrCreateAgent,
   markAgentOnline,
@@ -243,6 +245,19 @@ class LocalAgentRegistry implements IAgentRegistry {
     if (existingConnectionId) {
       const existingAgent = this.agents.get(existingConnectionId);
       if (existingAgent) {
+        // Check if the existing connection is recent (< 3 seconds)
+        // If so, reject the new duplicate connection and keep the existing one
+        const connectionAge = Date.now() - (existingAgent.lastPing || existingAgent.connectedAt || 0);
+        if (connectionAge < 3000) {
+          console.log(`[Registry] Rejecting duplicate connection for machine ${msg.machineId} (existing connection is ${connectionAge}ms old)`);
+          socket.send(JSON.stringify({
+            type: 'error',
+            error: 'Duplicate connection rejected - existing connection is still active'
+          }));
+          socket.close(4002, 'Duplicate connection rejected');
+          return null;
+        }
+        
         console.log(`[Registry] Existing connection for machine ${msg.machineId}, closing old connection`);
         existingAgent.socket.close(1000, 'New connection from same machine');
         await this.unregister(existingConnectionId);
@@ -434,11 +449,47 @@ class LocalAgentRegistry implements IAgentRegistry {
       // Fetch tools
       const toolsResult = await this.sendCommand(agentId, 'tools/list', {});
       if (toolsResult && typeof toolsResult === 'object' && 'tools' in toolsResult) {
-        agent.tools = (toolsResult as { tools: MCPTool[] }).tools || [];
+        const newTools = (toolsResult as { tools: MCPTool[] }).tools || [];
+        const hadPreviousTools = Array.isArray(agent.tools) && agent.tools.length > 0;
+        const previousTools = agent.tools || [];
+
+        const previousNames = new Set(previousTools.map(t => t.name));
+        const newNames = new Set(newTools.map(t => t.name));
+
+        const added = newTools.filter(t => !previousNames.has(t.name)).map(t => t.name);
+        const removed = previousTools.filter(t => !newNames.has(t.name)).map(t => t.name);
+
+        const hasChanged = added.length > 0 || removed.length > 0 || !hadPreviousTools;
+
+        agent.tools = newTools;
         agent.toolsFetchedAt = new Date();
+
         console.log(
-          `[Registry] Cached ${agent.tools.length} tools for ${agent.machineName || agent.machineId}`
+          `[Registry] Cached ${agent.tools.length} tools for ${agent.machineName || agent.machineId} ` +
+          `(added: ${added.length}, removed: ${removed.length})`
         );
+
+        if (hasChanged) {
+          console.log('[Registry] Tool set changed, broadcasting tools/list_changed to MCP clients', {
+            added: added.slice(0, 10),
+            removed: removed.slice(0, 10),
+          });
+
+          // Broadcast MCP notification to all connected clients
+          try {
+            const mcpConnections = await prisma.mcpConnection.findMany({
+              where: { status: 'ACTIVE' },
+            });
+            console.log(`[Registry] Found ${mcpConnections.length} active MCP connections`);
+            for (const conn of mcpConnections) {
+              broadcastMCPNotification(conn.endpointUuid, 'notifications/tools/list_changed');
+            }
+          } catch (error) {
+            console.error('[Registry] Failed to broadcast tool changes:', error);
+          }
+        } else {
+          console.log('[Registry] Tool set unchanged; skipping broadcast');
+        }
       }
 
       // Fetch resources (optional, agent may not support)
@@ -670,6 +721,7 @@ class LocalAgentRegistry implements IAgentRegistry {
   ): Promise<unknown> {
     const agent = this.getAgent(agentId);
     if (!agent) {
+      console.error('[Registry] sendCommand failed: agent not found', { agentId, method });
       throw new Error(`Agent not found: ${agentId}`);
     }
 
@@ -696,6 +748,13 @@ class LocalAgentRegistry implements IAgentRegistry {
     }
 
     if (agent.socket.readyState !== WebSocket.OPEN) {
+      console.error('[Registry] sendCommand failed: socket not open', {
+        agentId,
+        agentName: agent.machineName || agent.machineId,
+        readyState: agent.socket.readyState,
+        readyStateLabel: this.describeSocketState(agent.socket.readyState),
+        lastPing: agent.lastPing?.toISOString(),
+      });
       throw new Error(`Agent not connected: ${agentId}`);
     }
 
@@ -724,6 +783,16 @@ class LocalAgentRegistry implements IAgentRegistry {
       }
     }
 
+    console.log('[Registry] Sending command to agent', {
+      agentId,
+      agentName: agent.machineName || agent.machineId,
+      method,
+      requestId,
+      readyState: this.describeSocketState(agent.socket.readyState),
+    });
+
+    const startedAt = Date.now();
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(async () => {
         agent.pendingRequests.delete(requestId);
@@ -736,6 +805,14 @@ class LocalAgentRegistry implements IAgentRegistry {
             console.error('[Registry] Failed to update command log:', err);
           }
         }
+
+        console.error('[Registry] Command timeout', {
+          agentId,
+          agentName: agent.machineName || agent.machineId,
+          method,
+          requestId,
+          durationMs: Date.now() - startedAt,
+        });
 
         reject(new Error('Request timeout'));
       }, 30000);
@@ -753,6 +830,13 @@ class LocalAgentRegistry implements IAgentRegistry {
               console.error('[Registry] Failed to update command log:', err);
             }
           }
+          console.log('[Registry] Command success', {
+            agentId,
+            agentName: agent.machineName || agent.machineId,
+            method,
+            requestId,
+            durationMs: Date.now() - startedAt,
+          });
           resolve(result);
         },
         reject: async (error: Error) => {
@@ -767,13 +851,35 @@ class LocalAgentRegistry implements IAgentRegistry {
               console.error('[Registry] Failed to update command log:', err);
             }
           }
+          console.error('[Registry] Command failed', {
+            agentId,
+            agentName: agent.machineName || agent.machineId,
+            method,
+            requestId,
+            durationMs: Date.now() - startedAt,
+            error: error.message,
+          });
           reject(error);
         },
         timeout,
         startedAt: new Date(),
       });
 
-      agent.socket.send(JSON.stringify(message));
+      try {
+        agent.socket.send(JSON.stringify(message));
+      } catch (err: any) {
+        clearTimeout(timeout);
+        agent.pendingRequests.delete(requestId);
+        const sendErr = err instanceof Error ? err.message : String(err);
+        console.error('[Registry] Failed to send command to agent', {
+          agentId,
+          agentName: agent.machineName || agent.machineId,
+          method,
+          requestId,
+          error: sendErr,
+        });
+        reject(new Error(`Send failed: ${sendErr}`));
+      }
     });
   }
 
@@ -876,6 +982,12 @@ class LocalAgentRegistry implements IAgentRegistry {
     agent.pendingRequests.delete(msg.id);
 
     if (msg.type === 'error') {
+      console.warn('[Registry] Agent returned error', {
+        agentId: agent.id,
+        agentName: agent.machineName || agent.machineId,
+        requestId: msg.id,
+        error: msg.error,
+      });
       pending.reject(new Error(msg.error || 'Unknown error'));
     } else {
       pending.resolve(msg.result);
@@ -887,6 +999,21 @@ class LocalAgentRegistry implements IAgentRegistry {
    */
   updatePing(agent: ConnectedAgent): void {
     agent.lastPing = new Date();
+  }
+
+  private describeSocketState(state: number): string {
+    switch (state) {
+      case WebSocket.CONNECTING:
+        return 'CONNECTING';
+      case WebSocket.OPEN:
+        return 'OPEN';
+      case WebSocket.CLOSING:
+        return 'CLOSING';
+      case WebSocket.CLOSED:
+        return 'CLOSED';
+      default:
+        return `UNKNOWN(${state})`;
+    }
   }
 
   /**

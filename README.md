@@ -6,30 +6,59 @@
 
 ScreenControl enables AI assistants (Claude, etc.) to control your Mac through:
 - **Desktop automation**: Screenshots, mouse, keyboard, window management
+- **System tools**: System info, window list, clipboard access
 - **Browser automation**: Read/interact with any tab by URL without switching (Playwright-like)
 - **Filesystem & shell**: Full file system access and command execution
 
+Supports both **local** (Claude Code/Desktop via stdio) and **remote** (Claude Web via control server) access.
+
 ## Architecture
+
+### Local Mode (Claude Code / Claude Desktop)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Claude Code / Claude Desktop                   │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │ stdio (MCP protocol)
-                                ▼
+│                    Claude Code / Claude Desktop                 │
+└───────────────────────────────────┬─────────────────────────────┘
+                                    │ stdio (MCP protocol)
+                                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    ScreenControl.app --mcp-stdio                 │
-│                                                                   │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │ Desktop Tools   │  │ Browser Tools   │  │ Filesystem/Shell│  │
-│  │ (Accessibility) │  │ (WebSocket:3457)│  │                 │  │
-│  └─────────────────┘  └────────┬────────┘  └─────────────────┘  │
-└────────────────────────────────┼────────────────────────────────┘
+│                    ScreenControl.app --mcp-stdio                │
+│                                                                 │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │ Desktop Tools   │  │ Browser Tools   │  │ Filesystem/Shell│ │
+│  │ (Accessibility) │  │ (WebSocket:3457)│  │                 │ │
+│  └─────────────────┘  └────────┬────────┘  └─────────────────┘ │
+└────────────────────────────────┼───────────────────────────────┘
                                  │ WebSocket
                                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Browser Extension                              │
-│                    (Firefox / Chrome / Safari)                    │
+│                    Browser Extension                            │
+│                    (Firefox / Chrome / Safari)                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Remote Mode (Claude Web via Control Server)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Claude Web                              │
+└───────────────────────────────────┬─────────────────────────────┘
+                                    │ MCP over SSE/HTTP
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Control Server (web/)                        │
+│                    - Next.js application                        │
+│                    - Agent registry & tool routing              │
+│                    - OAuth authentication                       │
+└───────────────────────────────────┬─────────────────────────────┘
+                                    │ WebSocket
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    ScreenControl.app (GUI mode)                 │
+│                    - Connects to control server                 │
+│                    - Advertises 91 tools dynamically            │
+│                    - Executes tool calls locally                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,6 +114,89 @@ Add to `~/.config/claude-code/config.json`:
 
 After updating the config, restart Claude Code to load the MCP server.
 
+## Available Tools (91 total)
+
+### Desktop Automation
+
+| Tool | Description |
+|------|-------------|
+| `screenshot` / `desktop_screenshot` | Take screenshots (`return_base64: true` for image data) |
+| `screenshot_app` | Screenshot specific app (`return_base64: true` for image data) |
+| `click` / `click_absolute` | Click at coordinates |
+| `doubleClick` | Double-click at coordinates |
+| `moveMouse` | Move mouse cursor |
+| `drag` | Drag from one position to another |
+| `scroll` / `scrollMouse` | Scroll the mouse wheel |
+| `typeText` | Type text |
+| `pressKey` | Press keyboard keys |
+| `getClickableElements` | Get clickable UI elements |
+| `getUIElements` | Get all UI elements |
+| `getMousePosition` | Get current mouse position |
+| `analyzeWithOCR` | Analyze screen with OCR |
+
+### Application Management
+
+| Tool | Description |
+|------|-------------|
+| `listApplications` | List running applications |
+| `focusApplication` | Focus an application window |
+| `launchApplication` | Launch an application |
+| `closeApp` | Close an application |
+| `checkPermissions` | Check accessibility permissions |
+
+### System Tools
+
+| Tool | Description |
+|------|-------------|
+| `system_info` | Get system information (OS, CPU, memory, hostname, uptime) |
+| `window_list` | List all open windows with app, title, and bounds |
+| `clipboard_read` | Read text from system clipboard |
+| `clipboard_write` | Write text to system clipboard |
+| `wait` | Wait for specified milliseconds |
+
+### Browser Automation
+
+| Tool | Description |
+|------|-------------|
+| `browser_getVisibleText` | Get text from any tab by URL |
+| `browser_searchVisibleText` | Search text in any tab |
+| `browser_clickElement` | Click elements by selector or index |
+| `browser_fillElement` | Fill form fields |
+| `browser_navigate` | Navigate to URL |
+| `browser_screenshot` | Screenshot page (`return_base64: true` for image data) |
+| `browser_getTabs` | List open tabs |
+| `browser_getActiveTab` | Get active tab info |
+| `browser_focusTab` | Focus a specific tab |
+| `browser_createTab` | Create new tab |
+| `browser_closeTab` | Close a tab |
+| `browser_getInteractiveElements` | Get elements (`verbose: true` for full list) |
+| `browser_executeScript` | Run JavaScript |
+| `browser_go_back` / `browser_go_forward` | Browser history navigation |
+
+### Filesystem Tools
+
+| Tool | Description |
+|------|-------------|
+| `fs_list` | List directory contents |
+| `fs_read` | Read file contents |
+| `fs_read_range` | Read specific line range |
+| `fs_write` | Write files |
+| `fs_delete` | Delete files/directories |
+| `fs_move` | Move/rename files |
+| `fs_search` | Search files by pattern |
+| `fs_grep` | Search file contents |
+| `fs_patch` | Apply patches to files |
+
+### Shell Tools
+
+| Tool | Description |
+|------|-------------|
+| `shell_exec` | Execute shell commands |
+| `shell_start_session` | Start interactive shell session |
+| `shell_send_input` | Send input to shell session |
+| `shell_read_output` | Read shell session output |
+| `shell_end_session` | End shell session |
+
 ## Key Features
 
 ### URL-Based Tab Targeting (Playwright-like)
@@ -114,47 +226,11 @@ This extracts content from the matching tab without disturbing your active tab.
 - `browser_clickElement` - Click elements in any tab
 - `browser_fillElement` - Fill forms in any tab
 
-### Desktop Automation
-
-| Tool | Description |
-|------|-------------|
-| `screenshot` / `desktop_screenshot` | Take screenshots (`return_base64: true` for image data) |
-| `screenshot_app` | Screenshot specific app (`return_base64: true` for image data) |
-| `click` / `click_absolute` | Click at coordinates |
-| `moveMouse` | Move mouse |
-| `typeText` | Type text |
-| `pressKey` | Press keys |
-| `focusApplication` | Focus windows |
-| `launchApplication` | Launch applications |
-
-### Browser Automation
-
-| Tool | Description |
-|------|-------------|
-| `browser_getVisibleText` | Get text from any tab by URL |
-| `browser_clickElement` | Click elements |
-| `browser_fillElement` | Fill form fields |
-| `browser_navigate` | Navigate to URL |
-| `browser_screenshot` | Screenshot page (`return_base64: true` for image data) |
-| `browser_getTabs` | List open tabs |
-| `browser_getInteractiveElements` | Get elements (`verbose: true` for full list) |
-| `browser_executeScript` | Run JavaScript |
-
-### Filesystem & Shell
-
-| Tool | Description |
-|------|-------------|
-| `fs_list` | List directory contents |
-| `fs_read` | Read file contents |
-| `fs_write` | Write files |
-| `fs_search` | Search files by pattern |
-| `shell_exec` | Execute commands |
-
-## Token-Safe Responses
+### Token-Safe Responses
 
 Large MCP tool responses (screenshots, element lists) can consume significant context tokens. ScreenControl implements token-safe defaults with optional full data retrieval.
 
-### Screenshots
+#### Screenshots
 
 By default, screenshots are saved to `/tmp` as JPEG files and return a file path (~100 tokens). Claude Code can use the `Read` tool to view the image when needed.
 
@@ -178,17 +254,6 @@ By default, screenshots are saved to `/tmp` as JPEG files and return a file path
 }
 ```
 
-**Example - PNG format:**
-```json
-// Tool call with format: "png"
-{
-  "file_path": "/tmp/screenshot_browser_1734567890.png",
-  "format": "png",
-  "size_bytes": 245678,
-  "message": "Screenshot saved to file. Use the Read tool to view the image."
-}
-```
-
 **Example - Full image data for Claude Desktop/Web:**
 ```json
 // Tool call with return_base64: true
@@ -200,7 +265,7 @@ By default, screenshots are saved to `/tmp` as JPEG files and return a file path
 }
 ```
 
-### Interactive Elements
+#### Interactive Elements
 
 By default, element lists return a summary with counts and key elements (~1k tokens). Use `verbose: true` for full details when needed.
 
@@ -209,35 +274,9 @@ By default, element lists return a summary with counts and key elements (~1k tok
 | Default | Summary with counts + key elements | ~1k tokens |
 | `verbose: true` | Full element list | ~10k+ tokens |
 
-**Example - Summary (default):**
-```json
-{
-  "total_count": 156,
-  "counts_by_role": {"button": 12, "link": 45, "textbox": 8},
-  "key_elements": [
-    {"index": 0, "role": "button", "name": "Submit"},
-    {"index": 3, "role": "textbox", "name": "Search"}
-  ],
-  "key_elements_count": 50,
-  "message": "Summarized view. Use verbose:true to get all elements with full details."
-}
-```
-
-### MCP ImageContent Format
-
-When `return_base64: true` is used, screenshots are returned in the [MCP ImageContent format](https://modelcontextprotocol.io/specification/draft/server/tools) for compatibility with Claude Desktop and Claude Web:
-
-```json
-{
-  "type": "image",
-  "data": "<base64-encoded-data>",
-  "mimeType": "image/png"
-}
-```
-
 ## Running Modes
 
-### 1. MCP stdio Mode (for AI clients)
+### 1. MCP stdio Mode (for Claude Code/Desktop)
 
 ```bash
 /path/to/ScreenControl.app/Contents/MacOS/ScreenControl --mcp-stdio
@@ -245,20 +284,61 @@ When `return_base64: true` is used, screenshots are returned in the [MCP ImageCo
 
 This is what Claude Code launches. The app runs headless and communicates via stdin/stdout.
 
-### 2. GUI Mode (for manual use)
+### 2. GUI Mode (for manual use and remote access)
 
 ```bash
 open /path/to/ScreenControl.app
 ```
 
-Runs as a menu bar app with status display and settings.
+Runs as a menu bar app with status display and settings. In GUI mode, the app can also connect to a remote control server for Claude Web access.
+
+## Control Server (web/)
+
+The `web/` directory contains the Next.js control server that enables Claude Web to access ScreenControl agents remotely.
+
+### Features
+
+- **Agent Registry**: Manages connected ScreenControl agents
+- **Dynamic Tool Discovery**: Agents advertise their tools; server caches and routes calls
+- **MCP over SSE/HTTP**: Exposes tools to Claude Web via Server-Sent Events
+- **OAuth Authentication**: Secure access control
+- **Multi-Agent Support**: Route commands to specific agents by ID
+
+### Server Architecture
+
+```
+web/
+├── src/
+│   ├── app/
+│   │   ├── api/              # REST API endpoints
+│   │   └── mcp/[uuid]/       # MCP endpoint per agent
+│   └── lib/
+│       ├── control-server/   # Agent registry, WebSocket handler
+│       └── oauth/            # Authentication
+├── prisma/                   # Database schema
+└── package.json
+```
+
+### Deploying the Control Server
+
+```bash
+cd web
+npm install
+npm run build
+npm start
+```
+
+The server listens for:
+- Agent WebSocket connections (agents connect from ScreenControl.app GUI)
+- MCP SSE connections (Claude Web connects via MCP protocol)
 
 ## Ports
 
 | Port | Purpose |
 |------|---------|
-| 3456 | HTTP API (localhost only) |
+| 3456 | HTTP API (localhost only, local mode) |
 | 3457 | WebSocket for browser extension |
+| 3000 | Control server (remote mode) |
 
 ## macOS Permissions
 
@@ -284,11 +364,10 @@ Grant these permissions to ScreenControl.app (or Claude Code if running via stdi
 - Check the app builds successfully
 - Restart Claude Code after config changes
 
-## Legacy Node.js Proxy (Deprecated)
-
-Previous versions used a Node.js proxy (`screencontrol-mcp.js`). This is now **obsolete** - the native app handles MCP stdio directly.
-
-Old files are preserved in the `old/` directory for reference.
+### Remote tools showing "Unknown tool"
+- Ensure the agent advertises all expected tools (check server logs for tool count)
+- Delete `~/Library/Application Support/ScreenControl/tools.json` to reset tool config
+- Restart ScreenControl.app to re-advertise tools
 
 ## Development
 
@@ -305,16 +384,32 @@ xcodebuild -project ScreenControl.xcodeproj -scheme ScreenControl -configuration
 screen_control/
 ├── macos/                  # Native macOS app (Objective-C)
 │   └── ScreenControl/
-│       ├── AppDelegate.m   # Main app logic, tool definitions
-│       ├── StdioMCPBridge.m # MCP stdio transport
+│       ├── AppDelegate.m   # Main app logic, GUI mode tools
+│       ├── StdioMCPBridge.m # MCP stdio transport, local mode tools
+│       ├── MCPServer.m     # Core tool implementations
 │       └── BrowserWebSocketServer.m
 ├── extension/              # Browser extensions
 │   ├── firefox/
 │   ├── chrome/
 │   ├── safari/
 │   └── shared/
+├── web/                    # Control server (Next.js)
+│   ├── src/
+│   │   ├── app/mcp/        # MCP endpoints
+│   │   └── lib/control-server/
+│   └── prisma/
 └── old/                    # Deprecated Node.js code
 ```
+
+## Recent Changes
+
+### v1.x (December 2024)
+
+- **Added system tools**: `system_info`, `window_list`, `clipboard_read`, `clipboard_write`
+- **Remote access**: Claude Web can now access all 91 tools via control server
+- **Token-safe screenshots**: Default to file paths, optional base64 for Claude Web
+- **Dynamic tool advertisement**: Agents advertise tools to server, eliminating version mismatches
+- **URL-based tab targeting**: Playwright-like browser automation without tab switching
 
 ## License
 
