@@ -16,10 +16,10 @@ Supports both **local** (Claude Code/Desktop via stdio) and **remote** (Claude W
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| macOS | Fully supported | Native Objective-C app |
+| macOS | Fully supported | Native Objective-C app, unsandboxed for full filesystem access |
 | Linux (x86_64) | Fully supported | Native C++ agent, X11/Wayland |
 | Linux (ARM64) | Fully supported | Tested on Ubuntu 24.04 ARM |
-| Windows | Coming soon | In development |
+| Windows | Beta | Tray app with WebSocket control server |
 
 ## Architecture
 
@@ -162,6 +162,43 @@ sudo systemctl enable screencontrol-agent
 ```
 
 See [Linux Agent Documentation](docs/linux_agent_docs.md) for full details.
+
+## Windows Quick Start (Beta)
+
+### Build Requirements
+
+- Visual Studio 2022 with C++ workload
+- .NET 8.0 SDK
+
+### Build
+
+```bash
+# Build the service (C++)
+cd windows/ScreenControlService
+mkdir build && cd build
+cmake .. -G "Visual Studio 17 2022"
+cmake --build . --config Release
+
+# Build the tray app (.NET)
+cd windows/ScreenControlTray
+dotnet build -c Release
+```
+
+### Configure
+
+Create `windows/ScreenControlService/debug-config.json`:
+```json
+{
+  "server_url": "wss://your-control-server.com/api/agents/ws",
+  "agent_key": "your-agent-key",
+  "machine_name": "My Windows PC"
+}
+```
+
+### Run
+
+1. Start `ScreenControlService.exe` (runs headless)
+2. Or start `ScreenControlTray.exe` for a system tray app with GUI
 
 ## Available Tools (91 total)
 
@@ -436,6 +473,7 @@ screen_control/
 │       ├── AppDelegate.m   # Main app logic, GUI mode tools
 │       ├── StdioMCPBridge.m # MCP stdio transport, local mode tools
 │       ├── MCPServer.m     # Core tool implementations
+│       ├── FilesystemTools.m # fs_* tool implementations
 │       └── BrowserWebSocketServer.m
 ├── linux/                  # Native Linux agent (C++)
 │   ├── screencontrol/
@@ -444,6 +482,14 @@ screen_control/
 │   │   └── tools/          # Tool implementations
 │   ├── install.sh          # One-line installer script
 │   └── README.md
+├── windows/                # Windows agent (C++ service + .NET tray)
+│   ├── ScreenControlService/ # Headless C++ service
+│   │   ├── main.cpp
+│   │   └── server/         # HTTP/WebSocket handlers
+│   └── ScreenControlTray/  # .NET system tray app
+│       ├── TrayApplicationContext.cs
+│       ├── SettingsForm.cs
+│       └── GUIBridgeServer.cs # WebSocket GUI control
 ├── extension/              # Browser extensions
 │   ├── firefox/
 │   ├── chrome/
@@ -452,7 +498,9 @@ screen_control/
 ├── web/                    # Control server (Next.js)
 │   ├── src/
 │   │   ├── app/mcp/        # MCP endpoints
-│   │   └── lib/control-server/
+│   │   └── lib/
+│   │       ├── control-server/ # Agent registry, WebSocket
+│   │       └── mcp-sse-manager.ts # SSE notifications
 │   └── prisma/
 ├── docs/                   # Documentation
 │   └── linux_agent_docs.md # Linux agent full documentation
@@ -460,6 +508,15 @@ screen_control/
 ```
 
 ## Recent Changes
+
+### v1.2 (December 2024)
+
+- **macOS sandbox disabled**: Filesystem tools (`fs_write`, `fs_read`, etc.) now work without restrictions
+- **Windows beta release**: Tray app with WebSocket control server and GUI bridge
+- **Agent name display preference**: Dashboard shows friendly name, machine name, or both
+- **Dynamic tool refresh**: MCP clients receive real-time notifications when tool lists change
+- **Improved logging**: Better diagnostics for agent connections and tool routing
+- **MCP SDK v1.24.0**: Updated to latest Model Context Protocol SDK
 
 ### v1.1 (December 2024)
 
