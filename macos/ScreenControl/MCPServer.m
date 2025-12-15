@@ -32,6 +32,8 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 // Tool instances (readwrite internally)
 @property (nonatomic, strong, readwrite) FilesystemTools *filesystemTools;
 @property (nonatomic, strong, readwrite) ShellTools *shellTools;
+// Screenshot storage for serving to remote clients
+@property (nonatomic, strong) NSMutableDictionary *screenshotStorage;
 @end
 
 @implementation MCPServer
@@ -60,6 +62,8 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         // Initialize tool instances
         _filesystemTools = [[FilesystemTools alloc] init];
         _shellTools = [[ShellTools alloc] init];
+        // Initialize screenshot storage for serving to remote clients
+        _screenshotStorage = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -241,6 +245,19 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         return;
     }
 
+    // Screenshot serving endpoint doesn't require auth (UUID provides security)
+    if ([path hasPrefix:@"/screenshots/"] && [method isEqualToString:@"GET"]) {
+        NSString *screenshotId = [path substringFromIndex:[@"/screenshots/" length]];
+        NSData *imageData = [self getStoredScreenshot:screenshotId];
+        if (imageData) {
+            [self sendImageResponse:clientSocket data:imageData format:@"png"];
+        } else {
+            [self sendErrorResponse:clientSocket status:404 message:@"Screenshot not found or expired"];
+        }
+        close(clientSocket);
+        return;
+    }
+
     // Verify API key
     NSString *authHeader = headers[@"authorization"];
     NSString *providedKey = nil;
@@ -321,19 +338,24 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
             return result;
         }
         else if ([path isEqualToString:@"/screenshot"]) {
-            // Full-screen screenshot
+            // Full-screen screenshot (token-safe: returns URL by default)
             NSData *imageData = [self takeScreenshot];
             if (!imageData) {
                 return @{@"error": @"Failed to take screenshot"};
             }
-            NSString *base64 = [imageData base64EncodedStringWithOptions:0];
-            return @{@"image": base64, @"format": @"png"};
+            // Check if client wants base64 (high token count) or URL (default, token-safe)
+            BOOL returnBase64 = [params[@"return_base64"] boolValue];
+            if (returnBase64) {
+                NSString *base64 = [imageData base64EncodedStringWithOptions:0];
+                return @{@"image": base64, @"format": @"png"};
+            }
+            return [self storeScreenshotAndReturnURL:imageData];
         }
         else if ([path isEqualToString:@"/screenshot_app"]) {
-            // Screenshot of focused or named app
+            // Screenshot of focused or named app (token-safe: returns URL by default)
             NSString *appIdentifier = params[@"identifier"];
             CGWindowID windowID = kCGNullWindowID;
-            
+
             if (appIdentifier) {
                 // Use the specified app
                 windowID = [self getWindowIDForApp:appIdentifier];
@@ -341,17 +363,22 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
                 // Use the currently focused app
                 windowID = [self getWindowIDForCurrentApp];
             }
-            
+
             NSData *imageData = nil;
             if (windowID != kCGNullWindowID) {
                 imageData = [self takeScreenshotOfWindow:windowID];
             }
-            
+
             if (!imageData) {
                 return @{@"error": @"Failed to take screenshot. No app focused or app not found."};
             }
-            NSString *base64 = [imageData base64EncodedStringWithOptions:0];
-            return @{@"image": base64, @"format": @"png"};
+            // Check if client wants base64 (high token count) or URL (default, token-safe)
+            BOOL returnBase64 = [params[@"return_base64"] boolValue];
+            if (returnBase64) {
+                NSString *base64 = [imageData base64EncodedStringWithOptions:0];
+                return @{@"image": base64, @"format": @"png"};
+            }
+            return [self storeScreenshotAndReturnURL:imageData];
         }
         else if ([path isEqualToString:@"/click"]) {
             NSNumber *x = params[@"x"];
@@ -678,6 +705,80 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         @"\r\n";
 
     send(socket, response.UTF8String, strlen(response.UTF8String), 0);
+}
+
+- (void)sendImageResponse:(int)socket data:(NSData *)imageData format:(NSString *)format {
+    NSString *contentType = [format isEqualToString:@"jpeg"] ? @"image/jpeg" : @"image/png";
+
+    NSString *headers = [NSString stringWithFormat:
+        @"HTTP/1.1 200 OK\r\n"
+        @"Content-Type: %@\r\n"
+        @"Content-Length: %lu\r\n"
+        @"Access-Control-Allow-Origin: *\r\n"
+        @"Cache-Control: no-cache\r\n"
+        @"Connection: close\r\n"
+        @"\r\n",
+        contentType, (unsigned long)imageData.length];
+
+    send(socket, headers.UTF8String, strlen(headers.UTF8String), 0);
+    send(socket, imageData.bytes, imageData.length, 0);
+}
+
+#pragma mark - Screenshot Storage (Token-Safe)
+
+- (NSDictionary *)storeScreenshotAndReturnURL:(NSData *)imageData {
+    // Generate unique ID for the screenshot
+    NSString *screenshotId = [[NSUUID UUID] UUIDString];
+
+    // Store in memory with timestamp for cleanup
+    @synchronized(self.screenshotStorage) {
+        self.screenshotStorage[screenshotId] = @{
+            @"data": imageData,
+            @"timestamp": [NSDate date],
+            @"format": @"png"
+        };
+
+        // Clean up old screenshots (older than 5 minutes)
+        [self cleanupOldScreenshots];
+    }
+
+    // Return URL that points to our server
+    NSString *url = [NSString stringWithFormat:@"http://127.0.0.1:%lu/screenshots/%@",
+                     (unsigned long)self.serverPort, screenshotId];
+
+    return @{
+        @"screenshot_url": url,
+        @"screenshot_id": screenshotId,
+        @"format": @"png",
+        @"size_bytes": @(imageData.length),
+        @"message": @"Screenshot stored. Use the URL to retrieve the image or pass return_base64:true for inline data.",
+        @"expires_in_seconds": @300
+    };
+}
+
+- (void)cleanupOldScreenshots {
+    // Remove screenshots older than 5 minutes
+    NSDate *cutoff = [NSDate dateWithTimeIntervalSinceNow:-300];
+    NSMutableArray *keysToRemove = [NSMutableArray array];
+
+    for (NSString *key in self.screenshotStorage) {
+        NSDictionary *entry = self.screenshotStorage[key];
+        NSDate *timestamp = entry[@"timestamp"];
+        if ([timestamp compare:cutoff] == NSOrderedAscending) {
+            [keysToRemove addObject:key];
+        }
+    }
+
+    for (NSString *key in keysToRemove) {
+        [self.screenshotStorage removeObjectForKey:key];
+    }
+}
+
+- (NSData *)getStoredScreenshot:(NSString *)screenshotId {
+    @synchronized(self.screenshotStorage) {
+        NSDictionary *entry = self.screenshotStorage[screenshotId];
+        return entry[@"data"];
+    }
 }
 
 #pragma mark - Core MCP Functionality

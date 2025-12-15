@@ -188,14 +188,7 @@ static NSString *const kServerVersion = @"1.0.0";
     NSDictionary *result = [self executeToolLocally:toolName arguments:arguments];
 
     // Format result as MCP tool result
-    NSArray *content;
-    if (result[@"error"]) {
-        content = @[@{@"type": @"text", @"text": result[@"error"], @"isError": @YES}];
-    } else {
-        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
-        NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-        content = @[@{@"type": @"text", @"text": jsonString ?: @"{}"}];
-    }
+    NSArray *content = [self formatMCPContent:result];
 
     NSDictionary *response = @{@"content": content};
     [self sendMCPResult:response id:requestId];
@@ -240,11 +233,23 @@ static NSString *const kServerVersion = @"1.0.0";
         }
 
         // ============= SCREENSHOTS =============
+        // Token-safe: Save to file by default to avoid 25k+ token returns
+        // Use return_base64:true to get inline base64 (backward compatibility)
         if ([toolName isEqualToString:@"screenshot"] || [toolName isEqualToString:@"desktop_screenshot"]) {
             NSData *imageData = [self.mcpServer takeScreenshot];
             if (!imageData) return @{@"error": @"Failed to take screenshot"};
-            NSString *base64 = [imageData base64EncodedStringWithOptions:0];
-            return @{@"image": base64, @"format": @"png"};
+
+            NSString *format = arguments[@"format"] ?: @"jpeg";
+            BOOL returnBase64 = [arguments[@"return_base64"] boolValue];
+            if (returnBase64) {
+                // Convert to requested format for base64 return
+                NSData *outputData = [self convertImageData:imageData toFormat:format quality:0.8];
+                NSString *base64 = [outputData base64EncodedStringWithOptions:0];
+                return @{@"image": base64, @"format": format};
+            }
+
+            // Save to /tmp file (token-safe default)
+            return [self saveScreenshotToFile:imageData prefix:@"desktop" format:format quality:0.8];
         }
         if ([toolName isEqualToString:@"screenshot_app"]) {
             NSString *appIdentifier = arguments[@"identifier"];
@@ -259,8 +264,18 @@ static NSString *const kServerVersion = @"1.0.0";
                 imageData = [self.mcpServer takeScreenshotOfWindow:windowID];
             }
             if (!imageData) return @{@"error": @"Failed to take screenshot. No app focused or app not found."};
-            NSString *base64 = [imageData base64EncodedStringWithOptions:0];
-            return @{@"image": base64, @"format": @"png"};
+
+            NSString *format = arguments[@"format"] ?: @"jpeg";
+            BOOL returnBase64 = [arguments[@"return_base64"] boolValue];
+            if (returnBase64) {
+                NSData *outputData = [self convertImageData:imageData toFormat:format quality:0.8];
+                NSString *base64 = [outputData base64EncodedStringWithOptions:0];
+                return @{@"image": base64, @"format": format};
+            }
+
+            // Save to /tmp file (token-safe default)
+            NSString *prefix = appIdentifier ? [appIdentifier stringByReplacingOccurrencesOfString:@"." withString:@"_"] : @"app";
+            return [self saveScreenshotToFile:imageData prefix:prefix format:format quality:0.8];
         }
 
         // ============= MOUSE ACTIONS =============
@@ -540,6 +555,79 @@ static NSString *const kServerVersion = @"1.0.0";
         return @{@"error": @"Browser command timed out after 30 seconds"};
     }
 
+    // Token-safe post-processing for large responses
+    result = [self postProcessBrowserResult:result action:action arguments:arguments];
+
+    return result;
+}
+
+- (NSDictionary *)postProcessBrowserResult:(NSDictionary *)result action:(NSString *)action arguments:(NSDictionary *)arguments {
+    if (!result || result[@"error"]) {
+        return result;
+    }
+
+    // Handle screenshot - save to /tmp file by default
+    if ([action isEqualToString:@"screenshot"]) {
+        NSString *screenshot = result[@"screenshot"];
+        if (screenshot && [screenshot isKindOfClass:[NSString class]]) {
+            BOOL returnBase64 = [arguments[@"return_base64"] boolValue];
+            NSString *format = arguments[@"format"] ?: @"jpeg";
+
+            if (!returnBase64) {
+                // Extract base64 data (remove data URL prefix if present)
+                NSString *base64Data = screenshot;
+                if ([screenshot hasPrefix:@"data:image"]) {
+                    NSRange commaRange = [screenshot rangeOfString:@","];
+                    if (commaRange.location != NSNotFound) {
+                        base64Data = [screenshot substringFromIndex:commaRange.location + 1];
+                    }
+                }
+
+                NSData *imageData = [[NSData alloc] initWithBase64EncodedString:base64Data options:0];
+                if (imageData) {
+                    return [self saveScreenshotToFile:imageData prefix:@"browser" format:format quality:0.8];
+                }
+            } else {
+                // Return as base64 but convert to requested format
+                NSString *base64Data = screenshot;
+                if ([screenshot hasPrefix:@"data:image"]) {
+                    NSRange commaRange = [screenshot rangeOfString:@","];
+                    if (commaRange.location != NSNotFound) {
+                        base64Data = [screenshot substringFromIndex:commaRange.location + 1];
+                    }
+                }
+                NSData *imageData = [[NSData alloc] initWithBase64EncodedString:base64Data options:0];
+                if (imageData) {
+                    NSData *outputData = [self convertImageData:imageData toFormat:format quality:0.8];
+                    NSString *base64 = [outputData base64EncodedStringWithOptions:0];
+                    return @{@"image": base64, @"format": format};
+                }
+            }
+        }
+        return result;
+    }
+
+    // Handle interactive elements - summarize by default
+    if ([action isEqualToString:@"getInteractiveElements"] ||
+        [action isEqualToString:@"getUIElements"] ||
+        [action isEqualToString:@"listInteractiveElements"]) {
+
+        BOOL verbose = [arguments[@"verbose"] boolValue];
+        if (!verbose) {
+            // Check if result is an array (elements directly) or dict with elements key
+            NSArray *elements = nil;
+            if ([result isKindOfClass:[NSArray class]]) {
+                elements = (NSArray *)result;
+            } else if (result[@"elements"]) {
+                elements = result[@"elements"];
+            }
+
+            if (elements) {
+                return [self summarizeInteractiveElements:elements];
+            }
+        }
+    }
+
     return result;
 }
 
@@ -634,10 +722,10 @@ static NSString *const kServerVersion = @"1.0.0";
 
 - (NSString *)getToolDescription:(NSString *)toolName {
     NSDictionary *descriptions = @{
-        // Desktop tools
-        @"screenshot": @"Take a screenshot of the entire desktop",
-        @"desktop_screenshot": @"Take a screenshot of the entire desktop",
-        @"screenshot_app": @"Take a screenshot of a specific application window",
+        // Desktop tools (token-safe: screenshots save to file by default)
+        @"screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
+        @"desktop_screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
+        @"screenshot_app": @"Take a screenshot of a specific application window. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"click": @"Click at coordinates relative to current app",
         @"click_absolute": @"Click at absolute screen coordinates",
         @"doubleClick": @"Double-click at coordinates",
@@ -660,9 +748,9 @@ static NSString *const kServerVersion = @"1.0.0";
         @"checkPermissions": @"Check accessibility permissions",
         @"wait": @"Wait for specified milliseconds",
 
-        // Browser tools
+        // Browser tools (token-safe: screenshots save to file, elements summarized by default)
         @"browser_navigate": @"Navigate browser to a URL",
-        @"browser_screenshot": @"Take a browser screenshot",
+        @"browser_screenshot": @"Take a browser screenshot. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"browser_getVisibleText": @"Get visible text from a tab (use 'url' parameter to target background tab without switching)",
         @"browser_searchVisibleText": @"Search for text in a tab",
         @"browser_clickElement": @"Click an element in the browser",
@@ -677,6 +765,9 @@ static NSString *const kServerVersion = @"1.0.0";
         @"browser_get_visible_html": @"Get page HTML",
         @"browser_executeScript": @"Execute JavaScript",
         @"browser_listConnected": @"List connected browsers",
+        @"browser_getInteractiveElements": @"Get interactive elements. Returns summary with counts and key elements. If you need a specific element not in summary, use verbose:true (WARNING: high token count ~10k+)",
+        @"browser_getUIElements": @"Get UI elements. Returns summary with counts and key elements. If you need a specific element not in summary, use verbose:true (WARNING: high token count ~10k+)",
+        @"browser_listInteractiveElements": @"List interactive elements. Returns summary with counts and key elements. If you need a specific element not in summary, use verbose:true (WARNING: high token count ~10k+)",
 
         // Filesystem tools
         @"fs_list": @"List directory contents",
@@ -736,11 +827,21 @@ static NSString *const kServerVersion = @"1.0.0";
     else if ([toolName isEqualToString:@"pressKey"]) {
         properties[@"key"] = @{@"type": @"string", @"description": @"Key to press (e.g., 'enter', 'tab', 'escape')"};
     }
+    else if ([toolName isEqualToString:@"screenshot"] || [toolName isEqualToString:@"desktop_screenshot"]) {
+        // Token-safe parameters
+        properties[@"return_base64"] = @{@"type": @"boolean", @"description": @"Return base64 instead of file path (default: false, saves tokens)"};
+        properties[@"format"] = @{@"type": @"string", @"enum": @[@"jpeg", @"png"], @"description": @"Image format: jpeg (smaller, default) or png (lossless)"};
+    }
     else if ([toolName isEqualToString:@"focusApplication"] || [toolName isEqualToString:@"launchApplication"] ||
              [toolName isEqualToString:@"closeApp"] || [toolName isEqualToString:@"screenshot_app"]) {
         properties[@"identifier"] = @{@"type": @"string", @"description": @"App bundle ID or name"};
         if ([toolName isEqualToString:@"closeApp"]) {
             properties[@"force"] = @{@"type": @"boolean", @"description": @"Force quit the app"};
+        }
+        if ([toolName isEqualToString:@"screenshot_app"]) {
+            // Token-safe parameters
+            properties[@"return_base64"] = @{@"type": @"boolean", @"description": @"Return base64 instead of file path (default: false, saves tokens)"};
+            properties[@"format"] = @{@"type": @"string", @"enum": @[@"jpeg", @"png"], @"description": @"Image format: jpeg (smaller, default) or png (lossless)"};
         }
     }
     else if ([toolName isEqualToString:@"wait"]) {
@@ -805,9 +906,21 @@ static NSString *const kServerVersion = @"1.0.0";
         if ([toolName isEqualToString:@"browser_navigate"]) {
             properties[@"url"] = @{@"type": @"string", @"description": @"URL to navigate to"};
         }
+        else if ([toolName isEqualToString:@"browser_screenshot"]) {
+            // Token-safe parameters
+            properties[@"return_base64"] = @{@"type": @"boolean", @"description": @"Return base64 instead of file path (default: false, saves tokens)"};
+            properties[@"format"] = @{@"type": @"string", @"enum": @[@"jpeg", @"png"], @"description": @"Image format: jpeg (smaller, default) or png (lossless)"};
+        }
+        else if ([toolName isEqualToString:@"browser_getInteractiveElements"] ||
+                 [toolName isEqualToString:@"browser_getUIElements"] ||
+                 [toolName isEqualToString:@"browser_listInteractiveElements"]) {
+            properties[@"url"] = @{@"type": @"string", @"description": @"URL of tab to target (without switching)"};
+            properties[@"tabId"] = @{@"type": @"number", @"description": @"Tab ID (optional, url preferred)"};
+            // Token-safe parameter
+            properties[@"verbose"] = @{@"type": @"boolean", @"description": @"Return full element details (default: false, returns summary to save tokens)"};
+        }
         else if ([toolName isEqualToString:@"browser_getVisibleText"] ||
                  [toolName isEqualToString:@"browser_searchVisibleText"] ||
-                 [toolName isEqualToString:@"browser_getUIElements"] ||
                  [toolName isEqualToString:@"browser_clickElement"] ||
                  [toolName isEqualToString:@"browser_fillElement"]) {
             properties[@"url"] = @{@"type": @"string", @"description": @"URL of tab to target (without switching)"};
@@ -964,6 +1077,198 @@ static NSString *const kServerVersion = @"1.0.0";
 
     // Send tools/list_changed notification to inform Claude Code that tools have changed
     [self sendToolsListChangedNotification];
+}
+
+#pragma mark - Token-Safe Response Helpers
+
+- (NSData *)convertImageData:(NSData *)imageData toFormat:(NSString *)format quality:(CGFloat)quality {
+    // Convert PNG image data to specified format (jpeg or png)
+    if (!imageData) return nil;
+
+    BOOL useJpeg = [format.lowercaseString isEqualToString:@"jpeg"] || [format.lowercaseString isEqualToString:@"jpg"];
+    if (!useJpeg) {
+        // PNG requested, return as-is
+        return imageData;
+    }
+
+    // Convert to JPEG
+    NSBitmapImageRep *imageRep = [[NSBitmapImageRep alloc] initWithData:imageData];
+    if (!imageRep) return imageData;
+
+    NSDictionary *props = @{NSImageCompressionFactor: @(quality)};
+    NSData *jpegData = [imageRep representationUsingType:NSBitmapImageFileTypeJPEG properties:props];
+    return jpegData ?: imageData;
+}
+
+- (NSDictionary *)saveScreenshotToFile:(NSData *)imageData prefix:(NSString *)prefix {
+    return [self saveScreenshotToFile:imageData prefix:prefix format:@"jpeg" quality:0.8];
+}
+
+- (NSDictionary *)saveScreenshotToFile:(NSData *)imageData prefix:(NSString *)prefix format:(NSString *)format quality:(CGFloat)quality {
+    // Save screenshot to /tmp to avoid returning 25k+ tokens of base64
+    // Supports jpeg (smaller, default) or png (lossless)
+
+    NSString *tempDir = @"/tmp";
+    NSString *timestamp = [NSString stringWithFormat:@"%.0f", [[NSDate date] timeIntervalSince1970] * 1000];
+
+    BOOL useJpeg = [format.lowercaseString isEqualToString:@"jpeg"] || [format.lowercaseString isEqualToString:@"jpg"];
+    NSString *extension = useJpeg ? @"jpg" : @"png";
+    NSString *filename = [NSString stringWithFormat:@"screenshot_%@_%@.%@", prefix, timestamp, extension];
+    NSString *filePath = [tempDir stringByAppendingPathComponent:filename];
+
+    NSData *outputData = imageData;
+
+    // Convert to JPEG if requested (much smaller file size)
+    if (useJpeg && imageData) {
+        NSBitmapImageRep *imageRep = [[NSBitmapImageRep alloc] initWithData:imageData];
+        if (imageRep) {
+            NSDictionary *props = @{NSImageCompressionFactor: @(quality)};
+            NSData *jpegData = [imageRep representationUsingType:NSBitmapImageFileTypeJPEG properties:props];
+            if (jpegData) {
+                outputData = jpegData;
+                [self logError:[NSString stringWithFormat:@"Converted to JPEG: %lu -> %lu bytes (%.0f%% reduction)",
+                               (unsigned long)imageData.length, (unsigned long)jpegData.length,
+                               (1.0 - (double)jpegData.length / imageData.length) * 100]];
+            }
+        }
+    }
+
+    NSError *error;
+    BOOL success = [outputData writeToFile:filePath options:NSDataWritingAtomic error:&error];
+
+    if (!success) {
+        [self logError:[NSString stringWithFormat:@"Failed to save screenshot: %@", error.localizedDescription]];
+        // Fall back to base64 if file write fails
+        NSString *base64 = [imageData base64EncodedStringWithOptions:0];
+        return @{@"image": base64, @"format": @"png", @"warning": @"Failed to save to file, returning base64"};
+    }
+
+    [self logError:[NSString stringWithFormat:@"Screenshot saved to: %@", filePath]];
+
+    return @{
+        @"file_path": filePath,
+        @"format": extension,
+        @"size_bytes": @(outputData.length),
+        @"message": @"Screenshot saved to file. Use the Read tool to view the image."
+    };
+}
+
+- (NSDictionary *)summarizeInteractiveElements:(NSArray *)elements {
+    // Summarize interactive elements to reduce token usage from ~13k to ~1k
+    // Returns counts by type and key elements only
+
+    if (![elements isKindOfClass:[NSArray class]] || elements.count == 0) {
+        return @{@"elements": @[], @"count": @0, @"summary": @"No interactive elements found"};
+    }
+
+    // Count by role/type
+    NSMutableDictionary *countsByRole = [NSMutableDictionary dictionary];
+    NSMutableArray *keyElements = [NSMutableArray array];
+
+    for (NSDictionary *element in elements) {
+        NSString *role = element[@"role"] ?: element[@"tagName"] ?: @"unknown";
+        countsByRole[role] = @([countsByRole[role] integerValue] + 1);
+
+        // Keep key elements: buttons, links, inputs (first 20 of each type)
+        NSArray *keyRoles = @[@"button", @"link", @"textbox", @"input", @"checkbox", @"radio", @"combobox", @"menuitem", @"tab"];
+        BOOL isKeyRole = NO;
+        for (NSString *keyRole in keyRoles) {
+            if ([[role lowercaseString] containsString:keyRole]) {
+                isKeyRole = YES;
+                break;
+            }
+        }
+
+        if (isKeyRole && keyElements.count < 50) {
+            // Return minimal info for each key element
+            NSMutableDictionary *minElement = [NSMutableDictionary dictionary];
+            if (element[@"index"]) minElement[@"index"] = element[@"index"];
+            if (element[@"role"]) minElement[@"role"] = element[@"role"];
+            if (element[@"name"]) minElement[@"name"] = element[@"name"];
+            if (element[@"text"]) minElement[@"text"] = [self truncateString:element[@"text"] maxLength:50];
+            if (element[@"tagName"]) minElement[@"tagName"] = element[@"tagName"];
+            if (element[@"id"]) minElement[@"id"] = element[@"id"];
+            if (element[@"selector"]) minElement[@"selector"] = element[@"selector"];
+            [keyElements addObject:minElement];
+        }
+    }
+
+    return @{
+        @"total_count": @(elements.count),
+        @"counts_by_role": countsByRole,
+        @"key_elements": keyElements,
+        @"key_elements_count": @(keyElements.count),
+        @"message": @"Summarized view. Use verbose:true to get all elements with full details."
+    };
+}
+
+- (NSString *)truncateString:(NSString *)string maxLength:(NSUInteger)maxLength {
+    if (!string || ![string isKindOfClass:[NSString class]]) return @"";
+    if (string.length <= maxLength) return string;
+    return [[string substringToIndex:maxLength] stringByAppendingString:@"..."];
+}
+
+#pragma mark - MCP Content Formatting
+
+- (NSArray *)formatMCPContent:(NSDictionary *)result {
+    // Format tool result as proper MCP content array
+    // Handles errors, images (ImageContent), and regular JSON (TextContent)
+
+    if (!result) {
+        return @[@{@"type": @"text", @"text": @"{}"}];
+    }
+
+    // Handle errors
+    if (result[@"error"]) {
+        return @[@{@"type": @"text", @"text": result[@"error"], @"isError": @YES}];
+    }
+
+    // Check for base64 image data - return as MCP ImageContent
+    // This makes screenshots compatible with Claude web/desktop
+    NSString *imageData = result[@"image"];
+    if (imageData && [imageData isKindOfClass:[NSString class]] && imageData.length > 100) {
+        // Looks like base64 image data
+        NSString *format = result[@"format"] ?: @"png";
+        NSString *mimeType = [format isEqualToString:@"jpeg"] ? @"image/jpeg" : @"image/png";
+
+        // Return as MCP ImageContent format
+        return @[@{
+            @"type": @"image",
+            @"data": imageData,
+            @"mimeType": mimeType
+        }];
+    }
+
+    // Check for screenshot from browser (may have data: prefix)
+    NSString *screenshot = result[@"screenshot"];
+    if (screenshot && [screenshot isKindOfClass:[NSString class]]) {
+        NSString *base64Data = screenshot;
+        NSString *mimeType = @"image/png";
+
+        // Handle data URL format: data:image/png;base64,xxxx
+        if ([screenshot hasPrefix:@"data:image"]) {
+            NSRange semicolonRange = [screenshot rangeOfString:@";"];
+            if (semicolonRange.location != NSNotFound) {
+                mimeType = [screenshot substringWithRange:NSMakeRange(5, semicolonRange.location - 5)];
+            }
+            NSRange commaRange = [screenshot rangeOfString:@","];
+            if (commaRange.location != NSNotFound) {
+                base64Data = [screenshot substringFromIndex:commaRange.location + 1];
+            }
+        }
+
+        // Return as MCP ImageContent format
+        return @[@{
+            @"type": @"image",
+            @"data": base64Data,
+            @"mimeType": mimeType
+        }];
+    }
+
+    // Default: return as JSON text
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
+    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    return @[@{@"type": @"text", @"text": jsonString ?: @"{}"}];
 }
 
 #pragma mark - MCP Notifications

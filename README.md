@@ -118,13 +118,14 @@ This extracts content from the matching tab without disturbing your active tab.
 
 | Tool | Description |
 |------|-------------|
-| `desktop_screenshot` | Take screenshots |
-| `mouse_click` | Click at coordinates |
-| `mouse_move` | Move mouse |
-| `keyboard_type` | Type text |
-| `keyboard_press` | Press keys |
-| `window_focus` | Focus windows |
-| `app_launch` | Launch applications |
+| `screenshot` / `desktop_screenshot` | Take screenshots (`return_base64: true` for image data) |
+| `screenshot_app` | Screenshot specific app (`return_base64: true` for image data) |
+| `click` / `click_absolute` | Click at coordinates |
+| `moveMouse` | Move mouse |
+| `typeText` | Type text |
+| `pressKey` | Press keys |
+| `focusApplication` | Focus windows |
+| `launchApplication` | Launch applications |
 
 ### Browser Automation
 
@@ -134,8 +135,9 @@ This extracts content from the matching tab without disturbing your active tab.
 | `browser_clickElement` | Click elements |
 | `browser_fillElement` | Fill form fields |
 | `browser_navigate` | Navigate to URL |
-| `browser_screenshot` | Screenshot page |
+| `browser_screenshot` | Screenshot page (`return_base64: true` for image data) |
 | `browser_getTabs` | List open tabs |
+| `browser_getInteractiveElements` | Get elements (`verbose: true` for full list) |
 | `browser_executeScript` | Run JavaScript |
 
 ### Filesystem & Shell
@@ -147,6 +149,91 @@ This extracts content from the matching tab without disturbing your active tab.
 | `fs_write` | Write files |
 | `fs_search` | Search files by pattern |
 | `shell_exec` | Execute commands |
+
+## Token-Safe Responses
+
+Large MCP tool responses (screenshots, element lists) can consume significant context tokens. ScreenControl implements token-safe defaults with optional full data retrieval.
+
+### Screenshots
+
+By default, screenshots are saved to `/tmp` as JPEG files and return a file path (~100 tokens). Claude Code can use the `Read` tool to view the image when needed.
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `format` | `jpeg` (default), `png` | Image format. JPEG is smaller (~60-80% reduction), PNG is lossless |
+| `return_base64` | `false` (default), `true` | Return base64 instead of file path |
+
+| Mode | Response | Token Usage | Compatibility |
+|------|----------|-------------|---------------|
+| Default | File path in `/tmp` | ~100 tokens | Claude Code (use Read tool) |
+| `return_base64: true` | MCP ImageContent | ~8-25k tokens | Claude Code + Claude Desktop/Web |
+
+**Example - Token-safe (default, JPEG):**
+```json
+{
+  "file_path": "/tmp/screenshot_browser_1734567890.jpg",
+  "format": "jpg",
+  "size_bytes": 85432,
+  "message": "Screenshot saved to file. Use the Read tool to view the image."
+}
+```
+
+**Example - PNG format:**
+```json
+// Tool call with format: "png"
+{
+  "file_path": "/tmp/screenshot_browser_1734567890.png",
+  "format": "png",
+  "size_bytes": 245678,
+  "message": "Screenshot saved to file. Use the Read tool to view the image."
+}
+```
+
+**Example - Full image data for Claude Desktop/Web:**
+```json
+// Tool call with return_base64: true
+// Returns MCP ImageContent format:
+{
+  "type": "image",
+  "data": "iVBORw0KGgo...",
+  "mimeType": "image/jpeg"
+}
+```
+
+### Interactive Elements
+
+By default, element lists return a summary with counts and key elements (~1k tokens). Use `verbose: true` for full details when needed.
+
+| Parameter | Response | Token Usage |
+|-----------|----------|-------------|
+| Default | Summary with counts + key elements | ~1k tokens |
+| `verbose: true` | Full element list | ~10k+ tokens |
+
+**Example - Summary (default):**
+```json
+{
+  "total_count": 156,
+  "counts_by_role": {"button": 12, "link": 45, "textbox": 8},
+  "key_elements": [
+    {"index": 0, "role": "button", "name": "Submit"},
+    {"index": 3, "role": "textbox", "name": "Search"}
+  ],
+  "key_elements_count": 50,
+  "message": "Summarized view. Use verbose:true to get all elements with full details."
+}
+```
+
+### MCP ImageContent Format
+
+When `return_base64: true` is used, screenshots are returned in the [MCP ImageContent format](https://modelcontextprotocol.io/specification/draft/server/tools) for compatibility with Claude Desktop and Claude Web:
+
+```json
+{
+  "type": "image",
+  "data": "<base64-encoded-data>",
+  "mimeType": "image/png"
+}
+```
 
 ## Running Modes
 
