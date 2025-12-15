@@ -382,6 +382,99 @@ static NSString *const kServerVersion = @"1.0.0";
             return @{@"success": @YES, @"waited_ms": ms};
         }
 
+        // ============= SYSTEM INFO =============
+        if ([toolName isEqualToString:@"system_info"]) {
+            NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+            NSOperatingSystemVersion osVersion = processInfo.operatingSystemVersion;
+
+            // Get memory info
+            unsigned long long physicalMemory = processInfo.physicalMemory;
+            double memoryGB = physicalMemory / (1024.0 * 1024.0 * 1024.0);
+
+            // Get CPU info
+            NSUInteger cpuCount = processInfo.processorCount;
+            NSUInteger activeCPUs = processInfo.activeProcessorCount;
+
+            return @{
+                @"hostname": processInfo.hostName,
+                @"os": @"macOS",
+                @"osVersion": [NSString stringWithFormat:@"%ld.%ld.%ld",
+                              (long)osVersion.majorVersion,
+                              (long)osVersion.minorVersion,
+                              (long)osVersion.patchVersion],
+                @"osBuild": [[NSProcessInfo processInfo] operatingSystemVersionString],
+                @"cpuCores": @(cpuCount),
+                @"activeCpuCores": @(activeCPUs),
+                @"memoryGB": @(memoryGB),
+                @"memoryBytes": @(physicalMemory),
+                @"systemUptime": @(processInfo.systemUptime),
+                @"userName": NSUserName(),
+                @"homeDirectory": NSHomeDirectory()
+            };
+        }
+
+        // ============= WINDOW LIST =============
+        if ([toolName isEqualToString:@"window_list"]) {
+            NSMutableArray *windows = [NSMutableArray array];
+
+            // Get all windows using CGWindowListCopyWindowInfo
+            CFArrayRef windowList = CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+                kCGNullWindowID
+            );
+
+            if (windowList) {
+                NSArray *windowArray = (__bridge_transfer NSArray *)windowList;
+                for (NSDictionary *window in windowArray) {
+                    NSString *ownerName = window[(NSString *)kCGWindowOwnerName];
+                    NSString *windowName = window[(NSString *)kCGWindowName];
+                    NSNumber *windowID = window[(NSString *)kCGWindowNumber];
+                    NSNumber *layer = window[(NSString *)kCGWindowLayer];
+                    NSDictionary *bounds = window[(NSString *)kCGWindowBounds];
+
+                    // Skip windows without owner or with layer < 0 (system UI)
+                    if (!ownerName || [layer intValue] < 0) continue;
+
+                    NSMutableDictionary *windowInfo = [NSMutableDictionary dictionary];
+                    windowInfo[@"id"] = windowID;
+                    windowInfo[@"app"] = ownerName;
+                    if (windowName && windowName.length > 0) {
+                        windowInfo[@"title"] = windowName;
+                    }
+                    if (bounds) {
+                        windowInfo[@"bounds"] = bounds;
+                    }
+                    windowInfo[@"layer"] = layer;
+
+                    [windows addObject:windowInfo];
+                }
+            }
+
+            return @{@"windows": windows, @"count": @(windows.count)};
+        }
+
+        // ============= CLIPBOARD =============
+        if ([toolName isEqualToString:@"clipboard_read"]) {
+            NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+            NSString *text = [pasteboard stringForType:NSPasteboardTypeString];
+            if (text) {
+                return @{@"text": text, @"success": @YES};
+            } else {
+                // Check for other content types
+                NSArray *types = [pasteboard types];
+                return @{@"text": [NSNull null], @"availableTypes": types, @"message": @"No text content in clipboard"};
+            }
+        }
+        if ([toolName isEqualToString:@"clipboard_write"]) {
+            NSString *text = arguments[@"text"];
+            if (!text) return @{@"error": @"text is required"};
+
+            NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+            [pasteboard clearContents];
+            BOOL success = [pasteboard setString:text forType:NSPasteboardTypeString];
+            return @{@"success": @(success)};
+        }
+
         // ============= FILESYSTEM TOOLS =============
         if ([toolName isEqualToString:@"fs_list"]) {
             NSString *path = arguments[@"path"];
@@ -652,7 +745,8 @@ static NSString *const kServerVersion = @"1.0.0";
             @"doubleClick", @"clickElement", @"moveMouse", @"scroll",
             @"scrollMouse", @"drag", @"getClickableElements", @"getUIElements",
             @"getMousePosition", @"typeText", @"pressKey", @"analyzeWithOCR",
-            @"checkPermissions", @"closeApp", @"wait"
+            @"checkPermissions", @"closeApp", @"wait",
+            @"system_info", @"window_list", @"clipboard_read", @"clipboard_write"
         ],
         @"browser": @[
             @"browser_listConnected", @"browser_setDefaultBrowser",
@@ -747,6 +841,10 @@ static NSString *const kServerVersion = @"1.0.0";
         @"currentApp": @"Get current focused application",
         @"checkPermissions": @"Check accessibility permissions",
         @"wait": @"Wait for specified milliseconds",
+        @"system_info": @"Get system information (OS, CPU, memory, hostname)",
+        @"window_list": @"List all open windows on the desktop",
+        @"clipboard_read": @"Read content from clipboard",
+        @"clipboard_write": @"Write content to clipboard",
 
         // Browser tools (token-safe: screenshots save to file, elements summarized by default)
         @"browser_navigate": @"Navigate browser to a URL",
@@ -846,6 +944,9 @@ static NSString *const kServerVersion = @"1.0.0";
     }
     else if ([toolName isEqualToString:@"wait"]) {
         properties[@"milliseconds"] = @{@"type": @"number", @"description": @"Time to wait in milliseconds"};
+    }
+    else if ([toolName isEqualToString:@"clipboard_write"]) {
+        properties[@"text"] = @{@"type": @"string", @"description": @"Text to copy to clipboard"};
     }
     // Filesystem tools
     else if ([toolName hasPrefix:@"fs_"]) {
@@ -974,6 +1075,9 @@ static NSString *const kServerVersion = @"1.0.0";
     if ([toolName isEqualToString:@"focusApplication"] || [toolName isEqualToString:@"launchApplication"] ||
         [toolName isEqualToString:@"closeApp"]) {
         return @[@"identifier"];
+    }
+    if ([toolName isEqualToString:@"clipboard_write"]) {
+        return @[@"text"];
     }
     if ([toolName isEqualToString:@"shell_exec"] || [toolName isEqualToString:@"shell_start_session"]) {
         return @[@"command"];
