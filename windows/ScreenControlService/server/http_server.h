@@ -73,6 +73,18 @@ private:
     void handleShellSendInput(const void* req, void* res);
     void handleShellStopSession(const void* req, void* res);
 
+    // System tools - matching Linux agent
+    void handleSystemInfo(const void* req, void* res);
+    void handleClipboardRead(const void* req, void* res);
+    void handleClipboardWrite(const void* req, void* res);
+    void handleWait(const void* req, void* res);
+
+    // Mouse tools - additional endpoints
+    void handleMouseMove(const void* req, void* res);
+    void handleMousePosition(const void* req, void* res);
+    void handleMouseScroll(const void* req, void* res);
+    void handleMouseDrag(const void* req, void* res);
+
     // Status endpoint for tray app
     void handleStatus(const void* req, void* res);
 

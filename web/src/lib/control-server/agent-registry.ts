@@ -201,7 +201,7 @@ class LocalAgentRegistry implements IAgentRegistry {
           console.log(`[Registry] Disconnecting blocked agent: ${agent.machineName || agent.machineId}`);
           agent.socket.close(4003, 'License blocked');
         }
-      }, 30000);
+      }, 120000); // Increased timeout for large responses like screenshots
     }
   }
 
@@ -247,7 +247,7 @@ class LocalAgentRegistry implements IAgentRegistry {
       if (existingAgent) {
         // Check if the existing connection is recent (< 3 seconds)
         // If so, reject the new duplicate connection and keep the existing one
-        const connectionAge = Date.now() - (existingAgent.lastPing || existingAgent.connectedAt || 0);
+        const connectionAge = Date.now() - (Number(existingAgent.lastPing) || Number(existingAgent.connectedAt) || 0);
         if (connectionAge < 3000) {
           console.log(`[Registry] Rejecting duplicate connection for machine ${msg.machineId} (existing connection is ${connectionAge}ms old)`);
           socket.send(JSON.stringify({
@@ -815,7 +815,7 @@ class LocalAgentRegistry implements IAgentRegistry {
         });
 
         reject(new Error('Request timeout'));
-      }, 30000);
+      }, 120000); // Increased timeout for large responses like screenshots
 
       agent.pendingRequests.set(requestId, {
         resolve: async (result: unknown) => {
@@ -990,7 +990,7 @@ class LocalAgentRegistry implements IAgentRegistry {
       });
       pending.reject(new Error(msg.error || 'Unknown error'));
     } else {
-      pending.resolve(msg.result);
+      console.log("[Registry] Resolving response", { agentId: agent.id, resultType: typeof msg.result, resultKeys: msg.result && typeof msg.result === "object" ? Object.keys(msg.result as object) : [], hasImage: !!(msg.result as any)?.image, resultSize: JSON.stringify(msg.result || {}).length }); pending.resolve(msg.result);
     }
   }
 

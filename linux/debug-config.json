@@ -1,0 +1,6 @@
+{
+  "serverUrl": "wss://screencontrol.knws.co.uk/ws",
+  "endpointUuid": "",
+  "customerId": "",
+  "connectOnStartup": true
+}

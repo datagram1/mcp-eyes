@@ -7,6 +7,7 @@
 #pragma once
 
 #include <windows.h>
+#include <shlobj.h>  // For SHGetFolderPathW, CSIDL_COMMON_APPDATA
 #include <string>
 
 namespace ScreenControl

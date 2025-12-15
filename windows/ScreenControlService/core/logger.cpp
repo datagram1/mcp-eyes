@@ -2,6 +2,7 @@
  * Logger
  *
  * Simple logging implementation.
+ * Uses narrow strings for MinGW compatibility.
  */
 
 #include "logger.h"
@@ -14,6 +15,16 @@
 
 namespace ScreenControl
 {
+
+// Helper to convert wstring to string (UTF-8)
+static std::string wstringToString(const std::wstring& wstr)
+{
+    if (wstr.empty()) return std::string();
+    int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string str(size - 1, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], size, nullptr, nullptr);
+    return str;
+}
 
 Logger::~Logger()
 {
@@ -32,18 +43,26 @@ void Logger::init()
         return;
     }
 
-    // Get log directory
-    std::wstring logDir = getProgramDataPath() + L"\\" + LOG_DIR;
+    // Get log directory as narrow string
+    std::wstring wLogDir = getProgramDataPath() + L"\\" + LOG_DIR;
+    std::string logDir = wstringToString(wLogDir);
 
     // Create directory if needed
-    std::filesystem::create_directories(logDir);
+    try
+    {
+        std::filesystem::create_directories(logDir);
+    }
+    catch (...)
+    {
+        // Ignore directory creation errors
+    }
 
-    // Open log file
-    std::wstring logPath = logDir + L"\\service.log";
+    // Open log file with narrow string path
+    std::string logPath = logDir + "\\service.log";
     m_file.open(logPath, std::ios::app);
 
     m_initialized = true;
-    info(L"Logger initialized");
+    // Note: Don't call info() here - would deadlock on mutex
 }
 
 void Logger::info(const std::wstring& message)
@@ -73,7 +92,10 @@ void Logger::log(const std::wstring& level, const std::wstring& message)
     std::lock_guard<std::mutex> lock(m_mutex);
 
     std::wstring timestamp = getTimestamp();
-    std::wstring logLine = timestamp + L" [" + level + L"] " + message + L"\n";
+    std::wstring wLogLine = timestamp + L" [" + level + L"] " + message + L"\n";
+
+    // Convert to narrow string for file output
+    std::string logLine = wstringToString(wLogLine);
 
     // Write to file
     if (m_file.is_open())
@@ -82,8 +104,8 @@ void Logger::log(const std::wstring& level, const std::wstring& message)
         m_file.flush();
     }
 
-    // Write to debug output
-    OutputDebugStringW(logLine.c_str());
+    // Write to debug output (still uses wide string)
+    OutputDebugStringW(wLogLine.c_str());
 }
 
 std::wstring Logger::getTimestamp()
@@ -94,7 +116,13 @@ std::wstring Logger::getTimestamp()
         now.time_since_epoch()) % 1000;
 
     std::tm tm;
+#ifdef _MSC_VER
     localtime_s(&tm, &time);
+#else
+    // MinGW uses localtime
+    std::tm* tmp = localtime(&time);
+    if (tmp) tm = *tmp;
+#endif
 
     std::wostringstream oss;
     oss << std::put_time(&tm, L"%Y-%m-%d %H:%M:%S")

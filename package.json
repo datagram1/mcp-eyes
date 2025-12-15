@@ -2,10 +2,10 @@
   "name": "screencontrol",
   "version": "1.1.15",
   "description": "Multi-tenant SaaS platform enabling AI/LLM systems to control remote computers. Features cross-platform agents (macOS, Windows, Linux), centralized control server, and full MCP protocol support for Claude.ai, Open WebUI, and local LLMs.",
-  "main": "dist/screencontrol-mcp.js",
+  "main": "dist/mcp-proxy-server.js",
   "bin": {
-    "screencontrol": "./dist/screencontrol-mcp.js",
-    "screencontrol-proxy": "./dist/screencontrol-mcp.js",
+    "screencontrol": "./dist/mcp-proxy-server.js",
+    "screencontrol-proxy": "./dist/mcp-proxy-server.js",
     "screencontrol-agent": "./dist/agent-tools-server.js"
   },
   "scripts": {
@@ -13,8 +13,8 @@
     "postbuild": "node scripts/set-executable.js",
     "build:clean": "rimraf dist && npm run build",
     "dev": "tsc --watch",
-    "start": "node dist/screencontrol-mcp.js",
-    "start:proxy": "node dist/screencontrol-mcp.js",
+    "start": "node dist/mcp-proxy-server.js",
+    "start:proxy": "node dist/mcp-proxy-server.js",
     "start:agent": "node dist/agent-tools-server.js",
     "test": "node test/run-all-tests.js",
     "test:unit": "node test/run-all-tests.js",
@@ -83,7 +83,7 @@
   "license": "MIT",
   "dependencies": {
     "@jxa/run": "^1.4.0",
-    "@modelcontextprotocol/sdk": "^0.4.0",
+    "@modelcontextprotocol/sdk": "^1.24.0",
     "@nut-tree-fork/nut-js": "^4.2.6",
     "fast-glob": "^3.3.3",
     "fastest-levenshtein": "^1.0.16",

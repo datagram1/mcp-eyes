@@ -16,6 +16,26 @@ using json = nlohmann::json;
 namespace ScreenControl
 {
 
+// Helper to convert wstring to UTF-8 string
+static std::string wstringToUtf8(const std::wstring& wstr)
+{
+    if (wstr.empty()) return std::string();
+    int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string str(size - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], size, nullptr, nullptr);
+    return str;
+}
+
+// Helper to convert UTF-8 string to wstring
+static std::wstring utf8ToWstring(const std::string& str)
+{
+    if (str.empty()) return std::wstring();
+    int size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+    std::wstring wstr(size - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], size);
+    return wstr;
+}
+
 void Config::load()
 {
     std::wstring configPath = getProgramDataPath() + L"\\" + CONFIG_FILE;
@@ -33,7 +53,8 @@ void Config::load()
 
     try
     {
-        std::ifstream file(configPath);
+        // MinGW doesn't support wstring paths directly - use c_str()
+        std::ifstream file(configPath.c_str());
         json config = json::parse(file);
 
         m_httpPort = config.value("httpPort", 3456);
@@ -42,19 +63,19 @@ void Config::load()
         if (config.contains("controlServerUrl"))
         {
             std::string url = config["controlServerUrl"];
-            m_controlServerUrl = std::wstring(url.begin(), url.end());
+            m_controlServerUrl = utf8ToWstring(url);
         }
 
         if (config.contains("customerId"))
         {
             std::string id = config["customerId"];
-            m_customerId = std::wstring(id.begin(), id.end());
+            m_customerId = utf8ToWstring(id);
         }
 
         if (config.contains("licenseUuid"))
         {
             std::string uuid = config["licenseUuid"];
-            m_licenseUuid = std::wstring(uuid.begin(), uuid.end());
+            m_licenseUuid = utf8ToWstring(uuid);
         }
 
         Logger::getInstance().info(L"Configuration loaded");
@@ -78,12 +99,13 @@ void Config::save()
         json config = {
             {"httpPort", m_httpPort},
             {"browserBridgePort", m_browserBridgePort},
-            {"controlServerUrl", std::string(m_controlServerUrl.begin(), m_controlServerUrl.end())},
-            {"customerId", std::string(m_customerId.begin(), m_customerId.end())},
-            {"licenseUuid", std::string(m_licenseUuid.begin(), m_licenseUuid.end())}
+            {"controlServerUrl", wstringToUtf8(m_controlServerUrl)},
+            {"customerId", wstringToUtf8(m_customerId)},
+            {"licenseUuid", wstringToUtf8(m_licenseUuid)}
         };
 
-        std::ofstream file(configPath);
+        // MinGW doesn't support wstring paths directly - use c_str()
+        std::ofstream file(configPath.c_str());
         file << config.dump(2);
 
         Logger::getInstance().info(L"Configuration saved");

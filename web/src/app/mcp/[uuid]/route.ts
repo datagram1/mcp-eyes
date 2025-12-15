@@ -701,6 +701,122 @@ async function handleMcpMethod(method: string, params: any, auth: { userId: stri
         },
 
         // === System Info ===
+        // === Filesystem Tools (fs_* aliases) ===
+        {
+          name: 'fs_list',
+          description: 'List files and directories in a path',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              path: { type: 'string', description: 'Directory path to list' },
+            },
+            required: ['path'],
+          },
+        },
+        {
+          name: 'fs_read',
+          description: 'Read contents of a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              path: { type: 'string', description: 'File path to read' },
+            },
+            required: ['path'],
+          },
+        },
+        {
+          name: 'fs_write',
+          description: 'Write content to a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              path: { type: 'string', description: 'File path to write' },
+              content: { type: 'string', description: 'Content to write' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+        {
+          name: 'fs_delete',
+          description: 'Delete a file or directory',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              path: { type: 'string', description: 'Path to delete' },
+              recursive: { type: 'boolean', description: 'Delete recursively for directories' },
+            },
+            required: ['path'],
+          },
+        },
+        {
+          name: 'fs_move',
+          description: 'Move or rename a file or directory',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              source: { type: 'string', description: 'Source path' },
+              destination: { type: 'string', description: 'Destination path' },
+            },
+            required: ['source', 'destination'],
+          },
+        },
+        {
+          name: 'fs_search',
+          description: 'Search for files by glob pattern',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              path: { type: 'string', description: 'Directory to search in' },
+              pattern: { type: 'string', description: 'Glob pattern (e.g., *.txt)' },
+            },
+            required: ['path', 'pattern'],
+          },
+        },
+        {
+          name: 'fs_grep',
+          description: 'Search file contents with regex',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              path: { type: 'string', description: 'Directory to search in' },
+              pattern: { type: 'string', description: 'Regex pattern to search for' },
+            },
+            required: ['path', 'pattern'],
+          },
+        },
+        {
+          name: 'shell_exec',
+          description: 'Execute a shell command',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              command: { type: 'string', description: 'Command to execute' },
+              cwd: { type: 'string', description: 'Working directory' },
+              timeout_seconds: { type: 'number', description: 'Timeout in seconds' },
+            },
+            required: ['command'],
+          },
+        },
+        {
+          name: 'wait',
+          description: 'Wait for specified milliseconds',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string', description: 'Target agent ID' },
+              milliseconds: { type: 'number', description: 'Time to wait in ms' },
+            },
+            required: ['milliseconds'],
+          },
+        },
         {
           name: 'system_info',
           description: 'Get system information (OS, CPU, memory, etc.)',
@@ -1173,15 +1289,27 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
 
     // === Desktop Screenshot & Vision ===
     case 'desktop_screenshot': {
+      // DISABLED: Claude Web MCP client cannot process large ImageContent responses
+      // Bug reported to Anthropic - re-enable when fixed
+      return {
+        content: [{
+          type: 'text',
+          text: 'Screenshot temporarily disabled for Claude Web due to MCP client limitations. Use Claude Code/Desktop for screenshots.',
+        }],
+        isError: true,
+      };
+      /* Original code:
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
       return executeAgentCommand(result.agent, 'tools/call', {
         name: 'screenshot',
         arguments: {
           format: args?.format || 'png',
+          return_base64: true,
           quality: args?.quality,
         },
       });
+      */
     }
 
     case 'screen_find_text': {
@@ -1388,7 +1516,8 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
     }
 
     // === File Operations ===
-    case 'file_read': {
+    case 'file_read':
+    case 'fs_read': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
       return executeAgentCommand(result.agent, 'tools/call', {
@@ -1400,7 +1529,8 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
       });
     }
 
-    case 'file_write': {
+    case 'file_write':
+    case 'fs_write': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
       return executeAgentCommand(result.agent, 'tools/call', {
@@ -1413,7 +1543,8 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
       });
     }
 
-    case 'file_list': {
+    case 'file_list':
+    case 'fs_list': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
       return executeAgentCommand(result.agent, 'tools/call', {
@@ -1429,6 +1560,64 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
       return executeAgentCommand(result.agent, 'tools/call', {
         name: 'system_info',
         arguments: {},
+      });
+    }
+
+    case 'fs_delete': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'fs_delete',
+        arguments: { path: args?.path, recursive: args?.recursive },
+      });
+    }
+
+    case 'fs_move': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'fs_move',
+        arguments: { source: args?.source, destination: args?.destination },
+      });
+    }
+
+    case 'fs_search': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'fs_search',
+        arguments: { path: args?.path, pattern: args?.pattern },
+      });
+    }
+
+    case 'fs_grep': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'fs_grep',
+        arguments: { path: args?.path, pattern: args?.pattern },
+      });
+    }
+
+    case 'shell_exec': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'shell_exec',
+        arguments: {
+          command: args?.command,
+          cwd: args?.cwd,
+          timeout_seconds: args?.timeout_seconds,
+        },
+      });
+    }
+
+    case 'wait': {
+      const result = await selectAgent(args?.agentId);
+      if (result.error) return result.error;
+      return executeAgentCommand(result.agent, 'tools/call', {
+        name: 'wait',
+        arguments: { milliseconds: args?.milliseconds },
       });
     }
 

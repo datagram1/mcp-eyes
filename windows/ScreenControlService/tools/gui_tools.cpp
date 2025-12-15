@@ -7,9 +7,19 @@
 #include "gui_tools.h"
 #include "../core/logger.h"
 #include <vector>
+#include <map>
+#include <objidl.h>  // For IStream (needed by MinGW)
 #include <gdiplus.h>
 
+// MSVC-specific pragma (ignored by MinGW which uses CMake link flags)
+#ifdef _MSC_VER
 #pragma comment(lib, "gdiplus.lib")
+#endif
+
+// Define MOUSEEVENTF_HWHEEL if not available (older MinGW)
+#ifndef MOUSEEVENTF_HWHEEL
+#define MOUSEEVENTF_HWHEEL 0x01000
+#endif
 
 using json = nlohmann::json;
 
@@ -242,6 +252,22 @@ json GuiTools::drag(int startX, int startY, int endX, int endY)
         {"startX", startX}, {"startY", startY},
         {"endX", endX}, {"endY", endY}
     };
+}
+
+json GuiTools::moveMouse(int x, int y)
+{
+    SetCursorPos(x, y);
+    return {{"success", true}, {"x", x}, {"y", y}};
+}
+
+json GuiTools::getCursorPosition()
+{
+    POINT pt;
+    if (GetCursorPos(&pt))
+    {
+        return {{"success", true}, {"x", pt.x}, {"y", pt.y}};
+    }
+    return {{"success", false}, {"error", "Failed to get cursor position"}};
 }
 
 WORD GuiTools::getVirtualKeyCode(const std::string& key)

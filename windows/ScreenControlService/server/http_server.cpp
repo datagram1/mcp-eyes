@@ -13,6 +13,7 @@
 #include "../tools/ui_automation.h"
 #include "../tools/filesystem_tools.h"
 #include "../tools/shell_tools.h"
+#include "../tools/system_tools.h"
 
 using json = nlohmann::json;
 
@@ -191,6 +192,40 @@ void HttpServer::setupRoutes()
     // Browser proxy - forward /browser/* to port 3457
     m_server->Post(R"(/browser/(.*))", [this](const httplib::Request& req, httplib::Response& res) {
         handleBrowserProxy(&req, &res);
+    });
+
+    // System tools - matching Linux agent
+    m_server->Get("/system/info", [this](const httplib::Request& req, httplib::Response& res) {
+        handleSystemInfo(&req, &res);
+    });
+
+    m_server->Get("/clipboard/read", [this](const httplib::Request& req, httplib::Response& res) {
+        handleClipboardRead(&req, &res);
+    });
+
+    m_server->Post("/clipboard/write", [this](const httplib::Request& req, httplib::Response& res) {
+        handleClipboardWrite(&req, &res);
+    });
+
+    m_server->Post("/wait", [this](const httplib::Request& req, httplib::Response& res) {
+        handleWait(&req, &res);
+    });
+
+    // Mouse tools - additional endpoints matching Linux
+    m_server->Post("/mouse/move", [this](const httplib::Request& req, httplib::Response& res) {
+        handleMouseMove(&req, &res);
+    });
+
+    m_server->Get("/mouse/position", [this](const httplib::Request& req, httplib::Response& res) {
+        handleMousePosition(&req, &res);
+    });
+
+    m_server->Post("/mouse/scroll", [this](const httplib::Request& req, httplib::Response& res) {
+        handleMouseScroll(&req, &res);
+    });
+
+    m_server->Post("/mouse/drag", [this](const httplib::Request& req, httplib::Response& res) {
+        handleMouseDrag(&req, &res);
     });
 
     Logger::getInstance().info(L"HTTP routes configured");
@@ -781,6 +816,169 @@ void HttpServer::handleBrowserProxy(const void* reqPtr, void* resPtr)
     {
         json error = {{"success", false}, {"error", "Browser bridge not available"}};
         res.status = 502;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+// System tool handlers
+void HttpServer::handleSystemInfo(const void* reqPtr, void* resPtr)
+{
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto result = SystemTools::getSystemInfo();
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void HttpServer::handleClipboardRead(const void* reqPtr, void* resPtr)
+{
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto result = SystemTools::clipboardRead();
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void HttpServer::handleClipboardWrite(const void* reqPtr, void* resPtr)
+{
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto params = json::parse(req.body);
+        std::string text = params.value("text", "");
+
+        auto result = SystemTools::clipboardWrite(text);
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void HttpServer::handleWait(const void* reqPtr, void* resPtr)
+{
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto params = json::parse(req.body);
+        int milliseconds = params.value("milliseconds", 0);
+
+        auto result = SystemTools::wait(milliseconds);
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+// Mouse tool handlers
+void HttpServer::handleMouseMove(const void* reqPtr, void* resPtr)
+{
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto params = json::parse(req.body);
+        int x = params.value("x", 0);
+        int y = params.value("y", 0);
+
+        auto result = GuiTools::moveMouse(x, y);
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void HttpServer::handleMousePosition(const void* reqPtr, void* resPtr)
+{
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto result = GuiTools::getCursorPosition();
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void HttpServer::handleMouseScroll(const void* reqPtr, void* resPtr)
+{
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto params = json::parse(req.body);
+        int deltaX = params.value("deltaX", 0);
+        int deltaY = params.value("deltaY", 0);
+
+        auto result = GuiTools::scroll(deltaX, deltaY);
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void HttpServer::handleMouseDrag(const void* reqPtr, void* resPtr)
+{
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
+    auto& res = *static_cast<httplib::Response*>(resPtr);
+
+    try
+    {
+        auto params = json::parse(req.body);
+        int startX = params.value("startX", 0);
+        int startY = params.value("startY", 0);
+        int endX = params.value("endX", 0);
+        int endY = params.value("endY", 0);
+
+        auto result = GuiTools::drag(startX, startY, endX, endY);
+        res.set_content(result.dump(), "application/json");
+    }
+    catch (const std::exception& e)
+    {
+        json error = {{"success", false}, {"error", e.what()}};
+        res.status = 500;
         res.set_content(error.dump(), "application/json");
     }
 }

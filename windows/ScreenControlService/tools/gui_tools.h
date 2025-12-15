@@ -26,6 +26,8 @@ public:
     static nlohmann::json rightClick(int x, int y);
     static nlohmann::json scroll(int deltaX, int deltaY);
     static nlohmann::json drag(int startX, int startY, int endX, int endY);
+    static nlohmann::json moveMouse(int x, int y);
+    static nlohmann::json getCursorPosition();
 
     // Keyboard actions
     static nlohmann::json pressKey(const std::string& key, const std::vector<std::string>& modifiers);

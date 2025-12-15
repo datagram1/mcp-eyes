@@ -2,20 +2,43 @@
  * UI Automation Tools
  *
  * Windows UI Automation implementation.
+ * Note: Full UIAutomation COM interfaces require MSVC. MinGW builds use limited functionality.
  */
 
 #include "ui_automation.h"
 #include "../core/logger.h"
-#include <UIAutomation.h>
-#include <comdef.h>
+#include <windows.h>
 #include <vector>
 
+// UIAutomation COM interfaces have header conflicts in newer Windows SDKs
+// Disable for now - use screenshot-based element detection instead
+// TODO: Re-enable once header conflicts are resolved
+#define HAS_UIAUTOMATION 0
+
+#if 0  // Disabled due to SDK header conflicts
+#ifdef _MSC_VER
+#include <uiautomation.h>
+#include <comdef.h>
 #pragma comment(lib, "uiautomationcore.lib")
+#undef HAS_UIAUTOMATION
+#define HAS_UIAUTOMATION 1
+#endif
+#endif
 
 using json = nlohmann::json;
 
 namespace ScreenControl
 {
+
+// Helper to convert wstring to UTF-8 string
+static std::string wstringToUtf8(const std::wstring& wstr)
+{
+    if (wstr.empty()) return std::string();
+    int size = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string str(size - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], size, nullptr, nullptr);
+    return str;
+}
 
 struct WindowInfo
 {
@@ -67,8 +90,8 @@ json UIAutomation::getWindowList()
     {
         windowList.push_back({
             {"hwnd", reinterpret_cast<uintptr_t>(win.hwnd)},
-            {"title", std::string(win.title.begin(), win.title.end())},
-            {"className", std::string(win.className.begin(), win.className.end())},
+            {"title", wstringToUtf8(win.title)},
+            {"className", wstringToUtf8(win.className)},
             {"x", win.rect.left},
             {"y", win.rect.top},
             {"width", win.rect.right - win.rect.left},
@@ -83,6 +106,7 @@ json UIAutomation::getWindowList()
 
 json UIAutomation::getClickableElements()
 {
+#if HAS_UIAUTOMATION
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
     IUIAutomation* pAutomation = nullptr;
@@ -154,7 +178,7 @@ json UIAutomation::getClickableElements()
                         std::wstring wname(name);
                         elements.push_back({
                             {"index", i},
-                            {"name", std::string(wname.begin(), wname.end())},
+                            {"name", wstringToUtf8(wname)},
                             {"x", rect.left},
                             {"y", rect.top},
                             {"width", rect.right - rect.left},
@@ -181,6 +205,14 @@ json UIAutomation::getClickableElements()
     CoUninitialize();
 
     return {{"success", true}, {"elements", elements}};
+#else
+    // MinGW build - UIAutomation not available
+    return {
+        {"success", false},
+        {"error", "UIAutomation not available in this build. Use screenshot-based element detection."},
+        {"elements", json::array()}
+    };
+#endif
 }
 
 json UIAutomation::getUIElements()
@@ -214,7 +246,7 @@ json UIAutomation::focusWindow(const std::string& title, HWND hwnd)
 
     for (const auto& win : windows)
     {
-        std::string winTitle(win.title.begin(), win.title.end());
+        std::string winTitle = wstringToUtf8(win.title);
         if (winTitle.find(title) != std::string::npos)
         {
             SetForegroundWindow(win.hwnd);
@@ -279,8 +311,8 @@ json UIAutomation::getActiveWindow()
     return {
         {"success", true},
         {"hwnd", reinterpret_cast<uintptr_t>(hwnd)},
-        {"title", std::string(wtitle.begin(), wtitle.end())},
-        {"className", std::string(wclassName.begin(), wclassName.end())},
+        {"title", wstringToUtf8(wtitle)},
+        {"className", wstringToUtf8(wclassName)},
         {"x", rect.left},
         {"y", rect.top},
         {"width", rect.right - rect.left},

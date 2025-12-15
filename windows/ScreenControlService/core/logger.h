@@ -36,7 +36,7 @@ private:
     void log(const std::wstring& level, const std::wstring& message);
     std::wstring getTimestamp();
 
-    std::wofstream m_file;
+    std::ofstream m_file;  // Use narrow ofstream for MinGW compatibility
     std::mutex m_mutex;
     bool m_initialized{false};
 };
