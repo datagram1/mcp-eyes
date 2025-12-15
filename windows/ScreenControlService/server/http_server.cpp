@@ -20,6 +20,50 @@ using json = nlohmann::json;
 namespace ScreenControl
 {
 
+// GUI Bridge port - tray app handles GUI operations in user session
+static const int GUI_BRIDGE_PORT = 3457;
+
+// Helper function to proxy requests to GUI bridge
+static bool proxyToGuiBridge(const std::string& endpoint, const std::string& body,
+                              httplib::Response& res, bool isPost = true)
+{
+    httplib::Client client("127.0.0.1", GUI_BRIDGE_PORT);
+    client.set_connection_timeout(5);
+    client.set_read_timeout(30);
+
+    httplib::Result proxyRes;
+    if (isPost)
+    {
+        proxyRes = client.Post(endpoint, body, "application/json");
+    }
+    else
+    {
+        proxyRes = client.Get(endpoint);
+    }
+
+    if (proxyRes)
+    {
+        res.status = proxyRes->status;
+        std::string contentType = proxyRes->get_header_value("Content-Type");
+        if (contentType.empty())
+        {
+            contentType = "application/json";
+        }
+        res.set_content(proxyRes->body, contentType);
+        return true;
+    }
+    else
+    {
+        json error = {
+            {"success", false},
+            {"error", "GUI bridge not available. Make sure ScreenControlTray is running."}
+        };
+        res.status = 502;
+        res.set_content(error.dump(), "application/json");
+        return false;
+    }
+}
+
 HttpServer::HttpServer()
     : m_server(std::make_unique<httplib::Server>())
 {
@@ -231,22 +275,14 @@ void HttpServer::setupRoutes()
     Logger::getInstance().info(L"HTTP routes configured");
 }
 
-// GUI Tool handlers
+// GUI Tool handlers - proxied to GUI Bridge in tray app (user session)
 void HttpServer::handleScreenshot(const void* reqPtr, void* resPtr)
 {
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto result = GuiTools::screenshot();
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    // Proxy to GUI bridge in tray app
+    proxyToGuiBridge("/screenshot", req.body, res);
 }
 
 void HttpServer::handleClick(const void* reqPtr, void* resPtr)
@@ -254,21 +290,7 @@ void HttpServer::handleClick(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int x = params.value("x", 0);
-        int y = params.value("y", 0);
-
-        auto result = GuiTools::click(x, y);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/click", req.body, res);
 }
 
 void HttpServer::handleDoubleClick(const void* reqPtr, void* resPtr)
@@ -276,21 +298,7 @@ void HttpServer::handleDoubleClick(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int x = params.value("x", 0);
-        int y = params.value("y", 0);
-
-        auto result = GuiTools::doubleClick(x, y);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/doubleClick", req.body, res);
 }
 
 void HttpServer::handleRightClick(const void* reqPtr, void* resPtr)
@@ -298,21 +306,7 @@ void HttpServer::handleRightClick(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int x = params.value("x", 0);
-        int y = params.value("y", 0);
-
-        auto result = GuiTools::rightClick(x, y);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/rightClick", req.body, res);
 }
 
 void HttpServer::handlePressKey(const void* reqPtr, void* resPtr)
@@ -320,21 +314,7 @@ void HttpServer::handlePressKey(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        std::string key = params.value("key", "");
-        auto modifiers = params.value("modifiers", std::vector<std::string>{});
-
-        auto result = GuiTools::pressKey(key, modifiers);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/pressKey", req.body, res);
 }
 
 void HttpServer::handleTypeText(const void* reqPtr, void* resPtr)
@@ -342,20 +322,7 @@ void HttpServer::handleTypeText(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        std::string text = params.value("text", "");
-
-        auto result = GuiTools::typeText(text);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/typeText", req.body, res);
 }
 
 void HttpServer::handleScroll(const void* reqPtr, void* resPtr)
@@ -363,21 +330,7 @@ void HttpServer::handleScroll(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int deltaX = params.value("deltaX", 0);
-        int deltaY = params.value("deltaY", 0);
-
-        auto result = GuiTools::scroll(deltaX, deltaY);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/scroll", req.body, res);
 }
 
 void HttpServer::handleDrag(const void* reqPtr, void* resPtr)
@@ -385,23 +338,7 @@ void HttpServer::handleDrag(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int startX = params.value("startX", 0);
-        int startY = params.value("startY", 0);
-        int endX = params.value("endX", 0);
-        int endY = params.value("endY", 0);
-
-        auto result = GuiTools::drag(startX, startY, endX, endY);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/drag", req.body, res);
 }
 
 // UI Automation handlers
@@ -441,19 +378,10 @@ void HttpServer::handleGetUIElements(const void* reqPtr, void* resPtr)
 
 void HttpServer::handleGetWindowList(const void* reqPtr, void* resPtr)
 {
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto result = UIAutomation::getWindowList();
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/getWindowList", req.body, res);
 }
 
 void HttpServer::handleFocusWindow(const void* reqPtr, void* resPtr)
@@ -461,21 +389,7 @@ void HttpServer::handleFocusWindow(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        std::string title = params.value("title", "");
-        HWND hwnd = params.contains("hwnd") ? reinterpret_cast<HWND>(params["hwnd"].get<uintptr_t>()) : nullptr;
-
-        auto result = UIAutomation::focusWindow(title, hwnd);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/focusWindow", req.body, res);
 }
 
 // Filesystem handlers
@@ -840,19 +754,10 @@ void HttpServer::handleSystemInfo(const void* reqPtr, void* resPtr)
 
 void HttpServer::handleClipboardRead(const void* reqPtr, void* resPtr)
 {
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto result = SystemTools::clipboardRead();
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/clipboard/read", "", res, false);  // GET request
 }
 
 void HttpServer::handleClipboardWrite(const void* reqPtr, void* resPtr)
@@ -860,20 +765,7 @@ void HttpServer::handleClipboardWrite(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        std::string text = params.value("text", "");
-
-        auto result = SystemTools::clipboardWrite(text);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/clipboard/write", req.body, res);
 }
 
 void HttpServer::handleWait(const void* reqPtr, void* resPtr)
@@ -897,44 +789,21 @@ void HttpServer::handleWait(const void* reqPtr, void* resPtr)
     }
 }
 
-// Mouse tool handlers
+// Mouse tool handlers - proxied to GUI Bridge
 void HttpServer::handleMouseMove(const void* reqPtr, void* resPtr)
 {
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int x = params.value("x", 0);
-        int y = params.value("y", 0);
-
-        auto result = GuiTools::moveMouse(x, y);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/moveMouse", req.body, res);
 }
 
 void HttpServer::handleMousePosition(const void* reqPtr, void* resPtr)
 {
+    auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto result = GuiTools::getCursorPosition();
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/mousePosition", "", res, false);  // GET request
 }
 
 void HttpServer::handleMouseScroll(const void* reqPtr, void* resPtr)
@@ -942,21 +811,7 @@ void HttpServer::handleMouseScroll(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int deltaX = params.value("deltaX", 0);
-        int deltaY = params.value("deltaY", 0);
-
-        auto result = GuiTools::scroll(deltaX, deltaY);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/scroll", req.body, res);
 }
 
 void HttpServer::handleMouseDrag(const void* reqPtr, void* resPtr)
@@ -964,23 +819,7 @@ void HttpServer::handleMouseDrag(const void* reqPtr, void* resPtr)
     auto& req = *static_cast<const httplib::Request*>(reqPtr);
     auto& res = *static_cast<httplib::Response*>(resPtr);
 
-    try
-    {
-        auto params = json::parse(req.body);
-        int startX = params.value("startX", 0);
-        int startY = params.value("startY", 0);
-        int endX = params.value("endX", 0);
-        int endY = params.value("endY", 0);
-
-        auto result = GuiTools::drag(startX, startY, endX, endY);
-        res.set_content(result.dump(), "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        json error = {{"success", false}, {"error", e.what()}};
-        res.status = 500;
-        res.set_content(error.dump(), "application/json");
-    }
+    proxyToGuiBridge("/drag", req.body, res);
 }
 
 } // namespace ScreenControl

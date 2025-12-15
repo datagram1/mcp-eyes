@@ -21,6 +21,7 @@ namespace ScreenControlTray
         private readonly System.Windows.Forms.Timer _statusTimer;
         private SettingsForm? _settingsForm;
         private bool _isConnected;
+        private GUIBridgeServer? _guiBridgeServer;
 
 #if DEBUG
         private TestServer? _testServer;
@@ -77,6 +78,17 @@ namespace ScreenControlTray
             };
             _statusTimer.Tick += OnStatusTimerTick;
             _statusTimer.Start();
+
+            // Start GUI Bridge Server (always, for service proxy)
+            _guiBridgeServer = new GUIBridgeServer();
+            if (_guiBridgeServer.Start(3457))
+            {
+                Console.WriteLine("[TrayApp] GUI Bridge Server started on port 3457");
+            }
+            else
+            {
+                Console.WriteLine("[TrayApp] Warning: GUI Bridge Server failed to start");
+            }
 
             // Initial status check
             _ = CheckServiceStatusAsync();
@@ -302,6 +314,10 @@ namespace ScreenControlTray
         {
             if (disposing)
             {
+                // Stop GUI Bridge Server
+                _guiBridgeServer?.Stop();
+                _guiBridgeServer?.Dispose();
+
 #if DEBUG
                 _testServer?.Stop();
                 _testServer?.Dispose();

@@ -75,6 +75,14 @@ export default function AgentsPage() {
   const [osFilter, setOsFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Display name preference
+  const [nameDisplay, setNameDisplay] = useState<'friendly' | 'machine' | 'both'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('agentNameDisplay') as 'friendly' | 'machine' | 'both') || 'friendly';
+    }
+    return 'friendly';
+  });
+
   // Action loading states
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -144,6 +152,27 @@ export default function AgentsPage() {
     return date.toLocaleDateString();
   };
 
+  const formatAgentName = (agent: Agent) => {
+    const friendlyName = agent.displayName || agent.hostname;
+    const machineName = agent.hostname;
+
+    switch (nameDisplay) {
+      case 'friendly':
+        return friendlyName;
+      case 'machine':
+        return machineName;
+      case 'both':
+        return agent.displayName ? `${agent.displayName} <${machineName}>` : machineName;
+      default:
+        return friendlyName;
+    }
+  };
+
+  const handleNameDisplayChange = (value: 'friendly' | 'machine' | 'both') => {
+    setNameDisplay(value);
+    localStorage.setItem('agentNameDisplay', value);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -196,7 +225,7 @@ export default function AgentsPage() {
 
       {/* Filters */}
       <div className="bg-slate-800 rounded-lg p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-slate-400 text-sm mb-1">Search</label>
             <input
@@ -246,6 +275,18 @@ export default function AgentsPage() {
               <option value="LINUX">Linux</option>
             </select>
           </div>
+          <div>
+            <label className="block text-slate-400 text-sm mb-1">Name Display</label>
+            <select
+              value={nameDisplay}
+              onChange={(e) => handleNameDisplayChange(e.target.value as 'friendly' | 'machine' | 'both')}
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="friendly">Friendly Name</option>
+              <option value="machine">Machine Name</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -293,7 +334,7 @@ export default function AgentsPage() {
                       <span className="text-2xl">{osIcons[agent.osType] || '💻'}</span>
                       <div>
                         <div className="text-white font-medium hover:text-blue-400">
-                          {agent.displayName || agent.hostname}
+                          {formatAgentName(agent)}
                         </div>
                         <div className="text-slate-400 text-sm">
                           {agent.osType} {agent.osVersion || ''} • {agent.arch || 'unknown'}

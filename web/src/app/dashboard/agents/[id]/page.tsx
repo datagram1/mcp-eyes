@@ -77,6 +77,14 @@ export default function AgentDetailPage({ params }: PageProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showResetSecretModal, setShowResetSecretModal] = useState(false);
 
+  // Display name preference
+  const [nameDisplay, setNameDisplay] = useState<'friendly' | 'machine' | 'both'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('agentNameDisplay') as 'friendly' | 'machine' | 'both') || 'friendly';
+    }
+    return 'friendly';
+  });
+
   const fetchAgent = async () => {
     try {
       const res = await fetch(`/api/agents/${id}`);
@@ -199,6 +207,28 @@ export default function AgentDetailPage({ params }: PageProps) {
     return `${Math.floor(diff / 86400000)} days ago`;
   };
 
+  const formatAgentName = () => {
+    if (!agent) return '';
+    const friendlyName = agent.displayName || agent.hostname;
+    const machineName = agent.hostname;
+
+    switch (nameDisplay) {
+      case 'friendly':
+        return friendlyName;
+      case 'machine':
+        return machineName;
+      case 'both':
+        return agent.displayName ? `${agent.displayName} <${machineName}>` : machineName;
+      default:
+        return friendlyName;
+    }
+  };
+
+  const handleNameDisplayChange = (value: 'friendly' | 'machine' | 'both') => {
+    setNameDisplay(value);
+    localStorage.setItem('agentNameDisplay', value);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -258,7 +288,7 @@ export default function AgentDetailPage({ params }: PageProps) {
                 onClick={() => setEditMode(true)}
                 title="Click to edit label"
               >
-                {agent.displayName || agent.hostname}
+                {formatAgentName()}
               </h1>
             )}
             <p className="text-slate-400 text-sm">
@@ -269,7 +299,7 @@ export default function AgentDetailPage({ params }: PageProps) {
       </div>
 
       {/* Status Badges */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 items-center">
         <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-white ${statusColors[agent.status]}`}>
           {agent.status === 'ONLINE' && (
             <span className="w-2 h-2 bg-white rounded-full mr-2 animate-pulse"></span>
@@ -287,6 +317,18 @@ export default function AgentDetailPage({ params }: PageProps) {
             🔒 Screen Locked
           </span>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          <label className="text-slate-400 text-sm">Name Display:</label>
+          <select
+            value={nameDisplay}
+            onChange={(e) => handleNameDisplayChange(e.target.value as 'friendly' | 'machine' | 'both')}
+            className="px-3 py-1 bg-slate-700 border border-slate-600 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+          >
+            <option value="friendly">Friendly Name</option>
+            <option value="machine">Machine Name</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
       </div>
 
       {/* Action Buttons */}

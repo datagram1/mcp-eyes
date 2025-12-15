@@ -28,7 +28,7 @@ namespace ScreenControlTray
     {
         private ClientWebSocket? _webSocket;
         private CancellationTokenSource? _cts;
-        private Timer? _heartbeatTimer;
+        private System.Threading.Timer? _heartbeatTimer;
         private bool _isConnected;
         private bool _isDisposed;
 
@@ -301,7 +301,7 @@ namespace ScreenControlTray
         private void StartHeartbeat(int intervalMs)
         {
             StopHeartbeat();
-            _heartbeatTimer = new Timer(
+            _heartbeatTimer = new System.Threading.Timer(
                 async _ => await SendHeartbeatAsync(),
                 null,
                 intervalMs,

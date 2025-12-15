@@ -55,18 +55,70 @@ namespace ScreenControlTray
         private TextBox _debugLogTextBox;
         private WebSocketClient? _webSocketClient;
 
+        // Tools tab
+        private Panel _toolsPanel;
+        private Dictionary<string, Dictionary<string, bool>> _toolsConfig;
+        private Dictionary<string, CheckBox> _categoryCheckboxes = new();
+        private Dictionary<string, Dictionary<string, CheckBox>> _toolCheckboxes = new();
+        private bool _suppressCheckboxEvents;
+
+        // Tool definitions - matches macOS implementation
+        private static readonly Dictionary<string, (string Name, string[] Tools)> ToolCategories = new()
+        {
+            ["gui"] = ("GUI & Accessibility", new[]
+            {
+                "listApplications", "focusApplication", "launchApplication", "screenshot",
+                "screenshot_app", "click", "click_absolute", "doubleClick", "clickElement",
+                "moveMouse", "scroll", "scrollMouse", "drag", "getClickableElements",
+                "getUIElements", "getMousePosition", "typeText", "pressKey", "analyzeWithOCR",
+                "checkPermissions", "closeApp", "wait", "system_info", "window_list",
+                "clipboard_read", "clipboard_write"
+            }),
+            ["browser"] = ("Browser Automation", new[]
+            {
+                "browser_listConnected", "browser_setDefaultBrowser", "browser_getTabs",
+                "browser_getActiveTab", "browser_focusTab", "browser_createTab", "browser_closeTab",
+                "browser_getPageInfo", "browser_inspectCurrentPage", "browser_getInteractiveElements",
+                "browser_getPageContext", "browser_clickElement", "browser_fillElement",
+                "browser_fillFormField", "browser_fillWithFallback", "browser_fillFormNative",
+                "browser_scrollTo", "browser_executeScript", "browser_getFormData",
+                "browser_setWatchMode", "browser_getVisibleText", "browser_searchVisibleText",
+                "browser_getUIElements", "browser_waitForSelector", "browser_waitForPageLoad",
+                "browser_selectOption", "browser_isElementVisible", "browser_getConsoleLogs",
+                "browser_getNetworkRequests", "browser_getLocalStorage", "browser_getCookies",
+                "browser_clickByText", "browser_clickMultiple", "browser_getFormStructure",
+                "browser_answerQuestions", "browser_getDropdownOptions", "browser_openDropdownNative",
+                "browser_listInteractiveElements", "browser_clickElementWithDebug",
+                "browser_findElementWithDebug", "browser_findTabByUrl", "browser_navigate",
+                "browser_screenshot", "browser_go_back", "browser_go_forward",
+                "browser_get_visible_html", "browser_hover", "browser_drag", "browser_press_key",
+                "browser_upload_file", "browser_save_as_pdf"
+            }),
+            ["filesystem"] = ("File System", new[]
+            {
+                "fs_list", "fs_read", "fs_read_range", "fs_write", "fs_delete",
+                "fs_move", "fs_search", "fs_grep", "fs_patch"
+            }),
+            ["shell"] = ("Shell Commands", new[]
+            {
+                "shell_exec", "shell_start_session", "shell_send_input", "shell_stop_session"
+            })
+        };
+
         public SettingsForm(ServiceClient serviceClient)
         {
             _serviceClient = serviceClient;
+            _toolsConfig = new Dictionary<string, Dictionary<string, bool>>();
             InitializeComponent();
             LoadDebugConfig();
+            LoadToolsConfig();
             _ = LoadDataAsync();
         }
 
         private void InitializeComponent()
         {
             Text = "ScreenControl Settings";
-            Size = new Size(450, 400);
+            Size = new Size(500, 550);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -92,6 +144,11 @@ namespace ScreenControlTray
             var settingsTab = new TabPage("Settings");
             InitializeSettingsTab(settingsTab);
             _tabControl.TabPages.Add(settingsTab);
+
+            // Tools Tab
+            var toolsTab = new TabPage("Tools");
+            InitializeToolsTab(toolsTab);
+            _tabControl.TabPages.Add(toolsTab);
 
             // Debug Tab
             var debugTab = new TabPage("Debug");
@@ -228,6 +285,287 @@ namespace ScreenControlTray
 
             tab.Controls.Add(panel);
         }
+
+        private void InitializeToolsTab(TabPage tab)
+        {
+            // Create scrollable panel for tools
+            _toolsPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                Padding = new Padding(10)
+            };
+
+            var contentPanel = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Width = 440
+            };
+
+            // Create category groups
+            foreach (var categoryEntry in ToolCategories)
+            {
+                var categoryId = categoryEntry.Key;
+                var (categoryName, tools) = categoryEntry.Value;
+
+                var categoryGroup = new GroupBox
+                {
+                    Text = categoryName,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    Width = 430,
+                    Margin = new Padding(0, 0, 0, 10),
+                    Padding = new Padding(10, 5, 10, 10)
+                };
+
+                var categoryContent = new FlowLayoutPanel
+                {
+                    FlowDirection = FlowDirection.TopDown,
+                    WrapContents = false,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    Dock = DockStyle.Fill
+                };
+
+                // Category master checkbox
+                var categoryCheckbox = new CheckBox
+                {
+                    Text = "Enable All",
+                    AutoSize = true,
+                    Font = new Font(Font, FontStyle.Bold),
+                    Margin = new Padding(0, 5, 0, 5),
+                    Tag = categoryId
+                };
+                categoryCheckbox.CheckedChanged += OnCategoryCheckboxChanged;
+                _categoryCheckboxes[categoryId] = categoryCheckbox;
+                categoryContent.Controls.Add(categoryCheckbox);
+
+                // Individual tool checkboxes
+                _toolCheckboxes[categoryId] = new Dictionary<string, CheckBox>();
+                foreach (var tool in tools)
+                {
+                    var toolCheckbox = new CheckBox
+                    {
+                        Text = tool,
+                        AutoSize = true,
+                        Margin = new Padding(20, 2, 0, 2),
+                        Tag = (categoryId, tool)
+                    };
+                    toolCheckbox.CheckedChanged += OnToolCheckboxChanged;
+                    _toolCheckboxes[categoryId][tool] = toolCheckbox;
+                    categoryContent.Controls.Add(toolCheckbox);
+                }
+
+                categoryGroup.Controls.Add(categoryContent);
+                contentPanel.Controls.Add(categoryGroup);
+            }
+
+            _toolsPanel.Controls.Add(contentPanel);
+            tab.Controls.Add(_toolsPanel);
+
+            // Apply loaded config to checkboxes
+            UpdateToolsCheckboxes();
+        }
+
+        #region Tools Tab Methods
+
+        private string GetToolsConfigPath()
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var configDir = Path.Combine(appData, "ScreenControl");
+            Directory.CreateDirectory(configDir);
+            return Path.Combine(configDir, "tools-config.json");
+        }
+
+        private void LoadToolsConfig()
+        {
+            try
+            {
+                var configPath = GetToolsConfigPath();
+                if (File.Exists(configPath))
+                {
+                    var json = File.ReadAllText(configPath);
+                    var loaded = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, bool>>>(json);
+                    if (loaded != null)
+                    {
+                        _toolsConfig = loaded;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to load tools config: {ex.Message}");
+            }
+
+            // Ensure all categories and tools exist with defaults
+            EnsureAllToolsExist();
+        }
+
+        private void EnsureAllToolsExist()
+        {
+            foreach (var categoryEntry in ToolCategories)
+            {
+                var categoryId = categoryEntry.Key;
+                var (_, tools) = categoryEntry.Value;
+
+                if (!_toolsConfig.ContainsKey(categoryId))
+                {
+                    _toolsConfig[categoryId] = new Dictionary<string, bool>();
+                }
+
+                foreach (var tool in tools)
+                {
+                    if (!_toolsConfig[categoryId].ContainsKey(tool))
+                    {
+                        _toolsConfig[categoryId][tool] = true; // Default to enabled
+                    }
+                }
+            }
+        }
+
+        private void SaveToolsConfig()
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(_toolsConfig, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(GetToolsConfigPath(), json);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to save tools config: {ex.Message}");
+            }
+        }
+
+        private void UpdateToolsCheckboxes()
+        {
+            _suppressCheckboxEvents = true;
+            try
+            {
+                foreach (var categoryEntry in ToolCategories)
+                {
+                    var categoryId = categoryEntry.Key;
+                    var (_, tools) = categoryEntry.Value;
+
+                    if (!_toolsConfig.ContainsKey(categoryId)) continue;
+                    if (!_categoryCheckboxes.ContainsKey(categoryId)) continue;
+                    if (!_toolCheckboxes.ContainsKey(categoryId)) continue;
+
+                    // Update individual tool checkboxes
+                    bool allEnabled = true;
+                    bool anyEnabled = false;
+
+                    foreach (var tool in tools)
+                    {
+                        if (_toolsConfig[categoryId].TryGetValue(tool, out var enabled) &&
+                            _toolCheckboxes[categoryId].TryGetValue(tool, out var checkbox))
+                        {
+                            checkbox.Checked = enabled;
+                            if (enabled) anyEnabled = true;
+                            else allEnabled = false;
+                        }
+                    }
+
+                    // Update category checkbox state
+                    var catCheckbox = _categoryCheckboxes[categoryId];
+                    catCheckbox.Checked = allEnabled || anyEnabled;
+                    catCheckbox.CheckState = allEnabled ? CheckState.Checked :
+                                             anyEnabled ? CheckState.Indeterminate :
+                                             CheckState.Unchecked;
+                }
+            }
+            finally
+            {
+                _suppressCheckboxEvents = false;
+            }
+        }
+
+        private void OnCategoryCheckboxChanged(object? sender, EventArgs e)
+        {
+            if (_suppressCheckboxEvents) return;
+            if (sender is not CheckBox checkbox) return;
+            if (checkbox.Tag is not string categoryId) return;
+
+            var isChecked = checkbox.Checked;
+
+            // Update all tools in this category
+            if (_toolsConfig.ContainsKey(categoryId) && _toolCheckboxes.ContainsKey(categoryId))
+            {
+                _suppressCheckboxEvents = true;
+                try
+                {
+                    foreach (var tool in _toolsConfig[categoryId].Keys.ToArray())
+                    {
+                        _toolsConfig[categoryId][tool] = isChecked;
+                        if (_toolCheckboxes[categoryId].TryGetValue(tool, out var toolCheckbox))
+                        {
+                            toolCheckbox.Checked = isChecked;
+                        }
+                    }
+                }
+                finally
+                {
+                    _suppressCheckboxEvents = false;
+                }
+
+                SaveToolsConfig();
+            }
+        }
+
+        private void OnToolCheckboxChanged(object? sender, EventArgs e)
+        {
+            if (_suppressCheckboxEvents) return;
+            if (sender is not CheckBox checkbox) return;
+            if (checkbox.Tag is not (string categoryId, string tool)) return;
+
+            var isChecked = checkbox.Checked;
+
+            // Update config
+            if (_toolsConfig.ContainsKey(categoryId))
+            {
+                _toolsConfig[categoryId][tool] = isChecked;
+                SaveToolsConfig();
+
+                // Update category checkbox state
+                UpdateCategoryCheckboxState(categoryId);
+            }
+        }
+
+        private void UpdateCategoryCheckboxState(string categoryId)
+        {
+            if (!_categoryCheckboxes.TryGetValue(categoryId, out var catCheckbox)) return;
+            if (!_toolsConfig.TryGetValue(categoryId, out var tools)) return;
+
+            bool allEnabled = tools.Values.All(v => v);
+            bool anyEnabled = tools.Values.Any(v => v);
+
+            _suppressCheckboxEvents = true;
+            try
+            {
+                catCheckbox.CheckState = allEnabled ? CheckState.Checked :
+                                         anyEnabled ? CheckState.Indeterminate :
+                                         CheckState.Unchecked;
+            }
+            finally
+            {
+                _suppressCheckboxEvents = false;
+            }
+        }
+
+        // Public method to check if a tool is enabled
+        public bool IsToolEnabled(string categoryId, string tool)
+        {
+            if (_toolsConfig.TryGetValue(categoryId, out var category) &&
+                category.TryGetValue(tool, out var enabled))
+            {
+                return enabled;
+            }
+            return true; // Default to enabled if not found
+        }
+
+        #endregion
 
         private void InitializeDebugTab(TabPage tab)
         {
