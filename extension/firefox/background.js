@@ -220,7 +220,8 @@ const browserAPI = (() => {
           case 'listInteractiveElements':
           case 'clickElementWithDebug':
           case 'findElementWithDebug':
-            result = await sendToContentScript(payload?.tabId, { action, payload });
+            // Support targeting by tabId OR url (url resolves to tab without switching)
+            result = await sendToContentScript({ tabId: payload?.tabId, url: payload?.url }, { action, payload });
             break;
 
           case 'findTabByUrl':
@@ -258,7 +259,8 @@ const browserAPI = (() => {
           case 'pressKey':
           case 'getVisibleHtml':
           case 'uploadFile':
-            result = await sendToContentScript(payload?.tabId, { action, payload });
+            // Support targeting by tabId OR url (url resolves to tab without switching)
+            result = await sendToContentScript({ tabId: payload?.tabId, url: payload?.url }, { action, payload });
             break;
 
           case 'saveAsPdf':
@@ -456,7 +458,8 @@ const browserAPI = (() => {
         case 'listInteractiveElements':
         case 'clickElementWithDebug':
         case 'findElementWithDebug':
-          response = await sendToContentScript(tabId, { action, payload });
+          // Support targeting by tabId OR url (url resolves to tab without switching)
+          response = await sendToContentScript({ tabId, url: payload?.url }, { action, payload });
           break;
 
         case 'startWatching':
@@ -516,7 +519,8 @@ const browserAPI = (() => {
         case 'pressKey':
         case 'getVisibleHtml':
         case 'uploadFile':
-          response = await sendToContentScript(tabId, { action, payload });
+          // Support targeting by tabId OR url (url resolves to tab without switching)
+          response = await sendToContentScript({ tabId, url: payload?.url }, { action, payload });
           break;
 
         case 'saveAsPdf':
@@ -638,11 +642,81 @@ const browserAPI = (() => {
   }
 
   /**
+   * Resolve a URL to a tab ID without switching tabs
+   * Returns the first matching tab's ID, or null if not found
+   */
+  async function resolveUrlToTabId(url) {
+    if (!url) return null;
+
+    try {
+      const tabs = await browserAPI.tabs.query({});
+      if (!tabs || !Array.isArray(tabs)) return null;
+
+      const lowerUrl = url.toLowerCase();
+
+      for (const tab of tabs) {
+        if (!tab.url) continue;
+        const lowerTabUrl = tab.url.toLowerCase();
+
+        // Exact match
+        if (lowerTabUrl === lowerUrl) {
+          return tab.id;
+        }
+        // Substring match (for partial URLs)
+        if (lowerTabUrl.includes(lowerUrl) || lowerUrl.includes(lowerTabUrl.split('?')[0])) {
+          return tab.id;
+        }
+        // Match without query params and fragments
+        try {
+          const targetUrl = new URL(url);
+          const tabUrl = new URL(tab.url);
+          if (targetUrl.origin === tabUrl.origin && targetUrl.pathname === tabUrl.pathname) {
+            return tab.id;
+          }
+        } catch (e) {
+          // Invalid URL, continue
+        }
+      }
+
+      return null;
+    } catch (err) {
+      console.error('[ScreenControl] resolveUrlToTabId error:', err);
+      return null;
+    }
+  }
+
+  /**
    * Send message to content script in a specific tab
+   * Supports targeting by tabId OR url (url will be resolved to tabId without switching tabs)
    * For commands that need iframe support, use sendToAllFramesAndAggregate
    */
-  function sendToContentScript(tabId, message) {
-    return new Promise((resolve, reject) => {
+  function sendToContentScript(tabIdOrOptions, message) {
+    return new Promise(async (resolve, reject) => {
+      // Handle both old signature (tabId, message) and new options object
+      let tabId = null;
+      let url = null;
+
+      if (typeof tabIdOrOptions === 'object' && tabIdOrOptions !== null && !Array.isArray(tabIdOrOptions)) {
+        // New options format: { tabId, url }
+        tabId = tabIdOrOptions.tabId;
+        url = tabIdOrOptions.url;
+      } else {
+        // Old format: just tabId (number or null)
+        tabId = tabIdOrOptions;
+      }
+
+      // If URL provided but no tabId, resolve URL to tabId
+      if (!tabId && url) {
+        const resolvedTabId = await resolveUrlToTabId(url);
+        if (resolvedTabId) {
+          console.log(`[ScreenControl] Resolved URL "${url}" to tab ${resolvedTabId}`);
+          tabId = resolvedTabId;
+        } else {
+          reject(new Error(`No tab found matching URL: ${url}`));
+          return;
+        }
+      }
+
       const sendMessage = (targetTabId) => {
         // Commands that need to aggregate results from all frames
         const aggregateCommands = [

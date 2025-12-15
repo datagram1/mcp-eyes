@@ -11,7 +11,7 @@ const path = require('path');
 console.log('🧪 Testing MCP Proxy Server Tool Exposure\n');
 
 // Start the proxy server
-const proxyServer = spawn('node', [path.join(__dirname, '..', 'dist', 'mcp-proxy-server.js')], {
+const proxyServer = spawn('node', [path.join(__dirname, '..', 'dist', 'screencontrol-mcp.js')], {
   stdio: ['pipe', 'pipe', 'pipe']
 });
 

@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 
 /**
- * MCP Proxy Server for MCP-Eyes
+ * ScreenControl MCP Server
  *
  * This is a lightweight MCP server that proxies requests to the HTTP server.
  * The HTTP server runs with proper accessibility permissions (macOS app or LaunchAgent).
- * This proxy reads the API token from ~/.mcp-eyes-token and forwards requests.
+ * This proxy reads the API token from ~/.screencontrol-token and forwards requests.
  *
  * ARCHITECTURE:
- *   Cursor/Claude Desktop (stdio) → mcp-proxy-server (stdio) → macOS App HTTP Server (port 3456)
+ *   Cursor/Claude Desktop (stdio) → screencontrol-mcp (stdio) → macOS App HTTP Server (port 3456)
  *
  * CONFIGURATION OPTIONS:
  *
  * 1. NPX (Recommended - auto-updates):
  *    {
  *      "mcpServers": {
- *        "mcp-eyes": {
+ *        "screencontrol": {
  *          "command": "npx",
- *          "args": ["-y", "mcp-eyes@latest", "mcp-proxy-server"]
+ *          "args": ["-y", "screencontrol@latest", "screencontrol-mcp"]
  *        }
  *      }
  *    }
@@ -25,9 +25,9 @@
  * 2. Local File Installation (for Cursor):
  *    {
  *      "mcpServers": {
- *        "mcp-eyes": {
+ *        "screencontrol": {
  *          "command": "node",
- *          "args": ["/absolute/path/to/mcp-eyes/dist/mcp-proxy-server.js"]
+ *          "args": ["/absolute/path/to/screen_control/dist/screencontrol-mcp.js"]
  *        }
  *      }
  *    }
@@ -35,17 +35,17 @@
  * 3. Claude Desktop (local file):
  *    {
  *      "mcpServers": {
- *        "mcp-eyes": {
+ *        "screencontrol": {
  *          "command": "node",
- *          "args": ["/path/to/mcp-eyes/dist/mcp-proxy-server.js"]
+ *          "args": ["/path/to/screen_control/dist/screencontrol-mcp.js"]
  *        }
  *      }
  *    }
  *
  * PREREQUISITES:
- * - macOS App (MCPEyes.app) must be running and serving HTTP on port 3456
+ * - macOS App (ScreenControl.app) must be running and serving HTTP on port 3456
  * - OR Node.js HTTP server must be running (via LaunchAgent or manually)
- * - Token file ~/.mcp-eyes-token must exist (created by the HTTP server)
+ * - Token file ~/.screencontrol-token must exist (created by the HTTP server)
  *
  * The proxy automatically reads the token file to authenticate with the HTTP backend.
  */
@@ -64,7 +64,7 @@ import { promisify } from 'util';
 import { ToolRegistry } from './tool-registry';
 
 // NOTE: FilesystemTools and ShellTools are no longer imported here.
-// The proxy now relays these to the MCPEyes.app HTTP server which has native implementations.
+// The proxy now relays these to the ScreenControl.app HTTP server which has native implementations.
 
 const execAsync = promisify(exec);
 
@@ -116,7 +116,7 @@ async function httpRequest(
       res.on('end', () => {
         try {
           if (res.statusCode === 401) {
-            reject(new Error('Unauthorized: API key may have changed. Restart MCP-Eyes HTTP server.'));
+            reject(new Error('Unauthorized: API key may have changed. Restart ScreenControl HTTP server.'));
             return;
           }
           if (res.statusCode !== 200) {
@@ -131,7 +131,7 @@ async function httpRequest(
     });
 
     req.on('error', (e) => {
-      reject(new Error(`Connection failed: ${e.message}. Is MCP-Eyes HTTP server running?`));
+      reject(new Error(`Connection failed: ${e.message}. Is ScreenControl HTTP server running?`));
     });
 
     if (bodyStr) {
@@ -145,15 +145,15 @@ class MCPProxyServer {
   private server: Server;
   private config: TokenConfig | null = null;
   private toolRegistry: ToolRegistry;
-  // NOTE: filesystemTools and shellTools removed - now proxied to MCPEyes.app HTTP server
+  // NOTE: filesystemTools and shellTools removed - now proxied to ScreenControl.app HTTP server
 
   constructor() {
     this.server = new Server({
-      name: 'mcp-eyes-proxy',
+      name: 'screencontrol-proxy',
       version: '1.1.15',
     });
 
-    // Initialize tool registry (tools are now proxied to MCPEyes.app)
+    // Initialize tool registry (tools are now proxied to ScreenControl.app)
     this.toolRegistry = new ToolRegistry();
 
     // Register all tools
@@ -180,7 +180,7 @@ class MCPProxyServer {
     }
     if (!this.config) {
       throw new Error(
-        'MCP-Eyes HTTP server not running. Start it with: node dist/http-server.js\n' +
+        'ScreenControl HTTP server not running. Start it with: node dist/http-server.js\n' +
         'Or install as service: ./scripts/install-service.sh'
       );
     }
@@ -275,7 +275,7 @@ class MCPProxyServer {
       const escapedAppName = (appName || '').replace(/"/g, '\\"');
 
       // Prefer bundle identifier for targeting, fall back to application name if needed
-      const scriptFile = path.join(process.env.TMPDIR || '/tmp', `mcp-eyes-windows-${Date.now()}.scpt`);
+      const scriptFile = path.join(process.env.TMPDIR || '/tmp', `screencontrol-windows-${Date.now()}.scpt`);
       const fullScript = `tell application "System Events"
   set targetProc to missing value
   if "${escapedBundleId}" is not "" then
@@ -5846,7 +5846,7 @@ ${args?.includeScreenshot === true && result.screenshot ? '\n[Screenshot include
   }
 
   /**
-   * Handle filesystem tool calls - proxies to MCPEyes.app HTTP server
+   * Handle filesystem tool calls - proxies to ScreenControl.app HTTP server
    */
   private async handleFilesystemTool(name: string, args: any): Promise<any> {
     // Check if tool is enabled
@@ -5876,7 +5876,7 @@ ${args?.includeScreenshot === true && result.screenshot ? '\n[Screenshot include
         throw new Error(`Unknown filesystem tool: ${name}`);
       }
 
-      // Proxy to MCPEyes.app HTTP server
+      // Proxy to ScreenControl.app HTTP server
       const result = await this.proxyCall(endpoint, 'POST', args);
 
       if (result.error) {
@@ -5983,7 +5983,7 @@ ${args?.includeScreenshot === true && result.screenshot ? '\n[Screenshot include
   }
 
   /**
-   * Handle shell tool calls - proxies to MCPEyes.app HTTP server
+   * Handle shell tool calls - proxies to ScreenControl.app HTTP server
    */
   private async handleShellTool(name: string, args: any): Promise<any> {
     // Check if tool is enabled
@@ -6008,7 +6008,7 @@ ${args?.includeScreenshot === true && result.screenshot ? '\n[Screenshot include
         throw new Error(`Unknown shell tool: ${name}`);
       }
 
-      // Proxy to MCPEyes.app HTTP server
+      // Proxy to ScreenControl.app HTTP server
       const result = await this.proxyCall(endpoint, 'POST', args);
 
       if (result.error) {
@@ -6068,7 +6068,7 @@ ${args?.includeScreenshot === true && result.screenshot ? '\n[Screenshot include
   async run(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error('MCP-Eyes Proxy Server running...');
+    console.error('ScreenControl Proxy Server running...');
   }
 }
 

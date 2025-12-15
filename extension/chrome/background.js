@@ -220,7 +220,8 @@ const browserAPI = (() => {
           case 'listInteractiveElements':
           case 'clickElementWithDebug':
           case 'findElementWithDebug':
-            result = await sendToContentScript(payload?.tabId, { action, payload });
+            // Support targeting by tabId OR url (url resolves to tab without switching)
+            result = await sendToContentScript({ tabId: payload?.tabId, url: payload?.url }, { action, payload });
             break;
 
           case 'findTabByUrl':
@@ -258,7 +259,8 @@ const browserAPI = (() => {
           case 'pressKey':
           case 'getVisibleHtml':
           case 'uploadFile':
-            result = await sendToContentScript(payload?.tabId, { action, payload });
+            // Support targeting by tabId OR url (url resolves to tab without switching)
+            result = await sendToContentScript({ tabId: payload?.tabId, url: payload?.url }, { action, payload });
             break;
 
           case 'saveAsPdf':
@@ -456,7 +458,8 @@ const browserAPI = (() => {
         case 'listInteractiveElements':
         case 'clickElementWithDebug':
         case 'findElementWithDebug':
-          response = await sendToContentScript(tabId, { action, payload });
+          // Support targeting by tabId OR url (url resolves to tab without switching)
+          response = await sendToContentScript({ tabId, url: payload?.url }, { action, payload });
           break;
 
         case 'startWatching':
@@ -516,7 +519,8 @@ const browserAPI = (() => {
         case 'pressKey':
         case 'getVisibleHtml':
         case 'uploadFile':
-          response = await sendToContentScript(tabId, { action, payload });
+          // Support targeting by tabId OR url (url resolves to tab without switching)
+          response = await sendToContentScript({ tabId, url: payload?.url }, { action, payload });
           break;
 
         case 'saveAsPdf':
@@ -570,7 +574,19 @@ const browserAPI = (() => {
           // Promise-based (Firefox)
           result
             .then(response => resolve({ success: true, frameId, response }))
-            .catch(error => resolve({ success: false, frameId, error: error.message }));
+            .catch(error => {
+              // Enhance error message for CSP issues
+              if (error.message && error.message.includes('Receiving end does not exist')) {
+                resolve({
+                  success: false,
+                  frameId,
+                  error: error.message,
+                  cspRestricted: true
+                });
+              } else {
+                resolve({ success: false, frameId, error: error.message });
+              }
+            });
         } else {
           // Callback fallback
           resolve({ success: true, frameId, response: result });
@@ -626,11 +642,81 @@ const browserAPI = (() => {
   }
 
   /**
+   * Resolve a URL to a tab ID without switching tabs
+   * Returns the first matching tab's ID, or null if not found
+   */
+  async function resolveUrlToTabId(url) {
+    if (!url) return null;
+
+    try {
+      const tabs = await browserAPI.tabs.query({});
+      if (!tabs || !Array.isArray(tabs)) return null;
+
+      const lowerUrl = url.toLowerCase();
+
+      for (const tab of tabs) {
+        if (!tab.url) continue;
+        const lowerTabUrl = tab.url.toLowerCase();
+
+        // Exact match
+        if (lowerTabUrl === lowerUrl) {
+          return tab.id;
+        }
+        // Substring match (for partial URLs)
+        if (lowerTabUrl.includes(lowerUrl) || lowerUrl.includes(lowerTabUrl.split('?')[0])) {
+          return tab.id;
+        }
+        // Match without query params and fragments
+        try {
+          const targetUrl = new URL(url);
+          const tabUrl = new URL(tab.url);
+          if (targetUrl.origin === tabUrl.origin && targetUrl.pathname === tabUrl.pathname) {
+            return tab.id;
+          }
+        } catch (e) {
+          // Invalid URL, continue
+        }
+      }
+
+      return null;
+    } catch (err) {
+      console.error('[ScreenControl] resolveUrlToTabId error:', err);
+      return null;
+    }
+  }
+
+  /**
    * Send message to content script in a specific tab
+   * Supports targeting by tabId OR url (url will be resolved to tabId without switching tabs)
    * For commands that need iframe support, use sendToAllFramesAndAggregate
    */
-  function sendToContentScript(tabId, message) {
-    return new Promise((resolve, reject) => {
+  function sendToContentScript(tabIdOrOptions, message) {
+    return new Promise(async (resolve, reject) => {
+      // Handle both old signature (tabId, message) and new options object
+      let tabId = null;
+      let url = null;
+
+      if (typeof tabIdOrOptions === 'object' && tabIdOrOptions !== null && !Array.isArray(tabIdOrOptions)) {
+        // New options format: { tabId, url }
+        tabId = tabIdOrOptions.tabId;
+        url = tabIdOrOptions.url;
+      } else {
+        // Old format: just tabId (number or null)
+        tabId = tabIdOrOptions;
+      }
+
+      // If URL provided but no tabId, resolve URL to tabId
+      if (!tabId && url) {
+        const resolvedTabId = await resolveUrlToTabId(url);
+        if (resolvedTabId) {
+          console.log(`[ScreenControl] Resolved URL "${url}" to tab ${resolvedTabId}`);
+          tabId = resolvedTabId;
+        } else {
+          reject(new Error(`No tab found matching URL: ${url}`));
+          return;
+        }
+      }
+
       const sendMessage = (targetTabId) => {
         // Commands that need to aggregate results from all frames
         const aggregateCommands = [
@@ -680,7 +766,41 @@ const browserAPI = (() => {
         const result = browserAPI.tabs.sendMessage(targetTabId, message, { frameId: 0 });
         if (result && typeof result.then === 'function') {
           // Promise-based (Firefox)
-          result.then(resolve).catch(reject);
+          result.then(resolve).catch(async (error) => {
+            // Provide better error message for CSP-restricted pages
+            if (error.message && error.message.includes('Receiving end does not exist')) {
+              try {
+                const tab = await browserAPI.tabs.get(targetTabId);
+                const url = new URL(tab.url);
+                const hostname = url.hostname;
+
+                // List of known CSP-restricted domains
+                const restrictedDomains = ['youtube.com', 'google.com', 'gemini.google.com',
+                                          'docs.google.com', 'gmail.com', 'addons.mozilla.org',
+                                          'chrome.google.com'];
+
+                const isKnownRestricted = restrictedDomains.some(domain => hostname.includes(domain));
+
+                if (isKnownRestricted || url.protocol === 'file:' || hostname.startsWith('about:')) {
+                  reject(new Error(
+                    `Content script cannot run on ${hostname}. ` +
+                    `This page has Content Security Policy (CSP) restrictions that prevent browser extensions from accessing the page content. ` +
+                    `Please navigate to a different website to use interactive browser commands.`
+                  ));
+                } else {
+                  reject(new Error(
+                    `Content script is not available on this page (${hostname}). ` +
+                    `This may be due to CSP restrictions or the page hasn't fully loaded. ` +
+                    `Try refreshing the page or navigating to a different website.`
+                  ));
+                }
+              } catch (tabError) {
+                reject(error); // Fall back to original error
+              }
+            } else {
+              reject(error);
+            }
+          });
         } else {
           // Callback-based (Chrome) - but sendMessage is async in Chrome too
           // In Chrome MV3, sendMessage returns a Promise

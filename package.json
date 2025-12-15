@@ -2,10 +2,10 @@
   "name": "screencontrol",
   "version": "1.1.15",
   "description": "Multi-tenant SaaS platform enabling AI/LLM systems to control remote computers. Features cross-platform agents (macOS, Windows, Linux), centralized control server, and full MCP protocol support for Claude.ai, Open WebUI, and local LLMs.",
-  "main": "dist/mcp-proxy-server.js",
+  "main": "dist/screencontrol-mcp.js",
   "bin": {
-    "screencontrol": "./dist/mcp-proxy-server.js",
-    "screencontrol-proxy": "./dist/mcp-proxy-server.js",
+    "screencontrol": "./dist/screencontrol-mcp.js",
+    "screencontrol-proxy": "./dist/screencontrol-mcp.js",
     "screencontrol-agent": "./dist/agent-tools-server.js"
   },
   "scripts": {
@@ -13,8 +13,8 @@
     "postbuild": "node scripts/set-executable.js",
     "build:clean": "rimraf dist && npm run build",
     "dev": "tsc --watch",
-    "start": "node dist/mcp-proxy-server.js",
-    "start:proxy": "node dist/mcp-proxy-server.js",
+    "start": "node dist/screencontrol-mcp.js",
+    "start:proxy": "node dist/screencontrol-mcp.js",
     "start:agent": "node dist/agent-tools-server.js",
     "test": "node test/run-all-tests.js",
     "test:unit": "node test/run-all-tests.js",

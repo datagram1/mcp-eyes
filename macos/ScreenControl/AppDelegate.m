@@ -1004,6 +1004,9 @@ extern "C" {
     }
 
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    config.timeoutIntervalForRequest = 60.0;  // 60 second request timeout
+    config.timeoutIntervalForResource = 3600.0;  // 1 hour resource timeout
+    config.waitsForConnectivity = YES;  // Wait for network if temporarily unavailable
     self.debugSession = [NSURLSession sessionWithConfiguration:config];
 
     self.debugWebSocketTask = [self.debugSession webSocketTaskWithURL:url];
@@ -2687,6 +2690,9 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     }
 
     NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+    config.timeoutIntervalForRequest = 60.0;  // 60 second request timeout
+    config.timeoutIntervalForResource = 3600.0;  // 1 hour resource timeout
+    config.waitsForConnectivity = YES;  // Wait for network if temporarily unavailable
     self.debugSession = [NSURLSession sessionWithConfiguration:config];
     self.debugWebSocketTask = [self.debugSession webSocketTaskWithURL:url];
 
@@ -3039,14 +3045,30 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 - (void)browserWebSocketServer:(BrowserWebSocketServer *)server
          didReceiveToolRequest:(NSDictionary *)request
                    fromBrowser:(NSString *)browserId {
-    NSLog(@"[WebSocket Bridge] Delegate: Received tool request from browser %@: %@", browserId, request[@"tool"]);
+    NSLog(@"[WebSocket Bridge] Delegate: Received message from browser %@: %@", browserId, request);
+
+    // Check if this is an identify message
+    NSString *action = request[@"action"];
+    if (action && [action isEqualToString:@"identify"]) {
+        NSLog(@"[WebSocket Bridge] Browser %@ identified: %@ %@",
+              browserId, request[@"browserName"], request[@"userAgent"]);
+
+        // Send acknowledgment back to browser
+        NSDictionary *ackResponse = @{
+            @"type": @"identify_ack",
+            @"id": request[@"id"] ?: @"unknown",
+            @"success": @YES
+        };
+        [server sendResponse:ackResponse toBrowser:browserId];
+        return;
+    }
 
     // Extract tool information from WebSocket request
     NSString *requestId = request[@"id"];
     NSString *toolName = request[@"tool"];
     NSDictionary *params = request[@"params"] ?: @{};
 
-    // Validate required fields
+    // Validate required fields for tool requests
     if (!requestId || !toolName) {
         NSLog(@"[WebSocket Bridge] ERROR: Missing required fields (requestId: %@, toolName: %@)", requestId, toolName);
         NSDictionary *errorResponse = @{
@@ -3058,6 +3080,8 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         [self.browserWebSocketServer sendResponse:errorResponse toBrowser:browserId];
         return;
     }
+
+    NSLog(@"[WebSocket Bridge] Delegate: Executing tool %@ from browser %@", toolName, browserId);
 
     // Create MCP-style params for executeToolFromWebSocket:
     NSDictionary *mcpParams = @{
@@ -3732,8 +3756,9 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
             __block NSDictionary *result = nil;
             __block BOOL completed = NO;
 
-            // Build HTTP POST request to http://localhost:3457/command
-            NSURL *url = [NSURL URLWithString:@"http://localhost:3457/command"];
+            // Build HTTP POST request to http://127.0.0.1:3457/command
+            // Using explicit IPv4 address to avoid IPv6 resolution issues
+            NSURL *url = [NSURL URLWithString:@"http://127.0.0.1:3457/command"];
             NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
             request.HTTPMethod = @"POST";
             [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
@@ -3770,11 +3795,28 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
                     return;
                 }
 
+                // Debug: log what we received
+                NSLog(@"[Browser Tool] Received %lu bytes from BrowserWebSocketServer", (unsigned long)data.length);
+                if (data.length > 0) {
+                    NSString *preview = [[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(0, MIN(200, data.length))] encoding:NSUTF8StringEncoding];
+                    NSLog(@"[Browser Tool] First 200 bytes: %@", preview ?: @"<not UTF-8>");
+                }
+
                 // Parse JSON response
                 NSError *parseError = nil;
                 NSDictionary *responseDict = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
 
                 if (parseError) {
+                    // Debug: log raw response data
+                    NSLog(@"[Browser Tool] Parse error: %@", parseError);
+                    NSLog(@"[Browser Tool] Full data length: %lu bytes", (unsigned long)data.length);
+                    // Log first 20 bytes as hex
+                    NSMutableString *hexStr = [NSMutableString string];
+                    const uint8_t *bytes = data.bytes;
+                    for (NSUInteger i = 0; i < MIN(20, data.length); i++) {
+                        [hexStr appendFormat:@"%02X ", bytes[i]];
+                    }
+                    NSLog(@"[Browser Tool] First 20 bytes (hex): %@", hexStr);
                     result = @{@"error": [NSString stringWithFormat:@"Failed to parse response: %@", parseError.localizedDescription]};
                 } else if (responseDict[@"error"]) {
                     result = @{@"error": responseDict[@"error"]};
@@ -3881,6 +3923,12 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
                                (self.browserWebSocketServer && self.browserWebSocketServer.isRunning);
 
     NSLog(@"[Agent] Building tool list - Browser bridge running: %@", includeBrowserTools ? @"YES" : @"NO");
+    NSLog(@"[Agent]   browserBridgeServer: %@, isRunning: %@",
+          self.browserBridgeServer ? @"EXISTS" : @"nil",
+          self.browserBridgeServer ? (self.browserBridgeServer.isRunning ? @"YES" : @"NO") : @"N/A");
+    NSLog(@"[Agent]   browserWebSocketServer: %@, isRunning: %@",
+          self.browserWebSocketServer ? @"EXISTS" : @"nil",
+          self.browserWebSocketServer ? (self.browserWebSocketServer.isRunning ? @"YES" : @"NO") : @"N/A");
 
     // Load tools config if not already loaded
     if (!self.toolsConfig) {
@@ -3990,6 +4038,11 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         @"browser_fill": @"Fill a form field in the browser",
         @"browser_screenshot": @"Take a screenshot of the browser viewport or full page",
         @"browser_get_text": @"Get visible text content from browser",
+        @"browser_getVisibleText": @"Get visible text from any open tab by URL - DO NOT use browser_navigate first! Pass the 'url' parameter to read from a background tab without switching or navigating. This is the preferred method. Only falls back to active tab if no url is provided.",
+        @"browser_searchVisibleText": @"Search for text in any open tab by URL. Pass 'url' parameter to search in a background tab without switching - no need to navigate first.",
+        @"browser_getUIElements": @"Get interactive UI elements from any tab by URL. Use 'url' parameter to target a background tab without switching.",
+        @"browser_clickElement": @"Click an element in any tab by URL. Use 'url' parameter to target a background tab without switching - no need to navigate first.",
+        @"browser_fillElement": @"Fill a form field in any tab by URL. Use 'url' parameter to target a background tab without switching.",
         @"browser_get_elements": @"Get elements matching a selector",
         @"browser_select": @"Select an option from a dropdown",
         @"browser_wait": @"Wait for an element or condition",
@@ -4088,6 +4141,32 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         }
         else if ([toolName isEqualToString:@"browser_get_text"]) {
             properties[@"selector"] = @{@"type": @"string"};
+        }
+        else if ([toolName isEqualToString:@"browser_getVisibleText"]) {
+            properties[@"url"] = @{@"type": @"string", @"description": @"URL of the tab to get text from (without switching tabs). Preferred method - no need to navigate or switch tabs first."};
+            properties[@"selector"] = @{@"type": @"string", @"description": @"CSS selector to limit text extraction (optional)"};
+            properties[@"tabId"] = @{@"type": @"number", @"description": @"Tab ID (optional, url is preferred)"};
+        }
+        else if ([toolName isEqualToString:@"browser_searchVisibleText"]) {
+            properties[@"url"] = @{@"type": @"string", @"description": @"URL of the tab to search in (without switching). No need to navigate first."};
+            properties[@"query"] = @{@"type": @"string", @"description": @"Text to search for"};
+            properties[@"tabId"] = @{@"type": @"number", @"description": @"Tab ID (optional, url is preferred)"};
+        }
+        else if ([toolName isEqualToString:@"browser_getUIElements"]) {
+            properties[@"url"] = @{@"type": @"string", @"description": @"URL of the tab to get elements from (without switching). No need to navigate first."};
+            properties[@"tabId"] = @{@"type": @"number", @"description": @"Tab ID (optional, url is preferred)"};
+        }
+        else if ([toolName isEqualToString:@"browser_clickElement"]) {
+            properties[@"url"] = @{@"type": @"string", @"description": @"URL of the tab to click in (without switching). No need to navigate first."};
+            properties[@"selector"] = @{@"type": @"string", @"description": @"CSS selector of element to click"};
+            properties[@"text"] = @{@"type": @"string", @"description": @"Text content to find and click"};
+            properties[@"tabId"] = @{@"type": @"number", @"description": @"Tab ID (optional, url is preferred)"};
+        }
+        else if ([toolName isEqualToString:@"browser_fillElement"]) {
+            properties[@"url"] = @{@"type": @"string", @"description": @"URL of the tab to fill in (without switching). No need to navigate first."};
+            properties[@"selector"] = @{@"type": @"string", @"description": @"CSS selector of input to fill"};
+            properties[@"value"] = @{@"type": @"string", @"description": @"Value to fill in"};
+            properties[@"tabId"] = @{@"type": @"number", @"description": @"Tab ID (optional, url is preferred)"};
         }
         else if ([toolName isEqualToString:@"browser_evaluate"]) {
             properties[@"script"] = @{@"type": @"string", @"description": @"JavaScript code to execute"};

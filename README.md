@@ -203,24 +203,24 @@ Add to your MCP client configuration (`~/.config/claude/claude_desktop_config.js
 ```json
 {
   "mcpServers": {
-    "mcp-eyes": {
+    "screencontrol": {
       "command": "node",
-      "args": ["/path/to/mcp-eyes/dist/mcp-proxy-server.js"]
+      "args": ["/path/to/screen_control/dist/screencontrol-mcp.js"]
     }
   }
 }
 ```
 
-**Before using MCP-Eyes, ensure:**
+**Before using ScreenControl, ensure:**
 
 ```bash
 # 1. Start the macOS native app (automatically starts browser bridge too!)
-open /path/to/mcp-eyes/macos/MCPEyes.app
+open /path/to/screen_control/macos/ScreenControl.app
 
 # 2. Install and enable the browser extension in Firefox/Chrome
 ```
 
-> **Note**: As of v1.1.16, MCPEyes.app automatically spawns and manages the browser bridge server. No need to start it separately!
+> **Note**: As of v1.1.16, ScreenControl.app automatically spawns and manages the browser bridge server. No need to start it separately!
 
 ### Option 1: NPX (Recommended for npm package)
 
@@ -246,8 +246,8 @@ mcp-eyes mcp
 
 ```bash
 # Clone and build
-git clone https://github.com/datagram1/mcp-eyes.git
-cd mcp-eyes
+git clone https://github.com/datagram1/screen_control.git
+cd screen_control
 npm install
 npm run build
 
@@ -255,9 +255,9 @@ npm run build
 # In claude_desktop_config.json:
 {
   "mcpServers": {
-    "mcp-eyes": {
+    "screencontrol": {
       "command": "node",
-      "args": ["/Users/you/mcp-eyes/dist/mcp-proxy-server.js"]
+      "args": ["/Users/you/screen_control/dist/screencontrol-mcp.js"]
     }
   }
 }

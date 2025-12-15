@@ -270,62 +270,171 @@ static const int WS_OPCODE_PONG = 0xA;
     NSData *requestData = [connection.receiveBuffer subdataWithRange:NSMakeRange(0, range.location)];
     NSString *requestString = [[NSString alloc] initWithData:requestData encoding:NSUTF8StringEncoding];
 
-    NSLog(@"[WebSocketServer] Handshake request:\n%@", requestString);
+    NSLog(@"[WebSocketServer] HTTP request:\n%@", requestString);
 
-    // Extract Sec-WebSocket-Key
-    NSString *webSocketKey = nil;
     NSArray *lines = [requestString componentsSeparatedByString:@"\r\n"];
+    NSString *requestLine = lines.firstObject;
+
+    // Check if this is a WebSocket upgrade or HTTP POST
+    NSString *webSocketKey = nil;
+    NSString *contentLengthStr = nil;
+    BOOL isWebSocketUpgrade = NO;
+
     for (NSString *line in lines) {
         if ([line hasPrefix:@"Sec-WebSocket-Key:"]) {
             webSocketKey = [[line substringFromIndex:18] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-            break;
+            isWebSocketUpgrade = YES;
+        }
+        if ([line hasPrefix:@"Content-Length:"]) {
+            contentLengthStr = [[line substringFromIndex:15] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         }
     }
 
-    if (!webSocketKey) {
-        NSLog(@"[WebSocketServer] Missing Sec-WebSocket-Key");
-        [self closeConnection:connection];
+    // Handle HTTP POST to /command (browser tool calls from local agent)
+    if ([requestLine hasPrefix:@"POST /command"]) {
+        NSLog(@"[WebSocketServer] Processing HTTP POST to /command");
+
+        // Parse Content-Length
+        NSInteger contentLength = contentLengthStr ? [contentLengthStr integerValue] : 0;
+        NSUInteger headersEndPos = range.location + crlfcrlf.length;
+
+        // Check if we have the complete body
+        if (connection.receiveBuffer.length < headersEndPos + contentLength) {
+            NSLog(@"[WebSocketServer] Waiting for complete POST body (%lu/%ld bytes)",
+                  (unsigned long)(connection.receiveBuffer.length - headersEndPos), (long)contentLength);
+            return; // Wait for more data
+        }
+
+        // Extract body
+        NSData *bodyData = [connection.receiveBuffer subdataWithRange:NSMakeRange(headersEndPos, contentLength)];
+        NSString *bodyString = [[NSString alloc] initWithData:bodyData encoding:NSUTF8StringEncoding];
+        NSLog(@"[WebSocketServer] POST body: %@", bodyString);
+
+        // Parse JSON body
+        NSError *error = nil;
+        NSDictionary *request = [NSJSONSerialization JSONObjectWithData:bodyData options:0 error:&error];
+
+        if (error || ![request isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"[WebSocketServer] Invalid JSON in POST body: %@", error);
+            [self sendHTTPError:@"Invalid JSON" code:400 toConnection:connection];
+            [self closeConnection:connection];
+            return;
+        }
+
+        // Forward to the first connected browser via WebSocket
+        BrowserConnection *browserConn = nil;
+        @synchronized (self.connections) {
+            for (BrowserConnection *conn in self.connections.allValues) {
+                if (conn.handshakeComplete && conn != connection) {
+                    browserConn = conn;
+                    break;
+                }
+            }
+        }
+
+        if (!browserConn) {
+            NSLog(@"[WebSocketServer] No browser connected to forward command");
+            [self sendHTTPError:@"No browser connected" code:503 toConnection:connection];
+            [self closeConnection:connection];
+            return;
+        }
+
+        // Generate a request ID to track this HTTP request
+        NSString *requestId = [[NSUUID UUID] UUIDString];
+
+        // Store the HTTP connection for response
+        NSString *httpConnId = [NSString stringWithFormat:@"http-%@", requestId];
+        connection.browserId = httpConnId;
+
+        @synchronized (self.connections) {
+            self.connections[httpConnId] = connection;
+        }
+
+        // Transform message format for browser extension
+        // Input: {"action": "getTabs", "params": {...}} or {"name": "browser_getTabs", "arguments": {...}}
+        // Output: {"action": "getTabs", "id": "...", "payload": {...}}
+        NSString *action = request[@"action"];
+        NSDictionary *payload = request[@"params"] ?: request[@"payload"] ?: request[@"arguments"] ?: @{};
+
+        // If no action, try to extract from "name" field (strip "browser_" prefix)
+        if (!action) {
+            NSString *name = request[@"name"];
+            if ([name hasPrefix:@"browser_"]) {
+                action = [name substringFromIndex:8];  // Remove "browser_" prefix
+            } else {
+                action = name;
+            }
+        }
+
+        if (!action) {
+            NSLog(@"[WebSocketServer] No action found in request");
+            [self sendHTTPError:@"No action specified" code:400 toConnection:connection];
+            [self closeConnection:connection];
+            return;
+        }
+
+        // Build WebSocket message for browser extension
+        NSDictionary *wsMessage = @{
+            @"action": action,
+            @"id": requestId,
+            @"payload": payload
+        };
+
+        NSLog(@"[WebSocketServer] Forwarding to browser: %@", wsMessage);
+        [self sendJSONMessage:wsMessage toConnection:browserConn];
+
+        // Don't close connection yet - wait for response from browser
+        // The browser will send back a message with _httpRequestId
         return;
     }
 
-    // Generate Sec-WebSocket-Accept
-    NSString *acceptKey = [self generateWebSocketAcceptKey:webSocketKey];
+    // Handle WebSocket upgrade (browser extension connections)
+    if (isWebSocketUpgrade && webSocketKey) {
+        // Generate Sec-WebSocket-Accept
+        NSString *acceptKey = [self generateWebSocketAcceptKey:webSocketKey];
 
-    // Build handshake response
-    NSString *response = [NSString stringWithFormat:
-        @"HTTP/1.1 101 Switching Protocols\r\n"
-        @"Upgrade: websocket\r\n"
-        @"Connection: Upgrade\r\n"
-        @"Sec-WebSocket-Accept: %@\r\n"
-        @"\r\n", acceptKey];
+        // Build handshake response
+        NSString *response = [NSString stringWithFormat:
+            @"HTTP/1.1 101 Switching Protocols\r\n"
+            @"Upgrade: websocket\r\n"
+            @"Connection: Upgrade\r\n"
+            @"Sec-WebSocket-Accept: %@\r\n"
+            @"\r\n", acceptKey];
 
-    NSData *responseData = [response dataUsingEncoding:NSUTF8StringEncoding];
-    ssize_t bytesSent = write(connection.socket, responseData.bytes, responseData.length);
+        NSData *responseData = [response dataUsingEncoding:NSUTF8StringEncoding];
+        ssize_t bytesSent = write(connection.socket, responseData.bytes, responseData.length);
 
-    if (bytesSent != responseData.length) {
-        NSLog(@"[WebSocketServer] Failed to send handshake response");
-        [self closeConnection:connection];
+        if (bytesSent != responseData.length) {
+            NSLog(@"[WebSocketServer] Failed to send handshake response");
+            [self closeConnection:connection];
+            return;
+        }
+
+        NSLog(@"[WebSocketServer] WebSocket handshake complete for %@", connection.browserId);
+        connection.handshakeComplete = YES;
+
+        // Remove handshake data from buffer
+        NSUInteger newLength = connection.receiveBuffer.length - (range.location + crlfcrlf.length);
+        if (newLength > 0) {
+            NSData *remaining = [connection.receiveBuffer subdataWithRange:NSMakeRange(range.location + crlfcrlf.length, newLength)];
+            connection.receiveBuffer = [remaining mutableCopy];
+        } else {
+            [connection.receiveBuffer setLength:0];
+        }
+
+        [self.connectedBrowsers addObject:connection.browserId];
+
+        // Process any remaining data as WebSocket frames
+        if (connection.receiveBuffer.length > 0) {
+            [self processWebSocketFramesForConnection:connection];
+        }
         return;
     }
 
-    NSLog(@"[WebSocketServer] Handshake complete for %@", connection.browserId);
-    connection.handshakeComplete = YES;
-
-    // Remove handshake data from buffer
-    NSUInteger newLength = connection.receiveBuffer.length - (range.location + crlfcrlf.length);
-    if (newLength > 0) {
-        NSData *remaining = [connection.receiveBuffer subdataWithRange:NSMakeRange(range.location + crlfcrlf.length, newLength)];
-        connection.receiveBuffer = [remaining mutableCopy];
-    } else {
-        [connection.receiveBuffer setLength:0];
-    }
-
-    [self.connectedBrowsers addObject:connection.browserId];
-
-    // Process any remaining data as WebSocket frames
-    if (connection.receiveBuffer.length > 0) {
-        [self processWebSocketFramesForConnection:connection];
-    }
+    // Unknown request type
+    NSLog(@"[WebSocketServer] Unknown HTTP request type");
+    [self sendHTTPError:@"Bad Request" code:400 toConnection:connection];
+    [self closeConnection:connection];
 }
 
 - (NSString *)generateWebSocketAcceptKey:(NSString *)key {
@@ -448,7 +557,63 @@ static const int WS_OPCODE_PONG = 0xA;
         return;
     }
 
-    // Notify delegate
+    // Check if this is a response to an HTTP POST request
+    // Browser sends back: {"id": "...", "response": {...}} or {"id": "...", "error": "..."}
+    NSString *requestId = request[@"id"];
+    if (requestId) {
+        NSString *httpConnId = [NSString stringWithFormat:@"http-%@", requestId];
+
+        BrowserConnection *httpConn = nil;
+        @synchronized (self.connections) {
+            httpConn = self.connections[httpConnId];
+        }
+
+        if (httpConn) {
+            NSLog(@"[WebSocketServer] Received response for HTTP request %@", requestId);
+
+            // Build response body from browser's response
+            NSMutableDictionary *responseBody = [NSMutableDictionary dictionary];
+
+            if (request[@"error"]) {
+                responseBody[@"error"] = request[@"error"];
+            } else if (request[@"response"]) {
+                // Return the response data directly
+                id response = request[@"response"];
+                if ([response isKindOfClass:[NSDictionary class]]) {
+                    [responseBody addEntriesFromDictionary:response];
+                } else {
+                    responseBody[@"result"] = response;
+                }
+            } else {
+                // Return the whole message minus id
+                [responseBody addEntriesFromDictionary:request];
+                [responseBody removeObjectForKey:@"id"];
+            }
+
+            // Send HTTP response
+            [self sendHTTPResponse:responseBody toConnection:httpConn];
+
+            // Don't close the connection immediately - let the client close it after reading
+            // The socket will be closed when the read source detects EOF from the client
+            // Or after a longer timeout
+            __weak typeof(self) weakSelf = self;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), self.socketQueue, ^{
+                // Only close if still in connections dict (may have been closed already)
+                BrowserConnection *conn = nil;
+                @synchronized (weakSelf.connections) {
+                    conn = weakSelf.connections[httpConn.browserId];
+                }
+                if (conn) {
+                    NSLog(@"[WebSocketServer] Closing HTTP connection after timeout: %@", httpConn.browserId);
+                    [weakSelf closeConnection:httpConn];
+                }
+            });
+            return;
+        }
+        // If no HTTP connection found, it might be a regular WebSocket response - fall through
+    }
+
+    // Regular WebSocket message - notify delegate
     if ([self.delegate respondsToSelector:@selector(browserWebSocketServer:didReceiveToolRequest:fromBrowser:)]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.delegate browserWebSocketServer:self didReceiveToolRequest:request fromBrowser:connection.browserId];
@@ -552,6 +717,73 @@ static const int WS_OPCODE_PONG = 0xA;
         @"error": errorMessage
     };
     [self sendJSONMessage:response toConnection:connection];
+}
+
+- (void)sendHTTPError:(NSString *)errorMessage code:(NSInteger)code toConnection:(BrowserConnection *)connection {
+    NSString *statusText = @"Error";
+    if (code == 400) statusText = @"Bad Request";
+    else if (code == 503) statusText = @"Service Unavailable";
+
+    NSDictionary *errorBody = @{@"error": errorMessage};
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:errorBody options:0 error:nil];
+    if (!jsonData) {
+        jsonData = [@"{}" dataUsingEncoding:NSUTF8StringEncoding];
+    }
+
+    // Use byte length for Content-Length (not character count)
+    NSString *headers = [NSString stringWithFormat:
+        @"HTTP/1.1 %ld %@\r\n"
+        @"Content-Type: application/json; charset=utf-8\r\n"
+        @"Content-Length: %lu\r\n"
+        @"Connection: close\r\n"
+        @"\r\n",
+        (long)code, statusText, (unsigned long)jsonData.length];
+
+    NSData *headerData = [headers dataUsingEncoding:NSUTF8StringEncoding];
+    write(connection.socket, headerData.bytes, headerData.length);
+    write(connection.socket, jsonData.bytes, jsonData.length);
+}
+
+- (void)sendHTTPResponse:(NSDictionary *)responseBody toConnection:(BrowserConnection *)connection {
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:responseBody options:0 error:nil];
+    if (!jsonData) {
+        jsonData = [@"{}" dataUsingEncoding:NSUTF8StringEncoding];
+    }
+
+    // Use byte length for Content-Length (not character count)
+    NSString *headers = [NSString stringWithFormat:
+        @"HTTP/1.1 200 OK\r\n"
+        @"Content-Type: application/json; charset=utf-8\r\n"
+        @"Content-Length: %lu\r\n"
+        @"Connection: close\r\n"
+        @"\r\n",
+        (unsigned long)jsonData.length];
+
+    NSData *headerData = [headers dataUsingEncoding:NSUTF8StringEncoding];
+
+    // Combine headers and body into single write to avoid partial sends
+    NSMutableData *fullResponse = [NSMutableData dataWithData:headerData];
+    [fullResponse appendData:jsonData];
+
+    ssize_t totalWritten = 0;
+    ssize_t remaining = fullResponse.length;
+    const uint8_t *bytes = fullResponse.bytes;
+
+    // Ensure all data is written
+    while (remaining > 0) {
+        ssize_t written = write(connection.socket, bytes + totalWritten, remaining);
+        if (written <= 0) {
+            NSLog(@"[WebSocketServer] Write error: %s", strerror(errno));
+            break;
+        }
+        totalWritten += written;
+        remaining -= written;
+    }
+
+    // Shutdown write side to signal EOF to client, allowing them to read remaining data
+    if (connection.socket >= 0) {
+        shutdown(connection.socket, SHUT_WR);
+    }
 }
 
 #pragma mark - Connection Management
