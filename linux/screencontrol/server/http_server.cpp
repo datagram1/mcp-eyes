@@ -4,16 +4,23 @@
  * All API endpoints matching macOS/Windows agents.
  */
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT 0
+// Enable OpenSSL support for httplib
+#define CPPHTTPLIB_OPENSSL_SUPPORT 1
 #include "../libs/httplib.h"
 #include "../libs/json.hpp"
 #include "http_server.h"
+
+// X11 includes for drag implementation
+#include <X11/Xlib.h>
+#include <X11/extensions/XTest.h>
+#include <unistd.h>
 #include "../core/config.h"
 #include "../core/logger.h"
 #include "../tools/gui_tools.h"
 #include "../tools/filesystem_tools.h"
 #include "../tools/shell_tools.h"
 #include "../tools/ui_automation.h"
+#include "../tools/system_tools.h"
 
 using json = nlohmann::json;
 
@@ -35,7 +42,8 @@ void HttpServer::start()
 {
     m_running = true;
     Logger::info("HTTP server starting on port " + std::to_string(m_port));
-    m_server->listen("127.0.0.1", m_port);
+    // Bind to all interfaces for Docker/remote access
+    m_server->listen("0.0.0.0", m_port);
 }
 
 void HttpServer::stop()
@@ -459,6 +467,145 @@ void HttpServer::setupRoutes()
     m_server->Post("/license/deactivate", [](const httplib::Request&, httplib::Response& res) {
         // TODO: Implement license deactivation
         res.set_content(json{{"success", true}, {"message", "License deactivated"}}.dump(), "application/json");
+    });
+
+    // System info
+    m_server->Get("/system/info", [](const httplib::Request&, httplib::Response& res) {
+        auto result = SystemTools::getSystemInfo();
+        res.set_content(result.dump(), "application/json");
+    });
+
+    // Clipboard read
+    m_server->Get("/clipboard/read", [](const httplib::Request&, httplib::Response& res) {
+        auto result = SystemTools::clipboardRead();
+        res.set_content(result.dump(), "application/json");
+    });
+
+    // Clipboard write
+    m_server->Post("/clipboard/write", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string text = body.value("text", "");
+
+            auto result = SystemTools::clipboardWrite(text);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Wait
+    m_server->Post("/wait", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            int milliseconds = body.value("milliseconds", 0);
+
+            auto result = SystemTools::wait(milliseconds);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Mouse move endpoint
+    m_server->Post("/mouse/move", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            int x = body.value("x", 0);
+            int y = body.value("y", 0);
+
+            auto result = GuiTools::moveMouse(x, y);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Mouse scroll endpoint
+    m_server->Post("/mouse/scroll", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            int x = body.value("x", 0);
+            int y = body.value("y", 0);
+            int deltaX = body.value("deltaX", 0);
+            int deltaY = body.value("deltaY", 0);
+
+            auto result = GuiTools::scroll(x, y, deltaX, deltaY);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Get mouse position
+    m_server->Get("/mouse/position", [](const httplib::Request&, httplib::Response& res) {
+        auto result = GuiTools::getCursorPosition();
+        res.set_content(result.dump(), "application/json");
+    });
+
+    // Drag endpoint
+    m_server->Post("/mouse/drag", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            int startX = body.value("startX", 0);
+            int startY = body.value("startY", 0);
+            int endX = body.value("endX", 0);
+            int endY = body.value("endY", 0);
+
+            // Implement drag as move + press + move + release
+            Display* display = XOpenDisplay(nullptr);
+            if (!display)
+            {
+                res.set_content(json{{"success", false}, {"error", "Cannot open X display"}}.dump(), "application/json");
+                return;
+            }
+
+            Window root = DefaultRootWindow(display);
+
+            // Move to start
+            XWarpPointer(display, None, root, 0, 0, 0, 0, startX, startY);
+            XFlush(display);
+            usleep(50000);
+
+            // Press button
+            XTestFakeButtonEvent(display, Button1, True, CurrentTime);
+            XFlush(display);
+            usleep(50000);
+
+            // Move to end
+            XWarpPointer(display, None, root, 0, 0, 0, 0, endX, endY);
+            XFlush(display);
+            usleep(50000);
+
+            // Release button
+            XTestFakeButtonEvent(display, Button1, False, CurrentTime);
+            XFlush(display);
+
+            XCloseDisplay(display);
+
+            res.set_content(json{
+                {"success", true},
+                {"startX", startX}, {"startY", startY},
+                {"endX", endX}, {"endY", endY}
+            }.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
     });
 
     Logger::info("HTTP routes configured");

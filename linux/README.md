@@ -37,7 +37,8 @@ linux/
 │   │   ├── gui_tools.h/cpp     # X11/Wayland screenshot, XTest input
 │   │   ├── filesystem_tools.h/cpp # POSIX file operations
 │   │   ├── shell_tools.h/cpp   # fork/exec command execution
-│   │   └── ui_automation.h/cpp # X11 window management
+│   │   ├── ui_automation.h/cpp # X11 window management
+│   │   └── system_tools.h/cpp  # System info, clipboard, utilities
 │   └── libs/
 │       ├── httplib.h           # cpp-httplib (header-only)
 │       └── json.hpp            # nlohmann/json (header-only)
@@ -52,7 +53,7 @@ linux/
 # Debian/Ubuntu
 sudo apt install build-essential cmake pkg-config \
     libx11-dev libxext-dev libxtst-dev libxrandr-dev \
-    libgtk-3-dev
+    libgtk-3-dev xclip
 
 # Fedora/RHEL
 sudo dnf install gcc-c++ cmake pkgconfig \
@@ -155,6 +156,10 @@ All endpoints match macOS/Windows agents for consistency:
 | `/click` | POST | Mouse click |
 | `/keyboard/type` | POST | Type text |
 | `/keyboard/key` | POST | Press key |
+| `/mouse/move` | POST | Move mouse cursor |
+| `/mouse/scroll` | POST | Scroll mouse wheel |
+| `/mouse/drag` | POST | Drag from one point to another |
+| `/mouse/position` | GET | Get current mouse position |
 | `/ui/windows` | GET | List windows |
 | `/ui/focus` | POST | Focus window |
 | `/ui/active` | GET | Get active window |
@@ -164,6 +169,10 @@ All endpoints match macOS/Windows agents for consistency:
 | `/fs/search` | POST | Glob search |
 | `/fs/grep` | POST | Regex search |
 | `/shell/exec` | POST | Execute command |
+| `/system/info` | GET | System information (OS, CPU, memory, hostname) |
+| `/clipboard/read` | GET | Read clipboard content |
+| `/clipboard/write` | POST | Write to clipboard |
+| `/wait` | POST | Wait for specified milliseconds |
 
 ## Configuration
 

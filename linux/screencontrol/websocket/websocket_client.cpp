@@ -650,9 +650,15 @@ void WebSocketClient::handleMessage(const std::string& message)
         {
             handleRequest(message);
         }
+        else if (type == "error")
+        {
+            std::string errorCode = j.value("code", "unknown");
+            std::string errorMsg = j.value("message", j.value("error", "Unknown error"));
+            log("← ERROR: code=" + errorCode + ", message=" + errorMsg);
+        }
         else
         {
-            log("← Unknown message type: " + type);
+            log("← Unknown message type: " + type + ", content: " + message.substr(0, 200));
         }
     }
     catch (const std::exception& e)

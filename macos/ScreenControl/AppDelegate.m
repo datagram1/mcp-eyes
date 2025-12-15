@@ -2778,7 +2778,12 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         return;
     }
 
-    // If address is configured, try to connect
+    // Skip if already connected - don't create duplicate connections
+    if (self.debugIsConnected && self.debugWebSocketTask) {
+        return;
+    }
+
+    // If address is configured and not connected, try to connect
     [self connectControlServer:nil];
 }
 

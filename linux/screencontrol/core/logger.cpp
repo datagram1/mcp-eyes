@@ -8,6 +8,7 @@
 #include <ctime>
 #include <mutex>
 #include <syslog.h>
+#include <unistd.h>
 
 namespace ScreenControl
 {

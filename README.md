@@ -1,16 +1,25 @@
 # ScreenControl
 
-**Native macOS agent for AI-powered desktop and browser automation via MCP (Model Context Protocol).**
+**Cross-platform agents for AI-powered desktop and browser automation via MCP (Model Context Protocol).**
+
+Supports **macOS**, **Linux** (x86_64 & ARM64), with Windows coming soon.
 
 ## Overview
 
-ScreenControl enables AI assistants (Claude, etc.) to control your Mac through:
+ScreenControl enables AI assistants (Claude, etc.) to control your computer through:
 - **Desktop automation**: Screenshots, mouse, keyboard, window management
 - **System tools**: System info, window list, clipboard access
 - **Browser automation**: Read/interact with any tab by URL without switching (Playwright-like)
 - **Filesystem & shell**: Full file system access and command execution
 
 Supports both **local** (Claude Code/Desktop via stdio) and **remote** (Claude Web via control server) access.
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| macOS | Fully supported | Native Objective-C app |
+| Linux (x86_64) | Fully supported | Native C++ agent, X11/Wayland |
+| Linux (ARM64) | Fully supported | Tested on Ubuntu 24.04 ARM |
+| Windows | Coming soon | In development |
 
 ## Architecture
 
@@ -113,6 +122,46 @@ Add to `~/.config/claude-code/config.json`:
 ### 4. Restart Claude Code
 
 After updating the config, restart Claude Code to load the MCP server.
+
+## Linux Quick Start
+
+### One-Line Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/datagram1/mcp-eyes/main/linux/install.sh | sudo bash
+```
+
+### Manual Build
+
+```bash
+# Install dependencies (Ubuntu/Debian)
+sudo apt install build-essential cmake pkg-config \
+    libx11-dev libxext-dev libxtst-dev libxrandr-dev libgtk-3-dev xclip grim
+
+# Build
+cd linux/screencontrol
+mkdir build && cd build
+cmake .. -DBUILD_GUI=ON
+make -j$(nproc)
+
+# Install
+sudo cp screencontrol /usr/local/bin/
+```
+
+### Configure & Run
+
+```bash
+# Create config
+sudo mkdir -p /etc/screencontrol
+sudo nano /etc/screencontrol/debug-config.json
+# Add your control server details (see docs/linux_agent_docs.md)
+
+# Run as service
+sudo systemctl start screencontrol-agent
+sudo systemctl enable screencontrol-agent
+```
+
+See [Linux Agent Documentation](docs/linux_agent_docs.md) for full details.
 
 ## Available Tools (91 total)
 
@@ -388,6 +437,13 @@ screen_control/
 │       ├── StdioMCPBridge.m # MCP stdio transport, local mode tools
 │       ├── MCPServer.m     # Core tool implementations
 │       └── BrowserWebSocketServer.m
+├── linux/                  # Native Linux agent (C++)
+│   ├── screencontrol/
+│   │   ├── main.cpp        # Entry point, WebSocket client
+│   │   ├── server/         # HTTP API endpoints
+│   │   └── tools/          # Tool implementations
+│   ├── install.sh          # One-line installer script
+│   └── README.md
 ├── extension/              # Browser extensions
 │   ├── firefox/
 │   ├── chrome/
@@ -398,12 +454,22 @@ screen_control/
 │   │   ├── app/mcp/        # MCP endpoints
 │   │   └── lib/control-server/
 │   └── prisma/
+├── docs/                   # Documentation
+│   └── linux_agent_docs.md # Linux agent full documentation
 └── old/                    # Deprecated Node.js code
 ```
 
 ## Recent Changes
 
-### v1.x (December 2024)
+### v1.1 (December 2024)
+
+- **Linux agent released**: Native C++ agent with full headless and GUI support
+- **ARM64 support**: Linux agent works on ARM64 (tested on Ubuntu 24.04 ARM)
+- **One-line installer**: `curl | bash` installer for easy Linux deployment
+- **X11 & Wayland**: Screenshot support for both display servers
+- **15+ headless tools**: Filesystem, shell, system, clipboard tools work without display
+
+### v1.0 (December 2024)
 
 - **Added system tools**: `system_info`, `window_list`, `clipboard_read`, `clipboard_write`
 - **Remote access**: Claude Web can now access all 91 tools via control server

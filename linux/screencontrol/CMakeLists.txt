@@ -33,6 +33,8 @@ set(SOURCES
     tools/filesystem_tools.cpp
     tools/shell_tools.cpp
     tools/ui_automation.cpp
+    tools/system_tools.cpp
+    websocket/websocket_client.cpp
 )
 
 # Create executable
@@ -61,6 +63,10 @@ endif()
 if(BUILD_HEADLESS)
     target_compile_definitions(${PROJECT_NAME} PRIVATE HEADLESS_MODE)
 endif()
+
+# Find and link OpenSSL (required by httplib)
+find_package(OpenSSL REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 
 # Installation
 install(TARGETS ${PROJECT_NAME}
