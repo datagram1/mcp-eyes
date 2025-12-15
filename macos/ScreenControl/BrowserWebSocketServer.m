@@ -557,6 +557,21 @@ static const int WS_OPCODE_PONG = 0xA;
         return;
     }
 
+    // Check for browser identify message
+    NSString *action = request[@"action"];
+    if ([action isEqualToString:@"identify"]) {
+        NSString *browserName = request[@"browserName"] ?: request[@"browser"] ?: @"Unknown";
+        NSLog(@"[WebSocketServer] Browser %@ identified as: %@", connection.browserId, browserName);
+
+        // Notify delegate of browser connection
+        if ([self.delegate respondsToSelector:@selector(browserWebSocketServer:browserDidConnect:browserName:)]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.delegate browserWebSocketServer:self browserDidConnect:connection.browserId browserName:browserName];
+            });
+        }
+        return;
+    }
+
     // Check if this is a response to an HTTP POST request
     // Browser sends back: {"id": "...", "response": {...}} or {"id": "...", "error": "..."}
     NSString *requestId = request[@"id"];
@@ -791,6 +806,9 @@ static const int WS_OPCODE_PONG = 0xA;
 - (void)closeConnection:(BrowserConnection *)connection {
     NSLog(@"[WebSocketServer] Closing connection %@", connection.browserId);
 
+    // Check if this was a WebSocket browser connection (not HTTP)
+    BOOL wasWebSocketBrowser = connection.handshakeComplete && ![connection.browserId hasPrefix:@"http-"];
+
     @synchronized (self.connections) {
         [self.connections removeObjectForKey:connection.browserId];
     }
@@ -805,6 +823,14 @@ static const int WS_OPCODE_PONG = 0xA;
     if (connection.socket >= 0) {
         close(connection.socket);
         connection.socket = -1;
+    }
+
+    // Notify delegate of browser disconnection (only for actual browser WebSocket connections)
+    if (wasWebSocketBrowser && [self.delegate respondsToSelector:@selector(browserWebSocketServer:browserDidDisconnect:)]) {
+        NSString *browserId = connection.browserId;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self.delegate browserWebSocketServer:self browserDidDisconnect:browserId];
+        });
     }
 }
 

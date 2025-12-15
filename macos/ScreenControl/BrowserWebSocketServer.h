@@ -15,6 +15,8 @@
 - (void)browserWebSocketServer:(BrowserWebSocketServer *)server didReceiveToolRequest:(NSDictionary *)request fromBrowser:(NSString *)browserId;
 - (void)browserWebSocketServerDidStart:(BrowserWebSocketServer *)server onPort:(NSUInteger)port;
 - (void)browserWebSocketServerDidStop:(BrowserWebSocketServer *)server;
+- (void)browserWebSocketServer:(BrowserWebSocketServer *)server browserDidConnect:(NSString *)browserId browserName:(NSString *)browserName;
+- (void)browserWebSocketServer:(BrowserWebSocketServer *)server browserDidDisconnect:(NSString *)browserId;
 @end
 
 @interface BrowserWebSocketServer : NSObject

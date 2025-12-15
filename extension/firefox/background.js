@@ -31,8 +31,13 @@ const browserAPI = (() => {
     return;
   }
 
-  // Browser Bridge Server WebSocket URL
-  const BROWSER_BRIDGE_URL = 'ws://127.0.0.1:3457';
+  // Browser Bridge Server WebSocket URLs
+  // Port 3457: GUI Agent app
+  // Port 3459: StdioMCPBridge (Claude Code)
+  const BROWSER_BRIDGE_URLS = [
+    'ws://127.0.0.1:3457',
+    'ws://127.0.0.1:3459'
+  ];
 
   // Native messaging host name (must match the host manifest) - fallback
   const NATIVE_HOST = 'com.screencontrol.bridge';
@@ -54,7 +59,10 @@ const browserAPI = (() => {
     return { name: 'unknown', displayName: 'Unknown Browser' };
   }
 
-  // WebSocket connection
+  // WebSocket connections (multiple servers)
+  const wsConnections = new Map(); // url -> { ws, connected, reconnectTimeout }
+
+  // Legacy single connection (for backward compatibility with message handlers)
   let wsConnection = null;
   let wsConnected = false;
   let wsReconnectTimeout = null;
@@ -70,77 +78,132 @@ const browserAPI = (() => {
   let nativeRequestIdCounter = 0;
 
   /**
-   * Connect to Browser Bridge Server via WebSocket
+   * Connect to a single Browser Bridge Server via WebSocket
    */
-  function connectWebSocket() {
-    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+  function connectToUrl(url) {
+    const existing = wsConnections.get(url);
+    if (existing && existing.ws && existing.ws.readyState === WebSocket.OPEN) {
       return true;
     }
 
-    // Clear any pending reconnect
-    if (wsReconnectTimeout) {
-      clearTimeout(wsReconnectTimeout);
-      wsReconnectTimeout = null;
+    // Clear any pending reconnect for this URL
+    if (existing && existing.reconnectTimeout) {
+      clearTimeout(existing.reconnectTimeout);
     }
 
     try {
-      console.log('[ScreenControl] Connecting to Browser Bridge via WebSocket...');
-      wsConnection = new WebSocket(BROWSER_BRIDGE_URL);
+      console.log(`[ScreenControl] Connecting to ${url}...`);
+      const ws = new WebSocket(url);
 
-      wsConnection.onopen = () => {
-        console.log('[ScreenControl] WebSocket connected to Browser Bridge');
-        wsConnected = true;
+      wsConnections.set(url, { ws, connected: false, reconnectTimeout: null });
+
+      ws.onopen = () => {
+        console.log(`[ScreenControl] WebSocket connected to ${url}`);
+        const conn = wsConnections.get(url);
+        if (conn) conn.connected = true;
+
+        // Update legacy variables (first connected wins)
+        if (!wsConnected) {
+          wsConnection = ws;
+          wsConnected = true;
+        }
 
         // Send browser identification
         const browserInfo = detectBrowser();
-        wsConnection.send(JSON.stringify({
+        ws.send(JSON.stringify({
           action: 'identify',
           id: 'init',
           browser: browserInfo.name,
           browserName: browserInfo.displayName,
           userAgent: navigator.userAgent
         }));
-        console.log('[ScreenControl] Sent browser identification:', browserInfo.name);
+        console.log(`[ScreenControl] Sent identification to ${url}:`, browserInfo.name);
       };
 
-      wsConnection.onmessage = (event) => {
+      ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          // Add source URL for response routing
+          message._sourceUrl = url;
           handleWebSocketMessage(message);
         } catch (err) {
-          console.error('[ScreenControl] Invalid WebSocket message:', err);
+          console.error(`[ScreenControl] Invalid message from ${url}:`, err);
         }
       };
 
-      wsConnection.onclose = () => {
-        console.log('[ScreenControl] WebSocket disconnected');
-        wsConnected = false;
-        wsConnection = null;
+      ws.onclose = () => {
+        console.log(`[ScreenControl] Disconnected from ${url}`);
+        const conn = wsConnections.get(url);
+        if (conn) {
+          conn.connected = false;
+          conn.ws = null;
 
-        // Reject pending requests
-        pendingNativeRequests.forEach(({ reject, timeout }) => {
-          clearTimeout(timeout);
-          reject(new Error('WebSocket disconnected'));
-        });
-        pendingNativeRequests.clear();
+          // Update legacy variables
+          if (wsConnection === ws) {
+            wsConnection = null;
+            wsConnected = false;
+            // Try to use another connected socket
+            for (const [, c] of wsConnections) {
+              if (c.connected && c.ws) {
+                wsConnection = c.ws;
+                wsConnected = true;
+                break;
+              }
+            }
+          }
 
-        // Schedule reconnection
-        console.log('[ScreenControl] WebSocket will reconnect in 5 seconds...');
-        wsReconnectTimeout = setTimeout(() => {
-          connectWebSocket();
-        }, 5000);
+          // Schedule reconnection for this URL
+          console.log(`[ScreenControl] Will reconnect to ${url} in 5 seconds...`);
+          conn.reconnectTimeout = setTimeout(() => {
+            connectToUrl(url);
+          }, 5000);
+        }
       };
 
-      wsConnection.onerror = (err) => {
-        console.error('[ScreenControl] WebSocket error:', err);
+      ws.onerror = (err) => {
+        console.error(`[ScreenControl] WebSocket error for ${url}:`, err);
       };
 
       return true;
     } catch (error) {
-      console.error('[ScreenControl] Failed to create WebSocket:', error);
+      console.error(`[ScreenControl] Failed to connect to ${url}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Connect to all Browser Bridge Servers via WebSocket
+   */
+  function connectWebSocket() {
+    console.log('[ScreenControl] Connecting to all Browser Bridge servers...');
+    let anyConnected = false;
+    for (const url of BROWSER_BRIDGE_URLS) {
+      if (connectToUrl(url)) {
+        anyConnected = true;
+      }
+    }
+    if (!anyConnected) {
       // Fall back to native messaging
       return connectNativeHost();
     }
+    return true;
+  }
+
+  /**
+   * Send response back to the correct WebSocket server
+   */
+  function sendToWebSocket(url, data) {
+    const conn = wsConnections.get(url);
+    if (conn && conn.ws && conn.ws.readyState === WebSocket.OPEN) {
+      conn.ws.send(JSON.stringify(data));
+      return true;
+    }
+    // Fallback to legacy connection
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify(data));
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -149,7 +212,7 @@ const browserAPI = (() => {
   async function handleWebSocketMessage(message) {
     console.log('[ScreenControl] Received from WebSocket:', message);
 
-    const { id, action, payload, response, error } = message;
+    const { id, action, payload, response, error, _sourceUrl } = message;
 
     // If this is a response to a pending request
     if (id && pendingNativeRequests.has(id)) {
@@ -271,13 +334,13 @@ const browserAPI = (() => {
             result = { error: `Unknown action: ${action}` };
         }
 
-        // Send response back
-        if (id && wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-          wsConnection.send(JSON.stringify({ id, response: result }));
+        // Send response back to the server that sent the request
+        if (id) {
+          sendToWebSocket(_sourceUrl, { id, response: result });
         }
       } catch (err) {
-        if (id && wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-          wsConnection.send(JSON.stringify({ id, error: err.message }));
+        if (id) {
+          sendToWebSocket(_sourceUrl, { id, error: err.message });
         }
       }
     }

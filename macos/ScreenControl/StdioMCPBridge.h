@@ -1,13 +1,20 @@
 /**
- * StdioMCPBridge - MCP Server over stdio with WebSocket backend
+ * StdioMCPBridge - Native MCP Server over stdio
  *
- * Provides MCP protocol over stdin/stdout, forwarding tool calls
- * to the remote ScreenControl server via WebSocket.
+ * Provides MCP protocol over stdin/stdout with LOCAL tool execution.
+ * No remote server dependency - all tools run natively on this machine.
  *
  * Usage: ScreenControl --mcp-stdio
+ *
+ * Architecture:
+ *   Claude Code --stdio--> StdioMCPBridge ---> MCPServer (local desktop/fs/shell tools)
+ *                                         \--> BrowserWebSocketServer (browser extension)
  */
 
 #import <Foundation/Foundation.h>
+
+@class MCPServer;
+@class BrowserWebSocketServer;
 
 NS_ASSUME_NONNULL_BEGIN
 
