@@ -1029,8 +1029,8 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
         const resultObj = result as Record<string, unknown>;
 
         // Screenshot result - return as image
-        if (resultObj.imageData || resultObj.data || resultObj.base64) {
-          const imageData = (resultObj.imageData || resultObj.data || resultObj.base64) as string;
+        if (resultObj.imageData || resultObj.image || resultObj.data || resultObj.base64) {
+          const imageData = (resultObj.imageData || resultObj.image || resultObj.data || resultObj.base64) as string;
           const mimeType = (resultObj.mimeType || resultObj.format || 'image/png') as string;
 
           return {
