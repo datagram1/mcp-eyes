@@ -1,10 +1,10 @@
 #!/bin/bash
 #
 # ScreenControl Linux Agent Installer
-# https://github.com/datagram1/mcp-eyes
+# https://github.com/datagram1/screen_control
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/datagram1/mcp-eyes/main/linux/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/datagram1/screen_control/main/linux/install.sh | sudo bash
 #   OR
 #   sudo ./install.sh
 #
@@ -165,12 +165,12 @@ download_source() {
 
     # Try git clone first, fall back to tarball
     if command -v git &>/dev/null; then
-        git clone --depth 1 https://github.com/datagram1/mcp-eyes.git screencontrol
+        git clone --depth 1 https://github.com/datagram1/screen_control.git screencontrol
         cd screencontrol/linux/screencontrol
     else
-        curl -L -o screencontrol.tar.gz https://github.com/datagram1/mcp-eyes/archive/main.tar.gz
+        curl -L -o screencontrol.tar.gz https://github.com/datagram1/screen_control/archive/main.tar.gz
         tar xzf screencontrol.tar.gz
-        cd mcp-eyes-main/linux/screencontrol
+        cd screen_control-main/linux/screencontrol
     fi
 
     SOURCE_DIR=$(pwd)
@@ -437,5 +437,5 @@ echo "  3. Enable on boot: sudo systemctl enable $SERVICE_NAME"
 echo "  4. Check status: sudo systemctl status $SERVICE_NAME"
 echo "  5. View logs: sudo journalctl -u $SERVICE_NAME -f"
 echo ""
-echo "Documentation: https://github.com/datagram1/mcp-eyes/blob/main/docs/linux_agent_docs.md"
+echo "Documentation: https://github.com/datagram1/screen_control/blob/main/docs/linux_agent_docs.md"
 echo ""

@@ -540,4 +540,4 @@ MIT License
 
 ## Links
 
-- **GitHub**: [github.com/datagram1/mcp-eyes](https://github.com/datagram1/mcp-eyes)
+- **GitHub**: [github.com/datagram1/screen_control](https://github.com/datagram1/screen_control)

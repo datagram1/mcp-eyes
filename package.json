@@ -108,9 +108,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/datagram1/mcp-eyes.git"
+    "url": "https://github.com/datagram1/screen_control.git"
   },
   "bugs": {
-    "url": "https://github.com/datagram1/mcp-eyes/issues"
+    "url": "https://github.com/datagram1/screen_control/issues"
   }
 }
