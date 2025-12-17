@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>ScreenControl</title>
+    <organization>com.screencontrol</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true" hostArchitectures="arm64,x86_64"/>
+
+    <!-- Minimum system requirements -->
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="12.0"/>
+        </allowed-os-versions>
+    </volume-check>
+
+    <!-- Welcome screen -->
+    <welcome file="welcome.html" mime-type="text/html"/>
+
+    <!-- License agreement -->
+    <license file="license.html" mime-type="text/html"/>
+
+    <!-- Readme -->
+    <readme file="readme.html" mime-type="text/html"/>
+
+    <!-- Conclusion screen -->
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+
+    <!-- Background image (optional) -->
+    <!-- <background file="background.png" alignment="bottomleft" scaling="none"/> -->
+
+    <!-- Choices outline - what the user sees -->
+    <choices-outline>
+        <line choice="service"/>
+        <line choice="app"/>
+    </choices-outline>
+
+    <!-- Service component (required) -->
+    <choice id="service"
+            title="ScreenControl Service"
+            description="Background service for secure remote control operations. Required."
+            enabled="false"
+            selected="true">
+        <pkg-ref id="com.screencontrol.service.pkg"/>
+    </choice>
+
+    <!-- App component (required) -->
+    <choice id="app"
+            title="ScreenControl Agent"
+            description="Menu bar application for GUI operations and configuration."
+            enabled="false"
+            selected="true">
+        <pkg-ref id="com.screencontrol.agent.pkg"/>
+    </choice>
+
+    <!-- Package references -->
+    <pkg-ref id="com.screencontrol.service.pkg" version="1.0.0" onConclusion="none">service.pkg</pkg-ref>
+    <pkg-ref id="com.screencontrol.agent.pkg" version="1.0.0" onConclusion="none">agent.pkg</pkg-ref>
+
+</installer-gui-script>

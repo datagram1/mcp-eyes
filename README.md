@@ -2,7 +2,7 @@
 
 **Cross-platform agents for AI-powered desktop and browser automation via MCP (Model Context Protocol).**
 
-Supports **macOS**, **Linux** (x86_64 & ARM64), with Windows coming soon.
+Supports **macOS**, **Linux** (x86_64 & ARM64), and **Windows**.
 
 ## Overview
 
@@ -16,12 +16,46 @@ Supports both **local** (Claude Code/Desktop via stdio) and **remote** (Claude W
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| macOS | Fully supported | Native Objective-C app, unsandboxed for full filesystem access |
-| Linux (x86_64) | Fully supported | Native C++ agent, X11/Wayland |
+| macOS | Fully supported | Native Objective-C app with MCP stdio support |
+| Linux (x86_64) | Fully supported | Cross-platform C++ service |
 | Linux (ARM64) | Fully supported | Tested on Ubuntu 24.04 ARM |
-| Windows | Beta | Tray app with WebSocket control server |
+| Windows | Beta | Cross-platform C++ service + .NET tray app |
 
 ## Architecture
+
+### Cross-Platform Service Architecture
+
+The project uses a **unified cross-platform C++ service** (`service/`) that compiles for Linux, Windows, and macOS. This service handles:
+- HTTP REST API on port 3459 (localhost only)
+- WebSocket connection to control server
+- All non-GUI tools (filesystem, shell, system)
+- GUI tool proxying to tray/desktop app
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ScreenControl Architecture                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   ┌─────────────────────────┐     ┌─────────────────────────────┐  │
+│   │   ScreenControlService  │     │    GUI Application          │  │
+│   │   (cross-platform C++)  │────▶│    (platform-specific)      │  │
+│   │                         │     │                             │  │
+│   │   - HTTP Server :3459   │     │   - GUI Bridge :3460        │  │
+│   │   - WebSocket client    │     │   - Screenshot capture      │  │
+│   │   - Filesystem tools    │     │   - Mouse/keyboard control  │  │
+│   │   - Shell execution     │     │   - Window management       │  │
+│   │   - System tools        │     │   - OCR analysis            │  │
+│   └─────────────────────────┘     └─────────────────────────────┘  │
+│              │                                                       │
+│              │ WebSocket (wss://)                                   │
+│              ▼                                                       │
+│   ┌─────────────────────────────────────────────────────────────┐  │
+│   │              ScreenControl Control Server                    │  │
+│   │           (Cloud - receives commands from AI)                │  │
+│   └─────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ### Local Mode (Claude Code / Claude Desktop)
 
@@ -64,38 +98,73 @@ Supports both **local** (Claude Code/Desktop via stdio) and **remote** (Claude W
                                     │ WebSocket
                                     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    ScreenControl.app (GUI mode)                 │
+│                    ScreenControl Agent                          │
 │                    - Connects to control server                 │
-│                    - Advertises 91 tools dynamically            │
+│                    - Advertises tools dynamically               │
 │                    - Executes tool calls locally                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Project Structure
+
+```
+screen_control/
+├── service/                    # Cross-platform C++ service (Linux/Windows/macOS)
+│   ├── CMakeLists.txt          # CMake build configuration
+│   ├── src/
+│   │   ├── core/               # Config, logging, security, crypto
+│   │   ├── server/             # HTTP REST API server
+│   │   ├── control_server/     # WebSocket client for control server
+│   │   ├── tools/              # Tool implementations
+│   │   │   ├── filesystem_tools.cpp  # fs_* tools
+│   │   │   ├── shell_tools.cpp       # shell_* tools
+│   │   │   └── system_tools.cpp      # system_* tools
+│   │   ├── platform/           # Platform-specific code
+│   │   │   ├── linux/          # Linux entry point
+│   │   │   ├── macos/          # macOS entry point
+│   │   │   └── windows/        # Windows entry point
+│   │   └── libs/               # Header-only libraries (httplib, json)
+│   └── install/                # Installation scripts per platform
+│       ├── linux/
+│       ├── macos/
+│       └── windows/
+│
+├── macos/                      # Native macOS app (Objective-C)
+│   └── ScreenControl/
+│       ├── AppDelegate.m       # Main app, GUI mode
+│       ├── StdioMCPBridge.m    # MCP stdio transport
+│       └── ...
+│
+├── extension/                  # Browser extensions
+│   ├── firefox/
+│   ├── chrome/
+│   └── safari/
+│
+├── web/                        # Control server (Next.js)
+│   ├── src/
+│   │   ├── app/mcp/            # MCP endpoints
+│   │   └── lib/control-server/ # Agent registry, WebSocket
+│   └── prisma/                 # Database schema
+│
+├── docs/                       # Documentation
+│   ├── linux_agent_docs.md     # Full Linux agent documentation
+│   └── windows_agent_install.md # Windows installation guide
+│
+└── old/                        # Deprecated code (archived)
+```
+
 ## Quick Start
 
-### 1. Build the macOS App
+### macOS
 
+#### Build
 ```bash
 cd macos
 xcodebuild -project ScreenControl.xcodeproj -scheme ScreenControl -configuration Debug build
 ```
 
-### 2. Install Browser Extension
-
-**Firefox:**
-1. Open `about:debugging#/runtime/this-firefox`
-2. Click "Load Temporary Add-on"
-3. Select `extension/firefox/manifest.json`
-
-**Chrome/Edge:**
-1. Open `chrome://extensions` (or `edge://extensions`)
-2. Enable "Developer mode"
-3. Click "Load unpacked" → select `extension/chrome`
-
-### 3. Configure Claude Code / Claude Desktop
-
+#### Configure Claude Code
 Add to `~/.config/claude-code/config.json`:
-
 ```json
 {
   "mcpServers": {
@@ -107,432 +176,222 @@ Add to `~/.config/claude-code/config.json`:
 }
 ```
 
-**Example with Xcode DerivedData path:**
-```json
-{
-  "mcpServers": {
-    "screencontrol": {
-      "command": "/Users/yourname/Library/Developer/Xcode/DerivedData/ScreenControl-xxx/Build/Products/Debug/ScreenControl.app/Contents/MacOS/ScreenControl",
-      "args": ["--mcp-stdio"]
-    }
-  }
-}
-```
+### Linux
 
-### 4. Restart Claude Code
-
-After updating the config, restart Claude Code to load the MCP server.
-
-## Linux Quick Start
-
-### One-Line Install
-
+#### One-Line Install
 ```bash
-curl -fsSL https://raw.githubusercontent.com/datagram1/mcp-eyes/main/linux/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/anthropics/screen_control/main/service/install/linux/install.sh | sudo bash
 ```
 
-### Manual Build
-
+#### Build from Source
 ```bash
 # Install dependencies (Ubuntu/Debian)
-sudo apt install build-essential cmake pkg-config \
-    libx11-dev libxext-dev libxtst-dev libxrandr-dev libgtk-3-dev xclip grim
+sudo apt install build-essential cmake pkg-config libssl-dev
 
 # Build
-cd linux/screencontrol
+cd service
 mkdir build && cd build
-cmake .. -DBUILD_GUI=ON
+cmake ..
 make -j$(nproc)
 
 # Install
-sudo cp screencontrol /usr/local/bin/
+sudo cp bin/ScreenControlService /opt/screencontrol/
+sudo cp ../install/linux/screencontrol.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now screencontrol
 ```
 
-### Configure & Run
-
+#### Configure
 ```bash
 # Create config
 sudo mkdir -p /etc/screencontrol
-sudo nano /etc/screencontrol/debug-config.json
-# Add your control server details (see docs/linux_agent_docs.md)
+cat << 'EOF' | sudo tee /etc/screencontrol/config.json
+{
+  "httpPort": 3459,
+  "controlServerUrl": "wss://your-control-server.com/ws",
+  "agentName": "My Linux Agent"
+}
+EOF
 
-# Run as service
-sudo systemctl start screencontrol-agent
-sudo systemctl enable screencontrol-agent
+# Restart service
+sudo systemctl restart screencontrol
 ```
 
-See [Linux Agent Documentation](docs/linux_agent_docs.md) for full details.
+### Windows
 
-## Windows Quick Start (Beta)
-
-### Build Requirements
-
-- Visual Studio 2022 with C++ workload
-- .NET 8.0 SDK
-
-### Build
-
+#### Build
 ```bash
-# Build the service (C++)
-cd windows/ScreenControlService
+cd service
 mkdir build && cd build
 cmake .. -G "Visual Studio 17 2022"
 cmake --build . --config Release
-
-# Build the tray app (.NET)
-cd windows/ScreenControlTray
-dotnet build -c Release
 ```
 
-### Configure
+#### Install
+```bash
+# Copy binary
+copy build\bin\Release\ScreenControlService.exe C:\ScreenControl\
 
-Create `windows/ScreenControlService/debug-config.json`:
-```json
-{
-  "server_url": "wss://your-control-server.com/api/agents/ws",
-  "agent_key": "your-agent-key",
-  "machine_name": "My Windows PC"
-}
+# Install as service (run as Administrator)
+sc create ScreenControl binPath= "C:\ScreenControl\ScreenControlService.exe"
+sc start ScreenControl
 ```
 
-### Run
+## API Reference
 
-1. Start `ScreenControlService.exe` (runs headless)
-2. Or start `ScreenControlTray.exe` for a system tray app with GUI
+### Service Tools (Always Available)
 
-## Available Tools (91 total)
+These tools work in all modes (headless, GUI, local, remote):
 
-### Desktop Automation
+#### System Tools
+
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `system_info` | `GET /system/info` | System information (OS, CPU, memory, hostname) |
+| `wait` | `POST /wait` | Wait for specified milliseconds |
+| `clipboard_read` | `GET /clipboard/read` | Read from clipboard |
+| `clipboard_write` | `POST /clipboard/write` | Write to clipboard |
+
+#### Filesystem Tools
+
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `fs_list` | `POST /fs/list` | List directory contents |
+| `fs_read` | `POST /fs/read` | Read file contents |
+| `fs_read_range` | `POST /fs/read_range` | Read specific line range (`start_line`, `end_line`) |
+| `fs_write` | `POST /fs/write` | Write content to file |
+| `fs_search` | `POST /fs/search` | Search files by glob pattern |
+| `fs_grep` | `POST /fs/grep` | Search file contents with regex |
+| `fs_delete` | `POST /fs/delete` | Delete files or directories |
+| `fs_move` | `POST /fs/move` | Move or rename files |
+| `fs_patch` | `POST /fs/patch` | Apply patches to files |
+
+#### Shell Tools
+
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `shell_exec` | `POST /shell/exec` | Execute shell commands |
+| `shell_session_list` | `GET /shell/session/list` | List active shell sessions |
+| `shell_session_start` | `POST /shell/session/start` | Start interactive shell session |
+| `shell_session_input` | `POST /shell/session/input` | Send input to session (`session_id`) |
+| `shell_session_read` | `POST /shell/session/read` | Read session output |
+| `shell_session_stop` | `POST /shell/session/stop` | Stop shell session |
+
+### GUI Tools (Require Desktop/Tray App)
+
+These tools are proxied to the GUI application:
 
 | Tool | Description |
 |------|-------------|
-| `screenshot` / `desktop_screenshot` | Take screenshots (`return_base64: true` for image data) |
-| `screenshot_app` | Screenshot specific app (`return_base64: true` for image data) |
-| `click` / `click_absolute` | Click at coordinates |
+| `screenshot` | Capture entire screen |
+| `screenshot_app` | Capture specific application |
+| `click` | Click at coordinates |
 | `doubleClick` | Double-click at coordinates |
 | `moveMouse` | Move mouse cursor |
-| `drag` | Drag from one position to another |
-| `scroll` / `scrollMouse` | Scroll the mouse wheel |
+| `drag` | Drag from one point to another |
+| `scroll` | Scroll mouse wheel |
 | `typeText` | Type text |
-| `pressKey` | Press keyboard keys |
-| `getClickableElements` | Get clickable UI elements |
-| `getUIElements` | Get all UI elements |
-| `getMousePosition` | Get current mouse position |
-| `analyzeWithOCR` | Analyze screen with OCR |
-
-### Application Management
-
-| Tool | Description |
-|------|-------------|
+| `pressKey` | Press keyboard key |
+| `getMousePosition` | Get cursor position |
 | `listApplications` | List running applications |
-| `focusApplication` | Focus an application window |
+| `focusApplication` | Focus an application |
 | `launchApplication` | Launch an application |
 | `closeApp` | Close an application |
-| `checkPermissions` | Check accessibility permissions |
+| `window_list` | List open windows |
+| `analyzeWithOCR` | Analyze screen with OCR |
 
-### System Tools
-
-| Tool | Description |
-|------|-------------|
-| `system_info` | Get system information (OS, CPU, memory, hostname, uptime) |
-| `window_list` | List all open windows with app, title, and bounds |
-| `clipboard_read` | Read text from system clipboard |
-| `clipboard_write` | Write text to system clipboard |
-| `wait` | Wait for specified milliseconds |
-
-### Browser Automation
+### Browser Tools (Require Extension)
 
 | Tool | Description |
 |------|-------------|
 | `browser_getVisibleText` | Get text from any tab by URL |
 | `browser_searchVisibleText` | Search text in any tab |
-| `browser_clickElement` | Click elements by selector or index |
+| `browser_clickElement` | Click elements by selector |
 | `browser_fillElement` | Fill form fields |
 | `browser_navigate` | Navigate to URL |
-| `browser_screenshot` | Screenshot page (`return_base64: true` for image data) |
+| `browser_screenshot` | Screenshot page |
 | `browser_getTabs` | List open tabs |
 | `browser_getActiveTab` | Get active tab info |
 | `browser_focusTab` | Focus a specific tab |
 | `browser_createTab` | Create new tab |
 | `browser_closeTab` | Close a tab |
-| `browser_getInteractiveElements` | Get elements (`verbose: true` for full list) |
+| `browser_getInteractiveElements` | Get interactive elements |
 | `browser_executeScript` | Run JavaScript |
-| `browser_go_back` / `browser_go_forward` | Browser history navigation |
-
-### Filesystem Tools
-
-| Tool | Description |
-|------|-------------|
-| `fs_list` | List directory contents |
-| `fs_read` | Read file contents |
-| `fs_read_range` | Read specific line range |
-| `fs_write` | Write files |
-| `fs_delete` | Delete files/directories |
-| `fs_move` | Move/rename files |
-| `fs_search` | Search files by pattern |
-| `fs_grep` | Search file contents |
-| `fs_patch` | Apply patches to files |
-
-### Shell Tools
-
-| Tool | Description |
-|------|-------------|
-| `shell_exec` | Execute shell commands |
-| `shell_start_session` | Start interactive shell session |
-| `shell_send_input` | Send input to shell session |
-| `shell_read_output` | Read shell session output |
-| `shell_end_session` | End shell session |
-
-## Key Features
-
-### URL-Based Tab Targeting (Playwright-like)
-
-Browser tools support targeting any open tab by URL **without switching tabs**:
-
-```
-"Get the text from the tab at https://example.com"
-```
-
-The AI will call:
-```json
-{
-  "name": "browser_getVisibleText",
-  "arguments": {
-    "url": "https://example.com"
-  }
-}
-```
-
-This extracts content from the matching tab without disturbing your active tab.
-
-**Supported tools with URL targeting:**
-- `browser_getVisibleText` - Read text from any tab
-- `browser_searchVisibleText` - Search text in any tab
-- `browser_getUIElements` - Get interactive elements from any tab
-- `browser_clickElement` - Click elements in any tab
-- `browser_fillElement` - Fill forms in any tab
-
-### Token-Safe Responses
-
-Large MCP tool responses (screenshots, element lists) can consume significant context tokens. ScreenControl implements token-safe defaults with optional full data retrieval.
-
-#### Screenshots
-
-By default, screenshots are saved to `/tmp` as JPEG files and return a file path (~100 tokens). Claude Code can use the `Read` tool to view the image when needed.
-
-| Parameter | Values | Description |
-|-----------|--------|-------------|
-| `format` | `jpeg` (default), `png` | Image format. JPEG is smaller (~60-80% reduction), PNG is lossless |
-| `return_base64` | `false` (default), `true` | Return base64 instead of file path |
-
-| Mode | Response | Token Usage | Compatibility |
-|------|----------|-------------|---------------|
-| Default | File path in `/tmp` | ~100 tokens | Claude Code (use Read tool) |
-| `return_base64: true` | MCP ImageContent | ~8-25k tokens | Claude Code + Claude Desktop/Web |
-
-**Example - Token-safe (default, JPEG):**
-```json
-{
-  "file_path": "/tmp/screenshot_browser_1734567890.jpg",
-  "format": "jpg",
-  "size_bytes": 85432,
-  "message": "Screenshot saved to file. Use the Read tool to view the image."
-}
-```
-
-**Example - Full image data for Claude Desktop/Web:**
-```json
-// Tool call with return_base64: true
-// Returns MCP ImageContent format:
-{
-  "type": "image",
-  "data": "iVBORw0KGgo...",
-  "mimeType": "image/jpeg"
-}
-```
-
-#### Interactive Elements
-
-By default, element lists return a summary with counts and key elements (~1k tokens). Use `verbose: true` for full details when needed.
-
-| Parameter | Response | Token Usage |
-|-----------|----------|-------------|
-| Default | Summary with counts + key elements | ~1k tokens |
-| `verbose: true` | Full element list | ~10k+ tokens |
-
-## Running Modes
-
-### 1. MCP stdio Mode (for Claude Code/Desktop)
-
-```bash
-/path/to/ScreenControl.app/Contents/MacOS/ScreenControl --mcp-stdio
-```
-
-This is what Claude Code launches. The app runs headless and communicates via stdin/stdout.
-
-### 2. GUI Mode (for manual use and remote access)
-
-```bash
-open /path/to/ScreenControl.app
-```
-
-Runs as a menu bar app with status display and settings. In GUI mode, the app can also connect to a remote control server for Claude Web access.
-
-## Control Server (web/)
-
-The `web/` directory contains the Next.js control server that enables Claude Web to access ScreenControl agents remotely.
-
-### Features
-
-- **Agent Registry**: Manages connected ScreenControl agents
-- **Dynamic Tool Discovery**: Agents advertise their tools; server caches and routes calls
-- **MCP over SSE/HTTP**: Exposes tools to Claude Web via Server-Sent Events
-- **OAuth Authentication**: Secure access control
-- **Multi-Agent Support**: Route commands to specific agents by ID
-
-### Server Architecture
-
-```
-web/
-├── src/
-│   ├── app/
-│   │   ├── api/              # REST API endpoints
-│   │   └── mcp/[uuid]/       # MCP endpoint per agent
-│   └── lib/
-│       ├── control-server/   # Agent registry, WebSocket handler
-│       └── oauth/            # Authentication
-├── prisma/                   # Database schema
-└── package.json
-```
-
-### Deploying the Control Server
-
-```bash
-cd web
-npm install
-npm run build
-npm start
-```
-
-The server listens for:
-- Agent WebSocket connections (agents connect from ScreenControl.app GUI)
-- MCP SSE connections (Claude Web connects via MCP protocol)
 
 ## Ports
 
 | Port | Purpose |
 |------|---------|
-| 3456 | HTTP API (localhost only, local mode) |
-| 3457 | WebSocket for browser extension |
-| 3000 | Control server (remote mode) |
+| 3459 | HTTP API (service, localhost only) |
+| 3460 | GUI Bridge (tray app, localhost only) |
+| 3457 | Browser extension WebSocket |
+| 3000 | Control server (web/) |
 
 ## macOS Permissions
 
-Grant these permissions to ScreenControl.app (or Claude Code if running via stdio):
-
+Grant these permissions to ScreenControl.app:
 1. **Screen Recording**: System Preferences → Privacy → Screen Recording
 2. **Accessibility**: System Preferences → Privacy → Accessibility
 
 ## Troubleshooting
 
-### Browser extension not connecting
-- Ensure ScreenControl is running
-- Check that extension is loaded and enabled
-- Refresh browser tabs after installing extension
-
-### Permission errors
-- Grant Screen Recording permission
-- Grant Accessibility permission
-- Restart the app after granting permissions
-
-### MCP server not loading in Claude Code
-- Verify the path in config.json is correct
-- Check the app builds successfully
-- Restart Claude Code after config changes
-
-### Remote tools showing "Unknown tool"
-- Ensure the agent advertises all expected tools (check server logs for tool count)
-- Delete `~/Library/Application Support/ScreenControl/tools.json` to reset tool config
-- Restart ScreenControl.app to re-advertise tools
-
-## Development
-
-### Building
-
+### Service won't start
 ```bash
-cd macos
-xcodebuild -project ScreenControl.xcodeproj -scheme ScreenControl -configuration Debug build
+# Check status
+sudo systemctl status screencontrol
+
+# View logs
+sudo journalctl -u screencontrol -f
+
+# Test manually
+/opt/screencontrol/ScreenControlService -v
 ```
 
-### Project Structure
+### GUI tools not working
+```bash
+# Check if tray app is running
+curl http://localhost:3460/health
 
+# Service will return error if tray unavailable
+curl http://localhost:3459/screenshot
+# Response: {"error": "Tray app unavailable"}
 ```
-screen_control/
-├── macos/                  # Native macOS app (Objective-C)
-│   └── ScreenControl/
-│       ├── AppDelegate.m   # Main app logic, GUI mode tools
-│       ├── StdioMCPBridge.m # MCP stdio transport, local mode tools
-│       ├── MCPServer.m     # Core tool implementations
-│       ├── FilesystemTools.m # fs_* tool implementations
-│       └── BrowserWebSocketServer.m
-├── linux/                  # Native Linux agent (C++)
-│   ├── screencontrol/
-│   │   ├── main.cpp        # Entry point, WebSocket client
-│   │   ├── server/         # HTTP API endpoints
-│   │   └── tools/          # Tool implementations
-│   ├── install.sh          # One-line installer script
-│   └── README.md
-├── windows/                # Windows agent (C++ service + .NET tray)
-│   ├── ScreenControlService/ # Headless C++ service
-│   │   ├── main.cpp
-│   │   └── server/         # HTTP/WebSocket handlers
-│   └── ScreenControlTray/  # .NET system tray app
-│       ├── TrayApplicationContext.cs
-│       ├── SettingsForm.cs
-│       └── GUIBridgeServer.cs # WebSocket GUI control
-├── extension/              # Browser extensions
-│   ├── firefox/
-│   ├── chrome/
-│   ├── safari/
-│   └── shared/
-├── web/                    # Control server (Next.js)
-│   ├── src/
-│   │   ├── app/mcp/        # MCP endpoints
-│   │   └── lib/
-│   │       ├── control-server/ # Agent registry, WebSocket
-│   │       └── mcp-sse-manager.ts # SSE notifications
-│   └── prisma/
-├── docs/                   # Documentation
-│   └── linux_agent_docs.md # Linux agent full documentation
-└── old/                    # Deprecated Node.js code
-```
+
+### MCP server not loading
+- Verify path in config.json is correct
+- Check app builds successfully
+- Restart Claude Code after config changes
 
 ## Recent Changes
 
+### v1.3 (December 2024)
+
+- **Unified cross-platform service**: Single C++ codebase compiles for Linux, Windows, and macOS
+- **Fixed fs_read_range**: Now supports both `start_line`/`end_line` and `startLine`/`endLine`
+- **Fixed fs_grep**: Now handles single file paths, not just directories
+- **Fixed shell sessions**: Sessions stay alive, support both `session_id` and `sessionId`
+- **Added shell session list**: New `GET /shell/session/list` endpoint
+- **Improved security**: Centralized command filtering or protected path blocking
+
 ### v1.2 (December 2024)
 
-- **macOS sandbox disabled**: Filesystem tools (`fs_write`, `fs_read`, etc.) now work without restrictions
-- **Windows beta release**: Tray app with WebSocket control server and GUI bridge
-- **Agent name display preference**: Dashboard shows friendly name, machine name, or both
-- **Dynamic tool refresh**: MCP clients receive real-time notifications when tool lists change
-- **Improved logging**: Better diagnostics for agent connections and tool routing
-- **MCP SDK v1.24.0**: Updated to latest Model Context Protocol SDK
+- **macOS sandbox disabled**: Filesystem tools work without restrictions
+- **Windows beta release**: Tray app with WebSocket control server
+- **Agent name display**: Dashboard shows friendly name or machine name
+- **Dynamic tool refresh**: Real-time notifications when tool lists change
 
 ### v1.1 (December 2024)
 
-- **Linux agent released**: Native C++ agent with full headless and GUI support
-- **ARM64 support**: Linux agent works on ARM64 (tested on Ubuntu 24.04 ARM)
-- **One-line installer**: `curl | bash` installer for easy Linux deployment
-- **X11 & Wayland**: Screenshot support for both display servers
-- **15+ headless tools**: Filesystem, shell, system, clipboard tools work without display
+- **Linux agent released**: Native C++ agent with headless and GUI support
+- **ARM64 support**: Tested on Ubuntu 24.04 ARM
+- **One-line installer**: Easy Linux deployment
 
 ### v1.0 (December 2024)
 
-- **Added system tools**: `system_info`, `window_list`, `clipboard_read`, `clipboard_write`
-- **Remote access**: Claude Web can now access all 91 tools via control server
-- **Token-safe screenshots**: Default to file paths, optional base64 for Claude Web
-- **Dynamic tool advertisement**: Agents advertise tools to server, eliminating version mismatches
-- **URL-based tab targeting**: Playwright-like browser automation without tab switching
+- **System tools**: `system_info`, `window_list`, `clipboard_read`, `clipboard_write`
+- **Remote access**: Claude Web access via control server
+- **Token-safe screenshots**: File paths by default, optional base64
+- **URL-based tab targeting**: Playwright-like browser automation
 
 ## License
 
@@ -540,4 +399,4 @@ MIT License
 
 ## Links
 
-- **GitHub**: [github.com/datagram1/screen_control](https://github.com/datagram1/screen_control)
+- **GitHub**: [github.com/anthropics/screen_control](https://github.com/anthropics/screen_control)

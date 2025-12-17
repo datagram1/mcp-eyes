@@ -1,0 +1,821 @@
+/**
+ * HTTP Server Implementation
+ *
+ * Cross-platform REST API with all MCP tool endpoints.
+ */
+
+#include "http_server.h"
+#include "../libs/httplib.h"
+#include "../libs/json.hpp"
+#include "../core/config.h"
+#include "../core/logger.h"
+#include "../tools/filesystem_tools.h"
+#include "../tools/shell_tools.h"
+#include "../tools/system_tools.h"
+#include "../control_server/websocket_client.h"
+#include "../control_server/command_dispatcher.h"
+#include "platform.h"
+
+using json = nlohmann::json;
+
+namespace ScreenControl
+{
+
+HttpServer::HttpServer(int port) : m_port(port)
+{
+    m_server = std::make_unique<httplib::Server>();
+    setupRoutes();
+}
+
+HttpServer::~HttpServer()
+{
+    stop();
+}
+
+void HttpServer::start()
+{
+    m_running = true;
+    std::string host = Config::getInstance().getHttpHost();
+    Logger::info("HTTP server starting on " + host + ":" + std::to_string(m_port));
+    m_server->listen(host, m_port);
+}
+
+void HttpServer::stop()
+{
+    if (m_running)
+    {
+        m_running = false;
+        m_server->stop();
+        Logger::info("HTTP server stopped");
+    }
+}
+
+void HttpServer::setGuiProxyCallback(GuiProxyCallback callback)
+{
+    m_guiProxyCallback = callback;
+}
+
+std::string HttpServer::proxyGuiRequest(const std::string& endpoint, const std::string& body)
+{
+    if (m_guiProxyCallback)
+    {
+        return m_guiProxyCallback(endpoint, body);
+    }
+    return json{{"success", false}, {"error", "GUI proxy not available - tray app not connected"}}.dump();
+}
+
+void HttpServer::setupRoutes()
+{
+    setupHealthRoutes();
+    setupSettingsRoutes();
+    setupGuiRoutes();
+    setupFilesystemRoutes();
+    setupShellRoutes();
+    setupSystemRoutes();
+    setupUnlockRoutes();
+    setupControlServerRoutes();
+    setupToolRoute();
+
+    Logger::info("HTTP routes configured");
+}
+
+void HttpServer::setupHealthRoutes()
+{
+    // Health check
+    m_server->Get("/health", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content(R"({"status":"ok","service":"screencontrol"})", "application/json");
+    });
+
+    // Status endpoint
+    m_server->Get("/status", [](const httplib::Request&, httplib::Response& res) {
+        json response = {
+            {"success", true},
+            {"version", "1.2.0"},
+            {"platform", PLATFORM_ID},
+            {"platformName", PLATFORM_NAME},
+            {"licensed", Config::getInstance().isLicensed()},
+            {"licenseStatus", Config::getInstance().getLicenseStatus()},
+            {"machineId", Config::getInstance().getMachineId()},
+            {"agentName", Config::getInstance().getAgentName()}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Fingerprint / Machine ID
+    m_server->Get("/fingerprint", [](const httplib::Request&, httplib::Response& res) {
+        json response = {
+            {"success", true},
+            {"machineId", Config::getInstance().getMachineId()}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+}
+
+void HttpServer::setupSettingsRoutes()
+{
+    // Get settings
+    m_server->Get("/settings", [](const httplib::Request&, httplib::Response& res) {
+        auto& config = Config::getInstance();
+        json response = {
+            {"httpPort", config.getHttpPort()},
+            {"guiBridgePort", config.getGuiBridgePort()},
+            {"controlServerUrl", config.getControlServerUrl()},
+            {"agentName", config.getAgentName()},
+            {"autoStart", config.isAutoStartEnabled()},
+            {"enableLogging", config.isLoggingEnabled()}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Update settings
+    m_server->Post("/settings", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            auto& config = Config::getInstance();
+
+            if (body.contains("controlServerUrl"))
+                config.setControlServerUrl(body["controlServerUrl"]);
+            if (body.contains("agentName"))
+                config.setAgentName(body["agentName"]);
+            if (body.contains("autoStart"))
+                config.setAutoStart(body["autoStart"]);
+            if (body.contains("enableLogging"))
+                config.setLoggingEnabled(body["enableLogging"]);
+
+            config.save();
+            res.set_content(R"({"success":true})", "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+}
+
+void HttpServer::setupGuiRoutes()
+{
+    // GUI routes are proxied to the tray app (which has GUI access)
+    // The service itself doesn't have GUI access when machine is locked
+
+    // Screenshot
+    m_server->Get("/screenshot", [this](const httplib::Request& req, httplib::Response& res) {
+        json params;
+        if (req.has_param("quality"))
+            params["quality"] = std::stoi(req.get_param_value("quality"));
+        if (req.has_param("format"))
+            params["format"] = req.get_param_value("format");
+
+        auto result = proxyGuiRequest("/screenshot", params.dump());
+        res.set_content(result, "application/json");
+    });
+
+    // Click
+    m_server->Post("/click", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/click", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Double click
+    m_server->Post("/double_click", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/double_click", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Mouse move
+    m_server->Post("/mouse/move", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/mouse/move", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Mouse scroll
+    m_server->Post("/mouse/scroll", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/mouse/scroll", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Mouse drag
+    m_server->Post("/mouse/drag", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/mouse/drag", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Get mouse position
+    m_server->Get("/mouse/position", [this](const httplib::Request&, httplib::Response& res) {
+        auto result = proxyGuiRequest("/mouse/position", "{}");
+        res.set_content(result, "application/json");
+    });
+
+    // Keyboard type
+    m_server->Post("/keyboard/type", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/keyboard/type", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Keyboard key press
+    m_server->Post("/keyboard/key", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/keyboard/key", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // UI elements
+    m_server->Get("/ui/elements", [this](const httplib::Request&, httplib::Response& res) {
+        auto result = proxyGuiRequest("/ui/elements", "{}");
+        res.set_content(result, "application/json");
+    });
+
+    // Window list
+    m_server->Get("/ui/windows", [this](const httplib::Request&, httplib::Response& res) {
+        auto result = proxyGuiRequest("/ui/windows", "{}");
+        res.set_content(result, "application/json");
+    });
+
+    // Focus window
+    m_server->Post("/ui/focus", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/ui/focus", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Active window
+    m_server->Get("/ui/active", [this](const httplib::Request&, httplib::Response& res) {
+        auto result = proxyGuiRequest("/ui/active", "{}");
+        res.set_content(result, "application/json");
+    });
+
+    // OCR analysis
+    m_server->Get("/ocr", [this](const httplib::Request&, httplib::Response& res) {
+        auto result = proxyGuiRequest("/ocr", "{}");
+        res.set_content(result, "application/json");
+    });
+
+    // Application list
+    m_server->Get("/applications", [this](const httplib::Request&, httplib::Response& res) {
+        auto result = proxyGuiRequest("/applications", "{}");
+        res.set_content(result, "application/json");
+    });
+
+    // Focus application
+    m_server->Post("/application/focus", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/application/focus", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Launch application
+    m_server->Post("/application/launch", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/application/launch", req.body);
+        res.set_content(result, "application/json");
+    });
+
+    // Close application
+    m_server->Post("/application/close", [this](const httplib::Request& req, httplib::Response& res) {
+        auto result = proxyGuiRequest("/application/close", req.body);
+        res.set_content(result, "application/json");
+    });
+}
+
+void HttpServer::setupFilesystemRoutes()
+{
+    // Filesystem: list
+    m_server->Post("/fs/list", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string path = body.value("path", ".");
+            bool recursive = body.value("recursive", false);
+            int maxDepth = body.value("maxDepth", 1);
+
+            auto result = FilesystemTools::list(path, recursive, maxDepth);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: read
+    m_server->Post("/fs/read", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string path = body.value("path", "");
+            size_t maxBytes = body.value("maxBytes", 1048576); // 1MB default
+
+            auto result = FilesystemTools::read(path, maxBytes);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: read range
+    m_server->Post("/fs/read_range", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string path = body.value("path", "");
+            // Support both camelCase and snake_case for compatibility
+            int startLine = body.count("start_line") ? body["start_line"].get<int>() : body.value("startLine", 1);
+            int endLine = body.count("end_line") ? body["end_line"].get<int>() : body.value("endLine", -1);
+
+            auto result = FilesystemTools::readRange(path, startLine, endLine);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: write
+    m_server->Post("/fs/write", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string path = body.value("path", "");
+            std::string content = body.value("content", "");
+            std::string mode = body.value("mode", "overwrite");
+            bool createDirs = body.value("createDirs", false);
+
+            auto result = FilesystemTools::write(path, content, mode, createDirs);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: delete
+    m_server->Post("/fs/delete", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string path = body.value("path", "");
+            bool recursive = body.value("recursive", false);
+
+            auto result = FilesystemTools::remove(path, recursive);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: move
+    m_server->Post("/fs/move", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string source = body.value("source", "");
+            std::string destination = body.value("destination", "");
+
+            auto result = FilesystemTools::move(source, destination);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: search (glob)
+    m_server->Post("/fs/search", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string basePath = body.value("path", ".");
+            std::string glob = body.value("glob", "*");
+            int maxResults = body.value("maxResults", 100);
+
+            auto result = FilesystemTools::search(basePath, glob, maxResults);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: grep
+    m_server->Post("/fs/grep", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string basePath = body.value("path", ".");
+            std::string pattern = body.value("pattern", "");
+            std::string glob = body.value("glob", "*");
+            int maxMatches = body.value("maxMatches", 100);
+
+            auto result = FilesystemTools::grep(basePath, pattern, glob, maxMatches);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Filesystem: patch
+    m_server->Post("/fs/patch", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string path = body.value("path", "");
+            auto operations = body.value("operations", json::array());
+            bool dryRun = body.value("dryRun", false);
+
+            auto result = FilesystemTools::patch(path, operations, dryRun);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+}
+
+void HttpServer::setupShellRoutes()
+{
+    // Shell: exec
+    m_server->Post("/shell/exec", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string command = body.value("command", "");
+            std::string cwd = body.value("cwd", "");
+            int timeout = body.value("timeout", 30);
+
+            auto result = ShellTools::exec(command, cwd, timeout);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Shell: list sessions
+    m_server->Get("/shell/session/list", [](const httplib::Request&, httplib::Response& res) {
+        auto result = ShellTools::listSessions();
+        res.set_content(result.dump(), "application/json");
+    });
+
+    // Shell: start session
+    m_server->Post("/shell/session/start", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string command = body.value("command", "");
+            std::string cwd = body.value("cwd", "");
+
+            auto result = ShellTools::startSession(command, cwd);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Shell: send input
+    m_server->Post("/shell/session/input", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            // Support both camelCase and snake_case for compatibility
+            std::string sessionId = body.count("session_id") ? body["session_id"].get<std::string>() : body.value("sessionId", "");
+            std::string input = body.value("input", "");
+
+            auto result = ShellTools::sendInput(sessionId, input);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Shell: stop session
+    m_server->Post("/shell/session/stop", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            // Support both camelCase and snake_case for compatibility
+            std::string sessionId = body.count("session_id") ? body["session_id"].get<std::string>() : body.value("sessionId", "");
+            std::string signal = body.value("signal", "TERM");
+
+            auto result = ShellTools::stopSession(sessionId, signal);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Shell: read output
+    m_server->Post("/shell/session/read", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            // Support both camelCase and snake_case for compatibility
+            std::string sessionId = body.count("session_id") ? body["session_id"].get<std::string>() : body.value("sessionId", "");
+
+            auto result = ShellTools::readOutput(sessionId);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+}
+
+void HttpServer::setupSystemRoutes()
+{
+    // System info
+    m_server->Get("/system/info", [](const httplib::Request&, httplib::Response& res) {
+        auto result = SystemTools::getSystemInfo();
+        res.set_content(result.dump(), "application/json");
+    });
+
+    // Clipboard read
+    m_server->Get("/clipboard/read", [](const httplib::Request&, httplib::Response& res) {
+        auto result = SystemTools::clipboardRead();
+        res.set_content(result.dump(), "application/json");
+    });
+
+    // Clipboard write
+    m_server->Post("/clipboard/write", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string text = body.value("text", "");
+
+            auto result = SystemTools::clipboardWrite(text);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Wait
+    m_server->Post("/wait", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            int milliseconds = body.value("milliseconds", 0);
+
+            auto result = SystemTools::wait(milliseconds);
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+}
+
+void HttpServer::setupUnlockRoutes()
+{
+    // Machine unlock - uses stored credentials (Fort Knox design)
+    // NO credential retrieval endpoint - only unlock action
+
+    // Check if machine is locked
+    m_server->Get("/unlock/status", [](const httplib::Request&, httplib::Response& res) {
+        bool hasCredentials = platform::unlock::hasStoredCredentials();
+        bool isLocked = platform::unlock::isLocked();
+
+        json response = {
+            {"success", true},
+            {"hasStoredCredentials", hasCredentials},
+            {"isLocked", isLocked},
+            {"platform", PLATFORM_ID}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Unlock machine using stored credentials
+    m_server->Post("/unlock", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            // Check if credentials are stored
+            if (!platform::unlock::hasStoredCredentials())
+            {
+                res.set_content(json{{"success", false}, {"error", "No stored credentials"}}.dump(), "application/json");
+                return;
+            }
+
+            // Check if already unlocked
+            if (!platform::unlock::isLocked())
+            {
+                res.set_content(json{{"success", true}, {"message", "Machine is already unlocked"}}.dump(), "application/json");
+                return;
+            }
+
+            // Attempt unlock
+            bool unlocked = platform::unlock::unlockWithStoredCredentials();
+
+            if (unlocked)
+            {
+                Logger::info("Machine unlocked successfully");
+                res.set_content(json{{"success", true}, {"message", "Machine unlocked"}}.dump(), "application/json");
+            }
+            else
+            {
+                Logger::warn("Failed to unlock machine");
+                res.set_content(json{{"success", false}, {"error", "Unlock failed - check credentials"}}.dump(), "application/json");
+            }
+        }
+        catch (const std::exception& e)
+        {
+            Logger::error("Unlock error: " + std::string(e.what()));
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Store unlock credentials (write-only - NO retrieval!)
+    m_server->Post("/unlock/credentials", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string username = body.value("username", "");
+            std::string password = body.value("password", "");
+
+            if (username.empty() || password.empty())
+            {
+                res.set_content(json{{"success", false}, {"error", "Missing username or password"}}.dump(), "application/json");
+                return;
+            }
+
+            // Store credentials securely (encrypted with split-key)
+            bool stored = platform::unlock::storeUnlockCredentials(username, password);
+
+            // Clear plaintext password from memory
+            std::fill(password.begin(), password.end(), 0);
+
+            if (stored)
+            {
+                Logger::info("Unlock credentials stored for user: " + username);
+                res.set_content(json{{"success", true}, {"message", "Credentials stored securely"}}.dump(), "application/json");
+            }
+            else
+            {
+                Logger::error("Failed to store unlock credentials");
+                res.set_content(json{{"success", false}, {"error", "Failed to store credentials"}}.dump(), "application/json");
+            }
+        }
+        catch (const std::exception& e)
+        {
+            Logger::error("Credential storage error: " + std::string(e.what()));
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Clear stored credentials
+    m_server->Delete("/unlock/credentials", [](const httplib::Request&, httplib::Response& res) {
+        bool cleared = platform::unlock::clearStoredCredentials();
+
+        if (cleared)
+        {
+            Logger::info("Unlock credentials cleared");
+            res.set_content(json{{"success", true}, {"message", "Credentials cleared"}}.dump(), "application/json");
+        }
+        else
+        {
+            Logger::warn("Failed to clear credentials (may not have been stored)");
+            res.set_content(json{{"success", true}, {"message", "Credentials cleared (or were not stored)"}}.dump(), "application/json");
+        }
+    });
+}
+
+void HttpServer::setupControlServerRoutes()
+{
+    // Get control server connection status
+    m_server->Get("/control-server/status", [](const httplib::Request&, httplib::Response& res) {
+        auto& wsClient = WebSocketClient::getInstance();
+
+        json response = {
+            {"connected", wsClient.isConnected()},
+            {"serverUrl", wsClient.getServerUrl()},
+            {"agentId", wsClient.getAgentId()},
+            {"licenseStatus", wsClient.getLicenseStatus()}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Connect to control server
+    m_server->Post("/control-server/connect", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto& wsClient = WebSocketClient::getInstance();
+
+            // If already connected, disconnect first
+            if (wsClient.isConnected())
+            {
+                wsClient.disconnect();
+            }
+
+            // Parse config from request body
+            ConnectionConfig config;
+            if (!req.body.empty())
+            {
+                auto body = json::parse(req.body);
+                if (body.contains("serverUrl"))
+                    config.serverUrl = body["serverUrl"];
+                if (body.contains("endpointUuid"))
+                    config.endpointUuid = body["endpointUuid"];
+                if (body.contains("customerId"))
+                    config.customerId = body["customerId"];
+                if (body.contains("agentName"))
+                    config.agentName = body["agentName"];
+            }
+
+            // Use defaults from Config if not specified
+            if (config.serverUrl.empty())
+            {
+                config.serverUrl = Config::getInstance().getControlServerUrl();
+            }
+            if (config.agentName.empty())
+            {
+                config.agentName = Config::getInstance().getAgentName();
+            }
+
+            bool success = wsClient.connect(config);
+
+            json response = {
+                {"success", success},
+                {"connected", wsClient.isConnected()},
+                {"agentId", wsClient.getAgentId()},
+                {"licenseStatus", wsClient.getLicenseStatus()}
+            };
+            res.set_content(response.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Disconnect from control server
+    m_server->Post("/control-server/disconnect", [](const httplib::Request&, httplib::Response& res) {
+        auto& wsClient = WebSocketClient::getInstance();
+        wsClient.disconnect();
+
+        json response = {
+            {"success", true},
+            {"connected", false}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Reconnect to control server
+    m_server->Post("/control-server/reconnect", [](const httplib::Request&, httplib::Response& res) {
+        auto& wsClient = WebSocketClient::getInstance();
+        bool success = wsClient.reconnect();
+
+        json response = {
+            {"success", success},
+            {"connected", wsClient.isConnected()}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+}
+
+void HttpServer::setupToolRoute()
+{
+    // Generic tool endpoint - routes to command dispatcher
+    // This is used by the tray app to execute non-GUI tools through the service
+    m_server->Post("/tool", [this](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            std::string method = body.value("method", "");
+            json params = body.value("params", json::object());
+
+            if (method.empty())
+            {
+                res.set_content(json{{"error", "Missing method"}}.dump(), "application/json");
+                return;
+            }
+
+            // Use command dispatcher to route the request
+            auto& dispatcher = CommandDispatcher::getInstance();
+            auto result = dispatcher.dispatch(method, params);
+
+            res.set_content(result.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"error", e.what()}}.dump(), "application/json");
+        }
+    });
+}
+
+} // namespace ScreenControl

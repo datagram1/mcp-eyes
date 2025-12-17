@@ -1,0 +1,28 @@
+# ARM64 Linux container for cross-compilation
+# Runs native on ARM64 hosts, cross-compiles to any target
+FROM arm64v8/debian:bookworm-slim
+
+ARG ZIG_VERSION=0.13.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    cmake \
+    ninja-build \
+    git \
+    curl \
+    xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Zig (native ARM64 binary)
+RUN curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-aarch64-${ZIG_VERSION}.tar.xz" \
+    | tar -xJ -C /opt \
+    && ln -s /opt/zig-linux-aarch64-${ZIG_VERSION}/zig /usr/local/bin/zig
+
+WORKDIR /build
+
+# Verify zig works
+RUN zig version
+
+COPY toolchains/ /toolchains/
+
+ENTRYPOINT ["/bin/bash"]

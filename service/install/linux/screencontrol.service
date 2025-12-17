@@ -1,0 +1,34 @@
+[Unit]
+Description=ScreenControl Service
+Documentation=https://github.com/screencontrol/screencontrol
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/screencontrol/ScreenControlService
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+# Run as root for full functionality
+User=root
+Group=root
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+PrivateTmp=false
+
+# Environment
+Environment=HOME=/root
+WorkingDirectory=/opt/screencontrol
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=screencontrol
+
+[Install]
+WantedBy=multi-user.target

@@ -68,9 +68,6 @@ extern "C" {
 - (NSView *)createDebugTabView;
 - (void)debugConnect:(id)sender;
 - (void)debugDisconnect:(id)sender;
-- (void)debugSendRegistration;
-- (void)debugSendHeartbeat;
-- (void)debugReceiveMessage;
 - (void)debugLog:(NSString *)message;
 - (void)fileLog:(NSString *)message;
 - (NSString *)getMachineId;
@@ -135,7 +132,13 @@ extern "C" {
     // Start browser bridge server (manages Firefox/Chrome extension communication)
     [self startBrowserBridge];
 
-    // Check control server connection status
+    // Start GUI Bridge server (receives commands from service)
+    [self startGUIBridgeServer];
+
+    // Start Service client (monitors service status)
+    [self startServiceClient];
+
+    // Check control server connection status (now via service)
     [self checkControlServerConnection];
 
     // Update status periodically
@@ -174,6 +177,8 @@ extern "C" {
     [self.testServer stop];
 #endif
 
+    [self stopGUIBridgeServer];
+    [self stopServiceClient];
     [self stopBrowserBridge];
     [self stopAgent];
     [self.statusTimer invalidate];
@@ -548,6 +553,34 @@ extern "C" {
 
     y -= 115;
 
+    // Service Status Section (Background Service)
+    NSBox *serviceBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 70, tabWidth - padding * 2, 80)];
+    serviceBox.title = @"Background Service";
+    serviceBox.titlePosition = NSAtTop;
+    [tabView addSubview:serviceBox];
+
+    boxY = 35;
+
+    // Service connection status with indicator
+    self.serviceStatusIndicator = [[NSImageView alloc] initWithFrame:NSMakeRect(boxPadding, boxY, 12, 12)];
+    self.serviceStatusIndicator.image = [NSImage imageWithSystemSymbolName:@"circle.fill" accessibilityDescription:@"Status"];
+    self.serviceStatusIndicator.contentTintColor = [NSColor systemGrayColor];
+    [serviceBox addSubview:self.serviceStatusIndicator];
+
+    self.serviceStatusLabel = [self createLabel:@"Service: Checking..."
+                                          frame:NSMakeRect(boxPadding + 18, boxY - 4, tabWidth - padding * 2 - boxPadding * 2 - 20, 20)];
+    [serviceBox addSubview:self.serviceStatusLabel];
+    boxY -= 25;
+
+    // Control server status (via service)
+    NSTextField *serviceInfoLabel = [self createLabel:@"The background service handles remote connections and survives screen lock."
+                                                frame:NSMakeRect(boxPadding, boxY - 5, tabWidth - padding * 2 - boxPadding * 2, 30)];
+    serviceInfoLabel.textColor = [NSColor secondaryLabelColor];
+    serviceInfoLabel.font = [NSFont systemFontOfSize:10];
+    [serviceBox addSubview:serviceInfoLabel];
+
+    y -= 90;
+
     // Status Section
     NSBox *statusBox = [[NSBox alloc] initWithFrame:NSMakeRect(padding, y - 70, tabWidth - padding * 2, 80)];
     statusBox.title = @"Status";
@@ -820,14 +853,8 @@ extern "C" {
     [connectionBox addSubview:self.debugConnectOnStartupCheckbox];
     boxY -= rowHeight + 5;
 
-    // Bypass mode checkbox (force ACTIVE, no heartbeats)
-    self.debugBypassModeCheckbox = [[NSButton alloc] initWithFrame:NSMakeRect(boxPadding, boxY, controlWidth, 20)];
-    self.debugBypassModeCheckbox.title = @"Bypass mode (force ACTIVE, no heartbeats)";
-    [self.debugBypassModeCheckbox setButtonType:NSButtonTypeSwitch];
-    self.debugBypassModeCheckbox.state = [[NSUserDefaults standardUserDefaults] boolForKey:@"debugBypassMode"] ? NSControlStateValueOn : NSControlStateValueOff;
-    self.debugBypassModeEnabled = (self.debugBypassModeCheckbox.state == NSControlStateValueOn);
-    [connectionBox addSubview:self.debugBypassModeCheckbox];
-    boxY -= rowHeight + 5;
+    // NOTE: Bypass mode checkbox removed - service now handles heartbeats
+    boxY -= 5;
 
     // Connection status
     self.debugConnectionStatusLabel = [self createLabel:@"Status: Not connected"
@@ -938,84 +965,26 @@ extern "C" {
 }
 
 - (void)debugConnect:(id)sender {
-    NSLog(@"[WS-DEBUG] ========== debugConnect called ==========");
-    NSLog(@"[WS-DEBUG] Existing task: %@", self.debugWebSocketTask ? @"YES" : @"NO");
-    NSLog(@"[WS-DEBUG] Existing session: %@", self.debugSession ? @"YES" : @"NO");
-    NSLog(@"[WS-DEBUG] debugIsConnected: %@", self.debugIsConnected ? @"YES" : @"NO");
-    NSLog(@"[WS-DEBUG] debugAutoReconnectEnabled: %@", self.debugAutoReconnectEnabled ? @"YES" : @"NO");
+    NSLog(@"[DEBUG] ========== debugConnect called (via Service) ==========");
 
-    // Cancel any pending reconnect
-    [self debugCancelReconnect];
-
-    // Set cleanup flag to ignore errors from old connection during cleanup
-    self.debugCleaningUpConnection = YES;
-    NSLog(@"[WS-DEBUG] Set cleaningUpConnection flag to YES");
-
-    // Clean up any existing connection to prevent orphaned sockets
-    // Temporarily disable auto-reconnect so cleanup doesn't trigger a new reconnect
-    BOOL wasAutoReconnectEnabled = self.debugAutoReconnectEnabled;
-    self.debugAutoReconnectEnabled = NO;
-    NSLog(@"[WS-DEBUG] Temporarily disabled auto-reconnect for cleanup");
-
-    // Stop existing heartbeat timer
-    if (self.debugHeartbeatTimer) {
-        NSLog(@"[WS-DEBUG] Stopping existing heartbeat timer");
-        [self.debugHeartbeatTimer invalidate];
-        self.debugHeartbeatTimer = nil;
+    // Check if service is available first
+    if (!self.serviceClient.isServiceAvailable) {
+        [self debugLog:@"ERROR: Service not available. Please start the ScreenControl service first."];
+        self.debugConnectionStatusLabel.stringValue = @"Status: Service not running";
+        self.debugConnectionStatusLabel.textColor = [NSColor systemRedColor];
+        return;
     }
-
-    // Close existing WebSocket if any
-    if (self.debugWebSocketTask) {
-        NSLog(@"[WS-DEBUG] Cancelling existing WebSocket task");
-        [self.debugWebSocketTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
-        self.debugWebSocketTask = nil;
-    }
-
-    // Invalidate existing session
-    if (self.debugSession) {
-        NSLog(@"[WS-DEBUG] Invalidating existing session");
-        [self.debugSession invalidateAndCancel];
-        self.debugSession = nil;
-    }
-
-    self.debugIsConnected = NO;
-
-    // Restore auto-reconnect setting
-    self.debugAutoReconnectEnabled = wasAutoReconnectEnabled;
-    NSLog(@"[WS-DEBUG] Restored auto-reconnect to: %@", wasAutoReconnectEnabled ? @"YES" : @"NO");
-
-    // Clear cleanup flag after a short delay to let old callbacks fire and be ignored
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-        self.debugCleaningUpConnection = NO;
-        NSLog(@"[WS-DEBUG] Set cleaningUpConnection flag to NO (after delay)");
-    });
 
     NSString *serverUrl = self.debugServerUrlField.stringValue;
     if (serverUrl.length == 0) {
         serverUrl = @"wss://screencontrol.knws.co.uk/ws";
     }
 
-    [self debugLog:[NSString stringWithFormat:@"Connecting to %@...", serverUrl]];
+    NSString *endpointUuid = self.debugEndpointUuidField.stringValue;
+    NSString *customerId = self.debugCustomerIdField.stringValue;
+    NSString *agentName = self.agentNameField.stringValue ?: [[NSHost currentHost] localizedName];
 
-    NSURL *url = [NSURL URLWithString:serverUrl];
-    if (!url) {
-        [self debugLog:@"ERROR: Invalid URL"];
-        return;
-    }
-
-    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
-    config.timeoutIntervalForRequest = 60.0;  // 60 second request timeout
-    config.timeoutIntervalForResource = 3600.0;  // 1 hour resource timeout
-    config.waitsForConnectivity = YES;  // Wait for network if temporarily unavailable
-    self.debugSession = [NSURLSession sessionWithConfiguration:config];
-
-    self.debugWebSocketTask = [self.debugSession webSocketTaskWithURL:url];
-
-    // Start receiving messages
-    [self debugReceiveMessage];
-
-    // Resume the task to start connection
-    [self.debugWebSocketTask resume];
+    [self debugLog:[NSString stringWithFormat:@"Connecting to %@ via service...", serverUrl]];
 
     // Update UI
     self.debugConnectButton.enabled = NO;
@@ -1024,99 +993,79 @@ extern "C" {
     self.debugConnectionStatusLabel.stringValue = @"Status: Connecting...";
     self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
 
-    // Send registration after a brief delay to ensure connection is established
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-        [self debugSendRegistration];
-    });
-}
+    // Build connection config
+    NSDictionary *config = @{
+        @"serverUrl": serverUrl,
+        @"endpointUuid": endpointUuid ?: @"",
+        @"customerId": customerId ?: @"",
+        @"agentName": agentName ?: @""
+    };
 
-- (void)debugDisconnect:(id)sender {
-    [self debugLog:@"Disconnecting..."];
-
-    // Set cleanup flag to ignore errors from old connection during disconnect
-    self.debugCleaningUpConnection = YES;
-
-    // Disable auto-reconnect when manually disconnecting
-    self.debugAutoReconnectEnabled = NO;
-    [self debugCancelReconnect];
-
-    // Stop heartbeat timer
-    [self.debugHeartbeatTimer invalidate];
-    self.debugHeartbeatTimer = nil;
-
-    // Close WebSocket
-    [self.debugWebSocketTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
-    self.debugWebSocketTask = nil;
-
-    // Invalidate session to clean up resources
-    [self.debugSession invalidateAndCancel];
-    self.debugSession = nil;
-
-    self.debugIsConnected = NO;
-
-    // Clear cleanup flag after a short delay
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-        self.debugCleaningUpConnection = NO;
-    });
-
-    // Update UI
-    dispatch_async(dispatch_get_main_queue(), ^{
-        self.debugConnectButton.enabled = YES;
-        self.debugDisconnectButton.enabled = NO;
-        self.debugReconnectButton.enabled = NO;
-        self.debugConnectionStatusLabel.stringValue = @"Status: Disconnected";
-        self.debugConnectionStatusLabel.textColor = [NSColor secondaryLabelColor];
-        self.debugLicenseStatusLabel.stringValue = @"License: --";
-        self.debugAgentIdLabel.stringValue = @"Agent ID: --";
-
-        // Update General tab connection status
-        self.connectionStatusLabel.stringValue = @"Status: Not connected";
-        self.connectionStatusLabel.textColor = [NSColor secondaryLabelColor];
-        self.connectButton.enabled = YES;
-    });
-
-    [self debugLog:@"Disconnected"];
-}
-
-#pragma mark - Auto-Reconnect
-
-- (void)debugScheduleReconnect {
-    NSLog(@"[WS-DEBUG] ========== debugScheduleReconnect called ==========");
-    NSLog(@"[WS-DEBUG] Current reconnect attempt: %ld", (long)self.debugReconnectAttempt);
-
-    // Calculate delay with exponential backoff: 5s, 10s, 20s, 40s, max 60s
-    NSTimeInterval baseDelay = 5.0;
-    NSTimeInterval delay = MIN(baseDelay * pow(2, self.debugReconnectAttempt), 60.0);
-
-    self.debugReconnectAttempt++;
-
-    NSLog(@"[WS-DEBUG] Scheduling reconnect in %.0f seconds (attempt %ld)", delay, (long)self.debugReconnectAttempt);
-    [self debugLog:[NSString stringWithFormat:@"Scheduling reconnect attempt %ld in %.0f seconds...", (long)self.debugReconnectAttempt, delay]];
-
-    self.debugConnectionStatusLabel.stringValue = [NSString stringWithFormat:@"Status: Reconnecting in %.0fs (attempt %ld)", delay, (long)self.debugReconnectAttempt];
-    self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
-
-    // Cancel existing timer if any
-    [self.debugReconnectTimer invalidate];
-
-    // Schedule reconnect
+    // Connect via service
     __weak typeof(self) weakSelf = self;
-    self.debugReconnectTimer = [NSTimer scheduledTimerWithTimeInterval:delay repeats:NO block:^(NSTimer *timer) {
-        [weakSelf debugLog:@"Attempting reconnect..."];
-        [weakSelf debugConnect:nil];
+    [self.serviceClient connectToControlServerWithConfig:config completion:^(BOOL success, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (success) {
+                [weakSelf debugLog:@"Connection request sent to service"];
+                // Status will be updated via ServiceClient delegate callbacks
+            } else {
+                [weakSelf debugLog:[NSString stringWithFormat:@"ERROR: Failed to connect - %@", error.localizedDescription]];
+                weakSelf.debugConnectButton.enabled = YES;
+                weakSelf.debugDisconnectButton.enabled = NO;
+                weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connection failed";
+                weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemRedColor];
+            }
+        });
     }];
 }
 
-- (void)debugCancelReconnect {
-    [self.debugReconnectTimer invalidate];
-    self.debugReconnectTimer = nil;
-    self.debugReconnectAttempt = 0;
+- (void)debugDisconnect:(id)sender {
+    [self debugLog:@"Disconnecting via service..."];
+
+    // Update UI immediately
+    self.debugConnectButton.enabled = NO;
+    self.debugDisconnectButton.enabled = NO;
+    self.debugReconnectButton.enabled = NO;
+    self.debugConnectionStatusLabel.stringValue = @"Status: Disconnecting...";
+    self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
+
+    // Disconnect via service
+    __weak typeof(self) weakSelf = self;
+    [self.serviceClient disconnectFromControlServerWithCompletion:^(BOOL success, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            weakSelf.debugIsConnected = NO;
+            weakSelf.debugConnectButton.enabled = YES;
+            weakSelf.debugDisconnectButton.enabled = NO;
+            weakSelf.debugReconnectButton.enabled = NO;
+            weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Disconnected";
+            weakSelf.debugConnectionStatusLabel.textColor = [NSColor secondaryLabelColor];
+            weakSelf.debugLicenseStatusLabel.stringValue = @"License: --";
+            weakSelf.debugAgentIdLabel.stringValue = @"Agent ID: --";
+
+            // Update General tab connection status
+            weakSelf.connectionStatusLabel.stringValue = @"Status: Not connected";
+            weakSelf.connectionStatusLabel.textColor = [NSColor secondaryLabelColor];
+            weakSelf.connectButton.enabled = YES;
+
+            [weakSelf debugLog:@"Disconnected"];
+        });
+    }];
 }
 
+#pragma mark - Reconnect (via Service)
+
 - (IBAction)debugReconnectClicked:(id)sender {
-    [self debugLog:@"Manual reconnect requested"];
-    [self debugCancelReconnect];
-    self.debugAutoReconnectEnabled = YES;  // Re-enable auto-reconnect
+    [self debugLog:@"Manual reconnect requested via service"];
+
+    // Update UI
+    self.debugConnectButton.enabled = NO;
+    self.debugDisconnectButton.enabled = NO;
+    self.debugReconnectButton.enabled = NO;
+    self.debugConnectionStatusLabel.stringValue = @"Status: Reconnecting...";
+    self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
+
+    // Ask service to reconnect - it handles the WebSocket connection
+    // We simply call connect again with the current settings
     [self debugConnect:nil];
 }
 
@@ -1649,314 +1598,19 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     }
 }
 
-- (void)debugSendRegistration {
-    if (!self.debugWebSocketTask) return;
+// NOTE: debugSendRegistration, debugSendHeartbeat, and debugReceiveMessage have been removed
+// The service (port 3459) now handles all WebSocket communication with the control server
 
-    NSString *machineId = [self getMachineId];
-    NSString *hostname = [[NSHost currentHost] localizedName];
-    NSString *endpointUuid = self.debugEndpointUuidField.stringValue;
-    NSString *customerId = self.debugCustomerIdField.stringValue;
-    NSString *agentSecret = self.apiKeyField.stringValue;
-
-    // Build registration message matching server expectations
-    NSMutableDictionary *message = [NSMutableDictionary dictionary];
-    message[@"type"] = @"register";
-    message[@"machineId"] = machineId;
-    message[@"machineName"] = hostname;
-    message[@"osType"] = @"darwin";
-    message[@"osVersion"] = [[NSProcessInfo processInfo] operatingSystemVersionString];
-    message[@"arch"] = @"arm64"; // or detect properly
-    message[@"agentVersion"] = @"1.0.0-debug";
-
-    if (endpointUuid.length > 0) {
-        message[@"licenseUuid"] = endpointUuid;
-    }
-    if (customerId.length > 0) {
-        message[@"customerId"] = customerId;
-    }
-
-    // Include agent secret for server-side authentication
-    // Server stores this on first registration and validates on reconnection
-    // This ensures the agent can re-establish connection after token expiry
-    if (agentSecret.length > 0) {
-        message[@"agentSecret"] = agentSecret;
-    }
-
-    // Add fingerprint info (simplified for debug mode)
-    message[@"fingerprint"] = @{
-        @"hostname": hostname,
-        @"cpuModel": @"Apple Silicon",
-        @"macAddresses": @[@"debug-mode"]
-    };
-
-    NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:message options:0 error:&error];
-    if (error) {
-        [self debugLog:[NSString stringWithFormat:@"ERROR: Failed to serialize registration: %@", error]];
-        return;
-    }
-
-    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-    [self debugLog:[NSString stringWithFormat:@"→ REGISTER: %@", hostname]];
-
-    NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
-    __weak typeof(self) weakSelf = self;
-    [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *error) {
-        if (error && weakSelf) {
-            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR sending registration: %@", error.localizedDescription]];
-        }
-    }];
-}
-
-- (void)debugSendHeartbeat {
-    if (!self.debugWebSocketTask || !self.debugIsConnected) return;
-
-    NSDictionary *message = @{
-        @"type": @"heartbeat",
-        @"timestamp": @([[NSDate date] timeIntervalSince1970] * 1000),
-        @"powerState": @"ACTIVE",
-        @"isScreenLocked": @([self isScreenLocked])
-    };
-
-    NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:message options:0 error:&error];
-    if (error) return;
-
-    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-
-    NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
-    __weak typeof(self) weakSelf = self;
-    [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *error) {
-        if (!weakSelf) return;
-        if (error) {
-            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR sending heartbeat: %@", error.localizedDescription]];
-        } else {
-            [weakSelf debugLog:@"→ HEARTBEAT"];
-        }
-    }];
-}
-
+// NOTE: debugNotifyToolsChanged now sends to service instead of direct WebSocket
 - (void)debugNotifyToolsChanged {
-    if (!self.debugWebSocketTask || !self.debugIsConnected) return;
-
-    // Check if either browser bridge server is running
+    // Service handles WebSocket communication, but we can notify it of tool changes
+    // via the HTTP API if needed. For now, just log the event.
     BOOL bridgeRunning = (self.browserBridgeServer && self.browserBridgeServer.isRunning) ||
                         (self.browserWebSocketServer && self.browserWebSocketServer.isRunning);
-
-    NSDictionary *message = @{
-        @"type": @"tools_changed",
-        @"timestamp": @([[NSDate date] timeIntervalSince1970] * 1000),
-        @"browserBridgeRunning": @(bridgeRunning)
-    };
-
-    NSError *error;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:message options:0 error:&error];
-    if (error) {
-        NSLog(@"[Agent] ERROR serializing tools_changed message: %@", error);
-        return;
-    }
-
-    NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-
-    NSURLSessionWebSocketMessage *wsMessage = [[NSURLSessionWebSocketMessage alloc] initWithString:jsonString];
-    __weak typeof(self) weakSelf = self;
-    [self.debugWebSocketTask sendMessage:wsMessage completionHandler:^(NSError *sendError) {
-        if (!weakSelf) return;
-        if (sendError) {
-            NSLog(@"[Agent] ERROR sending tools_changed notification: %@", sendError.localizedDescription);
-        } else {
-            NSLog(@"[Agent] → TOOLS_CHANGED notification sent (browserBridge: %@)",
-                  weakSelf.browserBridgeServer && weakSelf.browserBridgeServer.isRunning ? @"running" : @"stopped");
-        }
-    }];
+    NSLog(@"[Agent] Tools changed notification (browserBridge: %@)", bridgeRunning ? @"running" : @"stopped");
 }
 
-- (void)debugReceiveMessage {
-    if (!self.debugWebSocketTask) return;
-
-    __weak typeof(self) weakSelf = self;
-    [self.debugWebSocketTask receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage *message, NSError *error) {
-        if (error) {
-            // Check if we're in the middle of cleaning up an old connection
-            // If so, ignore this error as it's expected during cleanup
-            if (weakSelf.debugCleaningUpConnection) {
-                NSLog(@"[WS-DEBUG] Ignoring error during cleanup: %@", error.localizedDescription);
-                return;
-            }
-
-            // Detailed error logging for debugging
-            NSLog(@"[WS-DEBUG] WebSocket receive error:");
-            NSLog(@"  Domain: %@", error.domain);
-            NSLog(@"  Code: %ld", (long)error.code);
-            NSLog(@"  Description: %@", error.localizedDescription);
-            NSLog(@"  UserInfo: %@", error.userInfo);
-            NSLog(@"  debugIsConnected: %@", weakSelf.debugIsConnected ? @"YES" : @"NO");
-            NSLog(@"  debugAutoReconnectEnabled: %@", weakSelf.debugAutoReconnectEnabled ? @"YES" : @"NO");
-
-            [weakSelf debugLog:[NSString stringWithFormat:@"ERROR: WebSocket error [%@:%ld]: %@", error.domain, (long)error.code, error.localizedDescription]];
-
-            dispatch_async(dispatch_get_main_queue(), ^{
-                // Double-check we're not cleaning up (main thread check)
-                if (weakSelf.debugCleaningUpConnection) {
-                    NSLog(@"[WS-DEBUG] Ignoring error handling on main thread during cleanup");
-                    return;
-                }
-
-                weakSelf.debugIsConnected = NO;
-                weakSelf.debugConnectButton.enabled = YES;
-                weakSelf.debugDisconnectButton.enabled = NO;
-                weakSelf.debugReconnectButton.enabled = YES;  // Enable reconnect button
-                weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connection failed";
-                weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemRedColor];
-                [weakSelf.debugHeartbeatTimer invalidate];
-                weakSelf.debugHeartbeatTimer = nil;
-
-                // Update General tab connection status
-                weakSelf.connectionStatusLabel.stringValue = @"Status: Connection failed";
-                weakSelf.connectionStatusLabel.textColor = [NSColor systemRedColor];
-                weakSelf.connectButton.enabled = YES;
-
-                // Trigger auto-reconnect if enabled
-                if (weakSelf.debugAutoReconnectEnabled) {
-                    [weakSelf debugScheduleReconnect];
-                }
-            });
-            return;
-        }
-
-        if (message.type == NSURLSessionWebSocketMessageTypeString) {
-            NSString *text = message.string;
-            NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
-            NSError *jsonError;
-            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
-
-            if (json) {
-                NSString *type = json[@"type"];
-
-                if ([type isEqualToString:@"registered"]) {
-                    [weakSelf debugLog:[NSString stringWithFormat:@"← REGISTERED: license=%@", json[@"licenseStatus"]]];
-
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        weakSelf.debugIsConnected = YES;
-                        weakSelf.debugReconnectAttempt = 0;  // Reset reconnect attempts on success
-                        weakSelf.debugReconnectButton.enabled = YES;  // Enable reconnect for manual force-reconnect
-                        weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connected";
-                        weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemGreenColor];
-
-                        // Update General tab connection status
-                        weakSelf.connectionStatusLabel.stringValue = @"Status: Connected";
-                        weakSelf.connectionStatusLabel.textColor = [NSColor systemGreenColor];
-                        weakSelf.connectButton.enabled = YES;
-
-                        NSString *licenseStatus = json[@"licenseStatus"] ?: @"unknown";
-                        weakSelf.debugLicenseStatusLabel.stringValue = [NSString stringWithFormat:@"License: %@", [licenseStatus uppercaseString]];
-
-                        if ([licenseStatus isEqualToString:@"active"]) {
-                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemGreenColor];
-                        } else if ([licenseStatus isEqualToString:@"pending"]) {
-                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemOrangeColor];
-                        } else {
-                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemRedColor];
-                        }
-
-                        NSString *agentId = json[@"agentId"] ?: @"--";
-                        weakSelf.debugAgentIdLabel.stringValue = [NSString stringWithFormat:@"Agent ID: %@", agentId];
-
-                        // Start heartbeat timer (unless bypass mode is enabled)
-                        if (weakSelf.debugBypassModeEnabled) {
-                            [weakSelf debugLog:@"⚠️ BYPASS MODE: Heartbeat timer disabled"];
-                        } else {
-                            NSInteger heartbeatInterval = [json[@"config"][@"heartbeatInterval"] integerValue] ?: 5000;
-                            weakSelf.debugHeartbeatTimer = [NSTimer scheduledTimerWithTimeInterval:heartbeatInterval / 1000.0
-                                                                                            target:weakSelf
-                                                                                          selector:@selector(debugSendHeartbeat)
-                                                                                          userInfo:nil
-                                                                                           repeats:YES];
-                        }
-
-                        // Notify server of current tool availability after successful registration
-                        // Do this on a background queue since it's a network operation
-                        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                            [weakSelf debugNotifyToolsChanged];
-                        });
-                    });
-
-                } else if ([type isEqualToString:@"heartbeat_ack"]) {
-                    NSString *licenseStatus = json[@"licenseStatus"] ?: @"unknown";
-                    [weakSelf debugLog:[NSString stringWithFormat:@"← HEARTBEAT_ACK: license=%@", licenseStatus]];
-
-                    dispatch_async(dispatch_get_main_queue(), ^{
-                        weakSelf.debugLicenseStatusLabel.stringValue = [NSString stringWithFormat:@"License: %@", [licenseStatus uppercaseString]];
-                        if ([licenseStatus isEqualToString:@"active"]) {
-                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemGreenColor];
-                        } else if ([licenseStatus isEqualToString:@"pending"]) {
-                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemOrangeColor];
-                        } else {
-                            weakSelf.debugLicenseStatusLabel.textColor = [NSColor systemRedColor];
-                        }
-                    });
-
-                } else if ([type isEqualToString:@"ping"]) {
-                    [weakSelf debugLog:@"← PING (server keepalive)"];
-
-                } else if ([type isEqualToString:@"request"]) {
-                    NSString *method = json[@"method"] ?: @"unknown";
-                    [weakSelf debugLog:[NSString stringWithFormat:@"← REQUEST: %@", method]];
-
-                    // Handle tool execution via WebSocket (WAN communication from control server)
-                    NSDictionary *result = nil;
-                    if ([method isEqualToString:@"tools/call"]) {
-                        NSDictionary *params = json[@"params"];
-                        if (params) {
-                            // Execute the tool and get the result
-                            result = [weakSelf executeToolFromWebSocket:params];
-                        } else {
-                            result = @{@"error": @"Missing params for tools/call"};
-                        }
-                    } else if ([method isEqualToString:@"tools/list"]) {
-                        // Return list of available tools for dynamic discovery
-                        NSArray *availableTools = [weakSelf getAvailableTools];
-                        NSLog(@"[Agent] Advertising %lu tools to control server via tools/list", (unsigned long)availableTools.count);
-                        result = @{@"tools": availableTools};
-                    } else {
-                        // For other request types, return a placeholder response
-                        result = @{@"status": @"received", @"method": method};
-                    }
-
-                    // Send response back via WebSocket
-                    NSDictionary *response = @{
-                        @"type": @"response",
-                        @"id": json[@"id"] ?: @"",
-                        @"result": result
-                    };
-                    NSData *respData = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
-                    NSString *respString = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
-                    NSURLSessionWebSocketMessage *respMsg = [[NSURLSessionWebSocketMessage alloc] initWithString:respString];
-                    if (weakSelf.debugWebSocketTask) {
-                        [weakSelf.debugWebSocketTask sendMessage:respMsg completionHandler:^(NSError *error) {
-                            if (error) {
-                                [weakSelf debugLog:[NSString stringWithFormat:@"⚠️ Failed to send response: %@", error.localizedDescription]];
-                            } else {
-                                [weakSelf debugLog:@"✓ Response sent"];
-                            }
-                        }];
-                    }
-
-                } else if ([type isEqualToString:@"wake"]) {
-                    [weakSelf debugLog:[NSString stringWithFormat:@"← WAKE: reason=%@", json[@"reason"]]];
-
-                } else {
-                    [weakSelf debugLog:[NSString stringWithFormat:@"← %@: %@", type, text]];
-                }
-            } else {
-                [weakSelf debugLog:[NSString stringWithFormat:@"← RAW: %@", text]];
-            }
-        }
-
-        // Continue receiving
-        [weakSelf debugReceiveMessage];
-    }];
-}
+// NOTE: debugReceiveMessage has been removed - the service (port 3459) handles WebSocket communication
 
 - (NSTextField *)createLabel:(NSString *)text frame:(NSRect)frame {
     NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
@@ -2660,67 +2314,54 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     self.connectionStatusLabel.stringValue = @"Status: Connecting...";
     self.connectionStatusLabel.textColor = [NSColor systemOrangeColor];
 
-    // Cancel any pending reconnect and connect
-    [self debugCancelReconnect];
-
-    // Clean up any existing connection to prevent orphaned sockets
-    // Temporarily disable auto-reconnect so cleanup doesn't trigger a new reconnect
-    BOOL wasAutoReconnectEnabled = self.debugAutoReconnectEnabled;
-    self.debugAutoReconnectEnabled = NO;
-
-    // Stop existing heartbeat timer
-    [self.debugHeartbeatTimer invalidate];
-    self.debugHeartbeatTimer = nil;
-
-    // Close existing WebSocket if any
-    if (self.debugWebSocketTask) {
-        [self.debugWebSocketTask cancelWithCloseCode:NSURLSessionWebSocketCloseCodeNormalClosure reason:nil];
-        self.debugWebSocketTask = nil;
-    }
-
-    // Invalidate existing session
-    if (self.debugSession) {
-        [self.debugSession invalidateAndCancel];
-        self.debugSession = nil;
-    }
-
-    self.debugIsConnected = NO;
-
-    // Restore auto-reconnect setting
-    self.debugAutoReconnectEnabled = wasAutoReconnectEnabled;
-
-    NSURL *url = [NSURL URLWithString:wsUrl];
-    if (!url) {
-        self.connectionStatusLabel.stringValue = @"Status: Invalid URL";
+    // Check if service is available
+    if (!self.serviceClient.isServiceAvailable) {
+        self.connectionStatusLabel.stringValue = @"Status: Service not running";
         self.connectionStatusLabel.textColor = [NSColor systemRedColor];
         self.connectButton.enabled = YES;
+        [self debugLog:@"ERROR: Service not available. Please start the ScreenControl service first."];
         return;
     }
 
-    NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
-    config.timeoutIntervalForRequest = 60.0;  // 60 second request timeout
-    config.timeoutIntervalForResource = 3600.0;  // 1 hour resource timeout
-    config.waitsForConnectivity = YES;  // Wait for network if temporarily unavailable
-    self.debugSession = [NSURLSession sessionWithConfiguration:config];
-    self.debugWebSocketTask = [self.debugSession webSocketTaskWithURL:url];
-
-    // Start receiving messages
-    [self debugReceiveMessage];
-
-    // Resume the task to start connection
-    [self.debugWebSocketTask resume];
-
-    // Update debug UI as well
+    // Update debug tab UI as well
     self.debugConnectButton.enabled = NO;
     self.debugDisconnectButton.enabled = YES;
     self.debugReconnectButton.enabled = NO;
     self.debugConnectionStatusLabel.stringValue = @"Status: Connecting...";
     self.debugConnectionStatusLabel.textColor = [NSColor systemOrangeColor];
 
-    // Send registration after a brief delay to ensure connection is established
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-        [self debugSendRegistration];
-    });
+    // Build connection config for service
+    NSString *agentName = self.agentNameField.stringValue ?: [[NSHost currentHost] localizedName];
+    NSString *customerId = self.debugCustomerIdField.stringValue ?: @"";
+
+    NSDictionary *config = @{
+        @"serverUrl": wsUrl,
+        @"endpointUuid": endpointUuid ?: @"",
+        @"customerId": customerId,
+        @"agentName": agentName ?: @""
+    };
+
+    [self debugLog:[NSString stringWithFormat:@"Connecting to %@ via service...", wsUrl]];
+
+    // Connect via service - the service handles the WebSocket connection
+    __weak typeof(self) weakSelf = self;
+    [self.serviceClient connectToControlServerWithConfig:config completion:^(BOOL success, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (success) {
+                [weakSelf debugLog:@"Connection request sent to service"];
+                // Status will be updated via ServiceClient delegate callbacks
+            } else {
+                [weakSelf debugLog:[NSString stringWithFormat:@"ERROR: Failed to connect - %@", error.localizedDescription]];
+                weakSelf.connectButton.enabled = YES;
+                weakSelf.debugConnectButton.enabled = YES;
+                weakSelf.debugDisconnectButton.enabled = NO;
+                weakSelf.connectionStatusLabel.stringValue = @"Status: Connection failed";
+                weakSelf.connectionStatusLabel.textColor = [NSColor systemRedColor];
+                weakSelf.debugConnectionStatusLabel.stringValue = @"Status: Connection failed";
+                weakSelf.debugConnectionStatusLabel.textColor = [NSColor systemRedColor];
+            }
+        });
+    }];
 }
 
 - (void)checkServerHealth:(NSString *)urlString {
@@ -2778,8 +2419,9 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         return;
     }
 
-    // Skip if already connected - don't create duplicate connections
-    if (self.debugIsConnected && self.debugWebSocketTask) {
+    // Check if service is available and already connected
+    if (self.serviceClient.isServiceAvailable && self.serviceClient.isControlServerConnected) {
+        // Already connected via service
         return;
     }
 
@@ -2868,6 +2510,176 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         [self.browserWebSocketServer stop];
         self.browserWebSocketServer = nil;
     }
+}
+
+#pragma mark - GUI Bridge Server (Service Communication)
+
+- (void)startGUIBridgeServer {
+    if (self.guiBridgeServer && self.guiBridgeServer.isRunning) {
+        NSLog(@"[GUI Bridge] Server already running");
+        return;
+    }
+
+    self.guiBridgeServer = [GUIBridgeServer sharedInstance];
+    self.guiBridgeServer.delegate = self;
+
+    if ([self.guiBridgeServer start]) {
+        NSLog(@"[GUI Bridge] Server started on port %d", self.guiBridgeServer.port);
+    } else {
+        NSLog(@"[GUI Bridge] Failed to start server");
+    }
+}
+
+- (void)stopGUIBridgeServer {
+    if (self.guiBridgeServer) {
+        [self.guiBridgeServer stop];
+        self.guiBridgeServer = nil;
+        NSLog(@"[GUI Bridge] Server stopped");
+    }
+}
+
+#pragma mark - GUIBridgeServerDelegate
+
+- (NSDictionary *)guiBridgeServer:(id)server executeToolWithName:(NSString *)name arguments:(NSDictionary *)arguments {
+    // Route GUI tool requests to our existing tool execution logic
+    // This is called when the service forwards a GUI operation to us
+    NSLog(@"[GUI Bridge] Executing tool: %@ with args: %@", name, arguments);
+
+    // Create MCP-style params for executeToolFromWebSocket
+    NSDictionary *mcpParams = @{
+        @"name": name,
+        @"arguments": arguments ?: @{}
+    };
+
+    return [self executeToolFromWebSocket:mcpParams];
+}
+
+- (void)guiBridgeServerDidStart:(id)server {
+    NSLog(@"[GUI Bridge] Delegate: Server started");
+}
+
+- (void)guiBridgeServerDidStop:(id)server {
+    NSLog(@"[GUI Bridge] Delegate: Server stopped");
+}
+
+- (void)guiBridgeServer:(id)server logMessage:(NSString *)message {
+    NSLog(@"[GUI Bridge] %@", message);
+}
+
+#pragma mark - Service Client (Service Monitoring)
+
+- (void)startServiceClient {
+    self.serviceClient = [ServiceClient sharedInstance];
+    self.serviceClient.delegate = self;
+    [self.serviceClient startMonitoring];
+    NSLog(@"[Service Client] Started monitoring service");
+}
+
+- (void)stopServiceClient {
+    if (self.serviceClient) {
+        [self.serviceClient stopMonitoring];
+        self.serviceClient = nil;
+        NSLog(@"[Service Client] Stopped monitoring");
+    }
+}
+
+#pragma mark - ServiceClientDelegate
+
+- (void)serviceClient:(id)client didChangeConnectionState:(ServiceConnectionState)state {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *stateString;
+        NSColor *indicatorColor;
+
+        switch (state) {
+            case ServiceConnectionStateConnected:
+                stateString = @"Running";
+                indicatorColor = [NSColor systemGreenColor];
+                break;
+            case ServiceConnectionStateConnecting:
+                stateString = @"Connecting...";
+                indicatorColor = [NSColor systemYellowColor];
+                break;
+            case ServiceConnectionStateError:
+                stateString = @"Error";
+                indicatorColor = [NSColor systemRedColor];
+                break;
+            default:
+                stateString = @"Not Running";
+                indicatorColor = [NSColor systemGrayColor];
+                break;
+        }
+        NSLog(@"[Service Client] State changed: %@", stateString);
+
+        // Update UI if we have a service status label
+        if (self.serviceStatusLabel) {
+            self.serviceStatusLabel.stringValue = [NSString stringWithFormat:@"Service: %@", stateString];
+        }
+
+        // Update indicator color
+        if (self.serviceStatusIndicator) {
+            self.serviceStatusIndicator.contentTintColor = indicatorColor;
+        }
+
+        // Update status icon based on service connection
+        [self updateStatusBarIcon:(state != ServiceConnectionStateConnected)];
+    });
+}
+
+- (void)serviceClient:(id)client controlServerDidConnect:(BOOL)connected agentId:(NSString *)agentId licenseStatus:(NSString *)status {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSLog(@"[Service Client] Control server %@, Agent: %@, License: %@",
+              connected ? @"connected" : @"disconnected", agentId ?: @"none", status ?: @"unknown");
+
+        // Update debug tab UI fields
+        if (self.debugConnectionStatusLabel) {
+            if (connected) {
+                self.debugConnectionStatusLabel.stringValue = @"Status: Connected (via Service)";
+                self.debugConnectionStatusLabel.textColor = [NSColor systemGreenColor];
+            } else {
+                self.debugConnectionStatusLabel.stringValue = @"Status: Disconnected";
+                self.debugConnectionStatusLabel.textColor = [NSColor secondaryLabelColor];
+            }
+        }
+
+        if (self.debugAgentIdLabel) {
+            self.debugAgentIdLabel.stringValue = agentId ? [NSString stringWithFormat:@"Agent ID: %@", agentId] : @"Agent ID: --";
+        }
+
+        if (self.debugLicenseStatusLabel) {
+            self.debugLicenseStatusLabel.stringValue = status ? [NSString stringWithFormat:@"License: %@", status] : @"License: --";
+        }
+
+        // Update debug tab button states
+        self.debugConnectButton.enabled = !connected;
+        self.debugDisconnectButton.enabled = connected;
+        self.debugReconnectButton.enabled = connected;
+
+        // Update General tab connection status
+        if (self.connectionStatusLabel) {
+            if (connected) {
+                self.connectionStatusLabel.stringValue = @"Status: Connected";
+                self.connectionStatusLabel.textColor = [NSColor systemGreenColor];
+            } else {
+                self.connectionStatusLabel.stringValue = @"Status: Disconnected";
+                self.connectionStatusLabel.textColor = [NSColor secondaryLabelColor];
+            }
+        }
+
+        if (self.connectButton) {
+            self.connectButton.enabled = !connected;
+        }
+
+        // Update connection state
+        self.debugIsConnected = connected;
+        self.isRemoteMode = connected;
+
+        // Update status bar icon based on connection
+        [self updateStatusBarIcon:!connected];
+    });
+}
+
+- (void)serviceClient:(id)client logMessage:(NSString *)message {
+    [self debugLog:message];
 }
 
 #pragma mark - BrowserBridgeServerDelegate
@@ -3398,8 +3210,7 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         }
     }
 
-    // Enable auto-reconnect by default (agents should stay connected)
-    self.debugAutoReconnectEnabled = YES;
+    // NOTE: Auto-reconnect is now handled by the service
 
     // Auto-connect on startup if configured
     if ([config[@"connectOnStartup"] boolValue]) {
@@ -3969,10 +3780,7 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     if (self.debugConnectOnStartupCheckbox) {
         [defaults setBool:(self.debugConnectOnStartupCheckbox.state == NSControlStateValueOn) forKey:@"debugConnectOnStartup"];
     }
-    if (self.debugBypassModeCheckbox) {
-        [defaults setBool:(self.debugBypassModeCheckbox.state == NSControlStateValueOn) forKey:@"debugBypassMode"];
-        self.debugBypassModeEnabled = (self.debugBypassModeCheckbox.state == NSControlStateValueOn);
-    }
+    // NOTE: Bypass mode checkbox removed - service now handles heartbeats
     [defaults synchronize];
 
     [self debugLog:@"Settings saved"];

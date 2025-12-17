@@ -7,12 +7,14 @@
 #import "MCPServer.h"
 #import "BrowserBridgeServer.h"
 #import "BrowserWebSocketServer.h"
+#import "GUIBridgeServer.h"
+#import "ServiceClient.h"
 
 #ifdef DEBUG
 @class TestServer;
 #endif
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, MCPServerDelegate, BrowserBridgeServerDelegate, BrowserWebSocketServerDelegate>
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate, MCPServerDelegate, BrowserBridgeServerDelegate, BrowserWebSocketServerDelegate, GUIBridgeServerDelegate, ServiceClientDelegate>
 
 // Status bar
 @property (strong, nonatomic) NSStatusItem *statusItem;
@@ -62,11 +64,23 @@
 // Browser WebSocket server (Native replacement for Node.js bridge)
 @property (strong, nonatomic) BrowserWebSocketServer *browserWebSocketServer;
 
+// GUI Bridge server (receives commands from service)
+@property (strong, nonatomic) GUIBridgeServer *guiBridgeServer;
+
+// Service client (monitors and controls the background service)
+@property (strong, nonatomic) ServiceClient *serviceClient;
+
+// Service status UI
+@property (strong, nonatomic) NSTextField *serviceStatusLabel;
+@property (strong, nonatomic) NSImageView *serviceStatusIndicator;
+
 // Legacy browser bridge process properties (deprecated - using Native Messaging now)
 @property (strong, nonatomic) NSTask *browserBridgeTask;
 @property (strong, nonatomic) NSPipe *browserBridgePipe;
 
-// Debug/ScreenControl WebSocket connection
+// Debug/ScreenControl WebSocket connection (via Service)
+// Note: The actual WebSocket connection is managed by the service (port 3459)
+// The app UI is used to configure and monitor the connection via ServiceClient
 @property (strong, nonatomic) NSTextField *debugServerUrlField;
 @property (strong, nonatomic) NSTextField *debugEndpointUuidField;
 @property (strong, nonatomic) NSTextField *debugCustomerIdField;
@@ -77,22 +91,13 @@
 @property (strong, nonatomic) NSTextField *debugAgentIdLabel;
 @property (strong, nonatomic) NSTextView *debugLogView;
 @property (strong, nonatomic) NSTextView *debugLogTextView;  // Alias for test server
-@property (strong, nonatomic) NSURLSession *debugSession;
-@property (strong, nonatomic) NSURLSessionWebSocketTask *debugWebSocketTask;
-@property (strong, nonatomic) NSTimer *debugHeartbeatTimer;
-@property (assign, nonatomic) BOOL debugIsConnected;
 @property (strong, nonatomic) NSButton *debugConnectOnStartupCheckbox;
 
-// Auto-reconnect properties
-@property (strong, nonatomic) NSTimer *debugReconnectTimer;
-@property (assign, nonatomic) NSInteger debugReconnectAttempt;
-@property (assign, nonatomic) BOOL debugAutoReconnectEnabled;
-@property (strong, nonatomic) NSButton *debugReconnectButton;
-@property (assign, nonatomic) BOOL debugCleaningUpConnection;  // Flag to ignore errors during cleanup
+// Connection state (from service via ServiceClient)
+@property (assign, nonatomic) BOOL debugIsConnected;
 
-// Bypass mode (force ACTIVE, no heartbeats)
-@property (strong, nonatomic) NSButton *debugBypassModeCheckbox;
-@property (assign, nonatomic) BOOL debugBypassModeEnabled;
+// Reconnect UI (service handles actual reconnection)
+@property (strong, nonatomic) NSButton *debugReconnectButton;
 
 // OAuth-based connection (MCP URL discovery)
 @property (strong, nonatomic) NSTextField *debugMcpUrlField;
@@ -126,8 +131,7 @@
 - (IBAction)debugDisconnectClicked:(id)sender;
 - (IBAction)debugSaveSettingsClicked:(id)sender;
 - (IBAction)debugReconnectClicked:(id)sender;
-- (void)debugScheduleReconnect;
-- (void)debugCancelReconnect;
+// NOTE: debugScheduleReconnect and debugCancelReconnect removed - service handles reconnection
 - (void)discoverAndJoinClicked:(id)sender;
 
 // Control Server methods (General tab)

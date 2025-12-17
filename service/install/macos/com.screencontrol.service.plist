@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service identifier -->
+    <key>Label</key>
+    <string>com.screencontrol.service</string>
+
+    <!-- Executable path -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/PrivilegedHelperTools/com.screencontrol.service</string>
+        <string>--config</string>
+        <string>/Library/Application Support/ScreenControl/config.json</string>
+    </array>
+
+    <!-- Run at load (boot) -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep running -->
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Restart if crashes -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Restart throttle (10 seconds between restarts) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Library/Application Support/ScreenControl</string>
+
+    <!-- Stdout/stderr logging -->
+    <key>StandardOutPath</key>
+    <string>/Library/Logs/ScreenControl/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/ScreenControl/stderr.log</string>
+
+    <!-- Run as root (required for machine unlock) -->
+    <key>UserName</key>
+    <string>root</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- Process type -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <!-- Allow access to user GUI session for proxying -->
+    <key>SessionCreate</key>
+    <true/>
+
+    <!-- Nice priority (normal) -->
+    <key>Nice</key>
+    <integer>0</integer>
+
+    <!-- Soft resource limits -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
+    </dict>
+</dict>
+</plist>

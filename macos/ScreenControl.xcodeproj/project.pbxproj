@@ -24,6 +24,8 @@
 		014 /* BrowserWebSocketServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 117 /* BrowserWebSocketServer.m */; };
 		015 /* StdioMCPBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 119 /* StdioMCPBridge.m */; };
 		016 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 206 /* IOKit.framework */; };
+		017 /* GUIBridgeServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 121 /* GUIBridgeServer.m */; };
+		018 /* ServiceClient.m in Sources */ = {isa = PBXBuildFile; fileRef = 123 /* ServiceClient.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +56,10 @@
 		117 /* BrowserWebSocketServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BrowserWebSocketServer.m; sourceTree = "<group>"; };
 		118 /* StdioMCPBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = StdioMCPBridge.h; sourceTree = "<group>"; };
 		119 /* StdioMCPBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = StdioMCPBridge.m; sourceTree = "<group>"; };
+		120 /* GUIBridgeServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GUIBridgeServer.h; sourceTree = "<group>"; };
+		121 /* GUIBridgeServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = GUIBridgeServer.m; sourceTree = "<group>"; };
+		122 /* ServiceClient.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ServiceClient.h; sourceTree = "<group>"; };
+		123 /* ServiceClient.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ServiceClient.m; sourceTree = "<group>"; };
 		206 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -92,6 +98,10 @@
 				117 /* BrowserWebSocketServer.m */,
 				118 /* StdioMCPBridge.h */,
 				119 /* StdioMCPBridge.m */,
+				120 /* GUIBridgeServer.h */,
+				121 /* GUIBridgeServer.m */,
+				122 /* ServiceClient.h */,
+				123 /* ServiceClient.m */,
 				101 /* main.m */,
 				106 /* AppDelegate.h */,
 				102 /* AppDelegate.m */,
@@ -206,6 +216,8 @@
 				7F42266F2EE6F7FD003275C6 /* BrowserBridgeServer.m in Sources */,
 				014 /* BrowserWebSocketServer.m in Sources */,
 				015 /* StdioMCPBridge.m in Sources */,
+				017 /* GUIBridgeServer.m in Sources */,
+				018 /* ServiceClient.m in Sources */,
 				008 /* MCPServer.m in Sources */,
 				010 /* FilesystemTools.m in Sources */,
 				011 /* ShellTools.m in Sources */,

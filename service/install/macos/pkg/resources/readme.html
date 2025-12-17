@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #333;
+            padding: 20px;
+        }
+        h1 {
+            font-size: 20px;
+            font-weight: 500;
+            margin-bottom: 15px;
+        }
+        h2 {
+            font-size: 15px;
+            font-weight: 500;
+            margin-top: 20px;
+        }
+        code {
+            font-family: Monaco, Menlo, monospace;
+            font-size: 12px;
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .important {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px 15px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ScreenControl - Important Information</h1>
+
+    <h2>After Installation</h2>
+    <p>After installation completes, you'll need to:</p>
+    <ol>
+        <li><strong>Grant Accessibility permissions</strong> - Required for GUI automation. The app will guide you through this process.</li>
+        <li><strong>Configure the agent</strong> - Open ScreenControl from your menu bar and enter your license key or control server URL.</li>
+    </ol>
+
+    <div class="important">
+        <strong>Important:</strong> The ScreenControl service runs as a background process with elevated privileges. This is required for secure machine operations like screen lock/unlock.
+    </div>
+
+    <h2>Architecture</h2>
+    <ul>
+        <li><strong>Service</strong> (<code>/Library/PrivilegedHelperTools/com.screencontrol.service</code>) - Handles file operations, shell commands, and machine control securely.</li>
+        <li><strong>Agent</strong> (<code>/Applications/ScreenControl.app</code>) - Menu bar app handling GUI operations, screenshots, mouse/keyboard control.</li>
+    </ul>
+
+    <h2>Ports Used</h2>
+    <ul>
+        <li><code>3459</code> - Service HTTP API (localhost only)</li>
+        <li><code>3460</code> - GUI Bridge (service to agent communication)</li>
+        <li><code>3457</code> - Browser extension WebSocket (optional)</li>
+    </ul>
+
+    <h2>Security</h2>
+    <p>ScreenControl implements security hardening:</p>
+    <ul>
+        <li>Protected paths (credentials, system files) cannot be accessed</li>
+        <li>Dangerous commands are blocked</li>
+        <li>All connections are localhost-only except for the encrypted control server connection</li>
+    </ul>
+
+    <h2>Uninstalling</h2>
+    <p>To uninstall, run the following in Terminal:</p>
+    <code>sudo /Library/Application\ Support/ScreenControl/uninstall.sh</code>
+</body>
+</html>

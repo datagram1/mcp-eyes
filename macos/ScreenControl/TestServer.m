@@ -351,9 +351,10 @@
             @"endpointUuid": app.debugEndpointUuidField.stringValue ?: @"",
             @"customerId": app.debugCustomerIdField.stringValue ?: @"",
             @"connectionStatus": app.debugConnectionStatusLabel.stringValue ?: @"Unknown",
-            @"autoReconnectEnabled": @(app.debugAutoReconnectEnabled),
-            @"reconnectAttempt": @(app.debugReconnectAttempt),
-            @"reconnectPending": @(app.debugReconnectTimer != nil)
+            // NOTE: Auto-reconnect is now handled by the service
+            @"autoReconnectEnabled": @(YES),
+            @"reconnectAttempt": @(0),
+            @"reconnectPending": @(NO)
         };
     });
 

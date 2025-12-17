@@ -11,16 +11,17 @@ The Windows agent provides the same functionality as the macOS and Linux agents,
                     │        ScreenControl Windows Agent     │
                     │           (Native C++ Binary)          │
                     ├────────────────────────────────────────┤
-                    │  - HTTP Server (port 3456)             │
+                    │  - HTTP Server (port 3459)             │
                     │  - WebSocket client (control server)   │
                     │  - GDI+ screenshot capture             │
                     │  - Win32 SendInput simulation          │
                     │  - Win32 filesystem tools              │
                     │  - CreateProcess shell execution       │
+                    │  - AES-256-GCM encryption (bcrypt)     │
                     ├────────────────────────────────────────┤
                     │           Modes                        │
                     │  --console  → Debug console mode       │
-                    │  --install  → Windows Service mode     │
+                    │  (default)  → Windows Service mode     │
                     └────────────────────────────────────────┘
 ```
 
@@ -47,16 +48,69 @@ The Windows agent provides the same functionality as the macOS and Linux agents,
 
 1. Download `ScreenControlService.exe` from releases
 2. Copy to `C:\Program Files\ScreenControl\`
-3. Install as service:
+3. Create config directory and file:
 
 ```powershell
 # Run as Administrator
-cd "C:\Program Files\ScreenControl"
-.\ScreenControlService.exe --install
-net start ScreenControlService
+mkdir "C:\ProgramData\ScreenControl" -ErrorAction SilentlyContinue
+@'
+{
+  "httpPort": 3459,
+  "browserBridgePort": 3457,
+  "controlServerUrl": "wss://screencontrol.knws.co.uk/ws",
+  "customerId": "",
+  "licenseUuid": ""
+}
+'@ | Out-File -FilePath "C:\ProgramData\ScreenControl\config.json" -Encoding utf8
 ```
 
-### From Source (Visual Studio)
+4. Install as service:
+
+```powershell
+sc create ScreenControlService binPath= "C:\Program Files\ScreenControl\ScreenControlService.exe" start= auto
+sc start ScreenControlService
+```
+
+### From Source (Cross-Compilation from macOS)
+
+The recommended way to build for Windows is cross-compilation from macOS using MinGW-w64:
+
+#### Prerequisites
+
+```bash
+# Install MinGW-w64 on macOS
+brew install mingw-w64
+```
+
+#### Build Steps
+
+```bash
+cd service
+
+# Create build directory
+mkdir -p build-windows && cd build-windows
+
+# Configure with CMake using MinGW toolchain
+cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/mingw-w64.cmake \
+      -DCMAKE_BUILD_TYPE=Release ..
+
+# Build
+make -j4
+
+# Output: bin/ScreenControlService.exe (~17MB)
+```
+
+#### Deploy to Windows via SSH
+
+```bash
+# Copy binary to Windows machine
+scp bin/ScreenControlService.exe user@windows-host:"C:/Program Files/ScreenControl/"
+
+# Create and start service
+ssh user@windows-host "sc create ScreenControlService binPath= \"C:\\Program Files\\ScreenControl\\ScreenControlService.exe\" start= auto && sc start ScreenControlService"
+```
+
+### From Source (Visual Studio on Windows)
 
 #### Prerequisites
 
@@ -83,16 +137,6 @@ start ScreenControlService.sln
 
 Output: `bin\Release\ARM64\ScreenControlService.exe` (or `x64`)
 
-### From Source (Docker Cross-Compilation for x64)
-
-Build x64 Windows binary from macOS/Linux using Docker:
-
-```bash
-cd windows
-./build.sh
-# Output: ScreenControlService.exe (x64)
-```
-
 ---
 
 ## Installation
@@ -106,8 +150,8 @@ ScreenControlService.exe --install
 
 This creates a Windows service named `ScreenControlService` that:
 - Starts automatically on boot
-- Runs under LocalSystem account
-- Listens on port 3456
+- Runs under LocalSystem account (NT AUTHORITY\SYSTEM)
+- Listens on port 3459
 
 ### Start the Service
 
@@ -122,11 +166,11 @@ net start ScreenControlService
 sc query ScreenControlService
 
 # Test health endpoint
-curl http://localhost:3456/health
-# Response: {"service":"ScreenControlService","status":"ok","version":"1.0.0"}
+curl http://localhost:3459/health
+# Response: {"service":"ScreenControlService","status":"ok","version":"1.2.0"}
 
 # Test system info
-curl http://localhost:3456/system/info
+curl http://localhost:3459/system/info
 ```
 
 ### Uninstall
@@ -184,9 +228,9 @@ C:\ProgramData\ScreenControl\config.json
 
 ```json
 {
-  "httpPort": 3456,
+  "httpPort": 3459,
   "browserBridgePort": 3457,
-  "controlServerUrl": "wss://your-control-server.com/ws",
+  "controlServerUrl": "wss://screencontrol.knws.co.uk/ws",
   "customerId": "your-customer-id",
   "licenseUuid": "your-endpoint-uuid"
 }
@@ -194,9 +238,9 @@ C:\ProgramData\ScreenControl\config.json
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| `httpPort` | Local HTTP API port | 3456 |
+| `httpPort` | Local HTTP API port | 3459 |
 | `browserBridgePort` | Browser bridge port | 3457 |
-| `controlServerUrl` | WebSocket URL of control server | (empty) |
+| `controlServerUrl` | WebSocket URL of control server | wss://screencontrol.knws.co.uk/ws |
 | `customerId` | Customer/organization ID | (empty) |
 | `licenseUuid` | MCP endpoint UUID | (empty) |
 
@@ -294,7 +338,7 @@ Options:
 ### System Information
 
 ```powershell
-curl http://localhost:3456/system/info
+curl http://localhost:3459/system/info
 ```
 
 Response:
@@ -319,13 +363,13 @@ Response:
 ### Screenshot
 
 ```powershell
-curl -X POST http://localhost:3456/screenshot -o screen.jpg
+curl -X POST http://localhost:3459/screenshot -o screen.jpg
 ```
 
 ### Click
 
 ```powershell
-curl -X POST http://localhost:3456/click `
+curl -X POST http://localhost:3459/click `
   -H "Content-Type: application/json" `
   -d '{"x":100,"y":200}'
 ```
@@ -333,7 +377,7 @@ curl -X POST http://localhost:3456/click `
 ### Type Text
 
 ```powershell
-curl -X POST http://localhost:3456/typeText `
+curl -X POST http://localhost:3459/typeText `
   -H "Content-Type: application/json" `
   -d '{"text":"Hello World"}'
 ```
@@ -341,7 +385,7 @@ curl -X POST http://localhost:3456/typeText `
 ### Execute Command
 
 ```powershell
-curl -X POST http://localhost:3456/shell/exec `
+curl -X POST http://localhost:3459/shell/exec `
   -H "Content-Type: application/json" `
   -d '{"command":"dir C:\\Users"}'
 ```
@@ -349,7 +393,7 @@ curl -X POST http://localhost:3456/shell/exec `
 ### List Directory
 
 ```powershell
-curl -X POST http://localhost:3456/fs/list `
+curl -X POST http://localhost:3459/fs/list `
   -H "Content-Type: application/json" `
   -d '{"path":"C:\\Users"}'
 ```
@@ -401,8 +445,8 @@ ScreenControlService.exe --console
 ### Port already in use
 
 ```powershell
-# Find process using port 3456
-netstat -ano | findstr :3456
+# Find process using port 3459
+netstat -ano | findstr :3459
 
 # Kill the process (replace PID)
 taskkill /PID <PID> /F
@@ -411,8 +455,8 @@ taskkill /PID <PID> /F
 ### Firewall blocking connections
 
 ```powershell
-# Allow inbound connections on port 3456
-New-NetFirewallRule -DisplayName "ScreenControl" -Direction Inbound -Port 3456 -Protocol TCP -Action Allow
+# Allow inbound connections on port 3459
+New-NetFirewallRule -DisplayName "ScreenControl" -Direction Inbound -Port 3459 -Protocol TCP -Action Allow
 ```
 
 ### Service fails to install
@@ -484,6 +528,15 @@ windows/ScreenControlService/
 ---
 
 ## Version History
+
+### v1.2.0 (December 2024)
+- **MinGW-w64 cross-compilation support** from macOS
+- **AES-256-GCM encryption** using Windows bcrypt API (no OpenSSL dependency)
+- **Unified codebase** with macOS and Linux agents
+- Port changed from 3456 to 3459 (standard service port)
+- DPAPI integration for secure credential storage
+- Lock detection via WTS API
+- Improved service startup and error handling
 
 ### v1.0.0 (December 2024)
 - Initial release

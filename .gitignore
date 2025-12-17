@@ -129,4 +129,5 @@ deploy.sh
 local-dev.sh
 test-local.js
 local-mcp-config.json
-LOCAL_DEVELOPMENT.md
+LOCAL_DEVELOPMENT.mdservice/build*/
+service/dist/

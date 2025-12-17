@@ -1,28 +1,45 @@
 # ScreenControl Linux Agent Documentation
 
-Native C++ agent for Linux with dual-mode support: **GUI** (with X11/Wayland desktop integration) and **Headless** (daemon/service mode).
+Native C++ service for Linux with dual-mode support: **GUI** (with X11/Wayland desktop integration via tray app) and **Headless** (daemon/service mode).
 
 ## Overview
 
-The Linux agent provides the same functionality as the macOS agent, enabling AI assistants to control Linux desktops remotely via the ScreenControl control server.
+The Linux agent uses a **shared cross-platform service** architecture. The core business logic runs as a systemd service (`ScreenControlService`), with GUI operations proxied through an optional tray application that has access to the display server.
 
 ```
-                    ┌────────────────────────────────────────┐
-                    │         ScreenControl Linux Agent      │
-                    │           (Native C++ Binary)          │
-                    ├────────────────────────────────────────┤
-                    │  - HTTP Server (port 3456)             │
-                    │  - WebSocket client (control server)   │
-                    │  - X11/Wayland screenshot              │
-                    │  - XTest input simulation (X11)        │
-                    │  - POSIX filesystem tools              │
-                    │  - fork/exec shell execution           │
-                    ├────────────────────────────────────────┤
-                    │           Mode Detection               │
-                    │  DISPLAY set? → GUI mode with X11      │
-                    │  Otherwise   → Headless daemon mode    │
-                    └────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ScreenControl Linux Architecture                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   ┌─────────────────────────┐     ┌─────────────────────────────┐  │
+│   │   ScreenControlService  │     │    Tray Application         │  │
+│   │   (systemd service)     │────▶│    (optional, X11/Wayland)  │  │
+│   │                         │     │                             │  │
+│   │   - HTTP Server :3459   │     │   - GUI Bridge :3460        │  │
+│   │   - WebSocket client    │     │   - Screenshot capture      │  │
+│   │   - Filesystem tools    │     │   - Mouse/keyboard control  │  │
+│   │   - Shell execution     │     │   - Window management       │  │
+│   │   - Machine unlock      │     │   - OCR analysis            │  │
+│   │   - Secure storage      │     │                             │  │
+│   └─────────────────────────┘     └─────────────────────────────┘  │
+│              │                                                       │
+│              │ WebSocket (wss://)                                   │
+│              ▼                                                       │
+│   ┌─────────────────────────────────────────────────────────────┐  │
+│   │              ScreenControl Control Server                    │  │
+│   │           (Cloud - receives commands from AI)                │  │
+│   └─────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Key Features
+
+- **Cross-platform shared service**: Same C++ codebase compiles for macOS, Windows, and Linux
+- **Survives machine lock**: Service runs as root and can unlock the machine
+- **Secure credential storage**: Uses libsecret (GNOME Keyring, KDE Wallet) or protected files
+- **Split-key encryption**: Credentials encrypted with AES-256-GCM, key split between keyring and file
+- **GUI proxy architecture**: GUI operations forwarded from service to tray app
 
 ## Supported Platforms
 
@@ -39,32 +56,103 @@ The Linux agent provides the same functionality as the macOS agent, enabling AI 
 ### One-Line Installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/datagram1/mcp-eyes/main/linux/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/screencontrol/screencontrol/main/service/install/linux/install.sh | sudo bash
 ```
 
 Or download and run manually:
 
 ```bash
-wget https://raw.githubusercontent.com/datagram1/mcp-eyes/main/linux/install.sh
+wget https://raw.githubusercontent.com/screencontrol/screencontrol/main/service/install/linux/install.sh
 chmod +x install.sh
 sudo ./install.sh
 ```
 
-### Manual Build & Install
+### What Gets Installed
 
-See [Building from Source](#building-from-source) below.
+| Path | Description |
+|------|-------------|
+| `/opt/screencontrol/ScreenControlService` | Main service binary |
+| `/etc/systemd/system/screencontrol.service` | Systemd unit file |
+| `/etc/screencontrol/` | Configuration directory |
+| `/var/log/screencontrol/` | Log directory |
+
+---
+
+## Architecture
+
+### Service + Tray App Design
+
+The Linux agent follows the same architecture as macOS and Windows:
+
+1. **ScreenControlService** - Runs as a systemd service (root)
+   - Handles all non-GUI operations directly
+   - Survives machine lock
+   - Connects to control server via WebSocket
+   - Proxies GUI requests to tray app
+
+2. **Tray Application** (optional) - Runs in user session
+   - Has access to X11/Wayland display
+   - Handles screenshots, mouse/keyboard, window management
+   - Listens on GUI bridge port (3460)
+
+### Port Configuration
+
+| Port | Service | Description |
+|------|---------|-------------|
+| 3459 | HTTP API | Main REST API (service) |
+| 3460 | GUI Bridge | GUI operations (tray app) |
+| 3458 | WebSocket | Internal service communication |
+
+### Source Structure
+
+```
+service/
+├── CMakeLists.txt              # Cross-platform CMake build
+├── include/
+│   └── platform.h              # Platform detection & constants
+├── src/
+│   ├── core/
+│   │   ├── config.cpp/h        # Configuration management
+│   │   ├── logger.cpp/h        # Logging (syslog + file)
+│   │   ├── crypto.cpp/h        # AES-256-GCM encryption
+│   │   └── security.cpp/h      # Security utilities
+│   ├── server/
+│   │   └── http_server.cpp/h   # REST API endpoints
+│   ├── control_server/
+│   │   ├── websocket_client.cpp/h  # Control server connection
+│   │   └── command_dispatcher.cpp/h # Route commands to handlers
+│   ├── tools/
+│   │   ├── filesystem_tools.cpp/h  # File operations
+│   │   ├── shell_tools.cpp/h       # Command execution
+│   │   └── system_tools.cpp/h      # System info, clipboard
+│   ├── platform/
+│   │   ├── linux/
+│   │   │   ├── main_linux.cpp      # Linux entry point
+│   │   │   └── platform_linux.cpp  # Linux-specific implementations
+│   │   ├── macos/                  # macOS implementation
+│   │   └── windows/                # Windows implementation
+│   └── libs/
+│       ├── httplib.h           # cpp-httplib (header-only)
+│       └── json.hpp            # nlohmann/json (header-only)
+└── install/
+    └── linux/
+        ├── install.sh          # Installation script
+        └── screencontrol.service # Systemd unit file
+```
 
 ---
 
 ## Tools Reference
 
-### Headless Tools (Always Available)
+### Service Tools (Always Available)
 
-These tools work in both GUI and headless modes:
+These tools are handled directly by the service and work in all modes:
+
+#### System Tools
 
 | Tool | Endpoint | Description |
 |------|----------|-------------|
-| `system_info` | `GET /system/info` | System information (OS, CPU, memory, hostname, uptime) |
+| `system_info` | `GET /system/info` | System information (OS, CPU, memory, hostname) |
 | `wait` | `POST /wait` | Wait for specified milliseconds |
 | `clipboard_read` | `GET /clipboard/read` | Read text from system clipboard |
 | `clipboard_write` | `POST /clipboard/write` | Write text to system clipboard |
@@ -92,24 +180,35 @@ These tools work in both GUI and headless modes:
 | `shell_send_input` | `POST /shell/session/input` | Send input to shell session |
 | `shell_stop_session` | `POST /shell/session/stop` | Stop shell session |
 
-### GUI Tools (Require Display Server)
+#### Machine Control Tools
 
-These tools require an active X11 or Wayland session:
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `unlock_status` | `GET /unlock/status` | Check if machine is locked |
+| `unlock` | `POST /unlock` | Unlock machine with stored credentials |
+| `unlock_credentials` | `POST /unlock/credentials` | Store unlock credentials (write-only) |
+| `unlock_credentials` | `DELETE /unlock/credentials` | Clear stored credentials |
+
+### GUI Tools (Require Tray App)
+
+These tools are proxied from the service to the tray app:
 
 #### Screenshot & Display
 
 | Tool | Endpoint | Description |
 |------|----------|-------------|
-| `screenshot` | `GET /screenshot` | Capture entire screen (X11: XGetImage, Wayland: grim/gnome-screenshot) |
+| `screenshot` | `GET /screenshot` | Capture entire screen |
+| `ocr` | `GET /ocr` | Analyze screen with OCR |
 
 #### Mouse Control
 
 | Tool | Endpoint | Description |
 |------|----------|-------------|
-| `click` | `POST /click` | Click at coordinates (left, right, middle button) |
-| `mouse/move` | `POST /mouse/move` | Move mouse cursor to coordinates |
-| `mouse/position` | `GET /mouse/position` | Get current mouse cursor position |
-| `mouse/scroll` | `POST /mouse/scroll` | Scroll mouse wheel (up/down) |
+| `click` | `POST /click` | Click at coordinates |
+| `double_click` | `POST /double_click` | Double-click at coordinates |
+| `mouse/move` | `POST /mouse/move` | Move mouse cursor |
+| `mouse/position` | `GET /mouse/position` | Get current cursor position |
+| `mouse/scroll` | `POST /mouse/scroll` | Scroll mouse wheel |
 | `mouse/drag` | `POST /mouse/drag` | Drag from one point to another |
 
 #### Keyboard Control
@@ -117,15 +216,25 @@ These tools require an active X11 or Wayland session:
 | Tool | Endpoint | Description |
 |------|----------|-------------|
 | `keyboard/type` | `POST /keyboard/type` | Type text string |
-| `keyboard/key` | `POST /keyboard/key` | Press specific key (Enter, Tab, Super_L, etc.) |
+| `keyboard/key` | `POST /keyboard/key` | Press specific key |
 
 #### Window Management
 
 | Tool | Endpoint | Description |
 |------|----------|-------------|
-| `ui/windows` | `GET /ui/windows` | List all open windows with title, class, size, position |
-| `ui/focus` | `POST /ui/focus` | Focus a specific window by ID |
+| `ui/windows` | `GET /ui/windows` | List all open windows |
+| `ui/focus` | `POST /ui/focus` | Focus a specific window |
 | `ui/active` | `GET /ui/active` | Get currently active window |
+| `ui/elements` | `GET /ui/elements` | Get UI elements |
+
+#### Application Control
+
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `applications` | `GET /applications` | List running applications |
+| `application/focus` | `POST /application/focus` | Focus an application |
+| `application/launch` | `POST /application/launch` | Launch an application |
+| `application/close` | `POST /application/close` | Close an application |
 
 ---
 
@@ -135,218 +244,256 @@ These tools require an active X11 or Wayland session:
 
 ```bash
 # Health check
-curl http://localhost:3456/health
-# Response: {"status":"ok"}
+curl http://localhost:3459/health
+# Response: {"status":"ok","service":"screencontrol"}
 
 # Service status
-curl http://localhost:3456/status
-# Response: {"connected":true,"agentId":"xxx","uptime":3600}
+curl http://localhost:3459/status
+# Response:
+{
+  "success": true,
+  "version": "1.2.0",
+  "platform": "linux",
+  "platformName": "Linux",
+  "licensed": true,
+  "licenseStatus": "Active",
+  "machineId": "abc123...",
+  "agentName": "my-server"
+}
+
+# Control server connection status
+curl http://localhost:3459/control-server/status
+# Response:
+{
+  "connected": true,
+  "serverUrl": "wss://screencontrol.example.com/ws",
+  "agentId": "agent-uuid",
+  "licenseStatus": "Active"
+}
+```
+
+### Settings
+
+```bash
+# Get settings
+curl http://localhost:3459/settings
+# Response:
+{
+  "httpPort": 3459,
+  "guiBridgePort": 3460,
+  "controlServerUrl": "wss://screencontrol.example.com/ws",
+  "agentName": "my-server",
+  "autoStart": true,
+  "enableLogging": true
+}
+
+# Update settings
+curl -X POST http://localhost:3459/settings \
+  -H "Content-Type: application/json" \
+  -d '{"agentName": "new-name", "enableLogging": true}'
 ```
 
 ### System Tools
 
 ```bash
 # Get system information
-curl http://localhost:3456/system/info
+curl http://localhost:3459/system/info
 # Response:
 {
   "success": true,
-  "os": "Ubuntu 24.04.3 LTS",
+  "os": "Ubuntu 24.04 LTS",
   "osType": "Linux",
   "osVersion": "6.8.0-88-generic",
-  "architecture": "aarch64",
-  "hostname": "ubuntu-server",
-  "cpu": "ARM Cortex-A76",
-  "cpuCores": 8,
-  "memoryTotal": 8192,
-  "memoryUsed": 2048,
-  "memoryFree": 6144,
+  "architecture": "x86_64",
+  "hostname": "my-server",
+  "cpu": "AMD Ryzen 9 5900X",
+  "cpuCores": 12,
+  "memoryTotal": 32768,
+  "memoryUsed": 8192,
+  "memoryFree": 24576,
   "uptime": "5:23",
   "uptimeSeconds": 19380
 }
 
 # Wait for milliseconds
-curl -X POST http://localhost:3456/wait \
+curl -X POST http://localhost:3459/wait \
   -H "Content-Type: application/json" \
   -d '{"milliseconds": 1000}'
-# Response: {"success":true,"waited":1000}
 
 # Read clipboard
-curl http://localhost:3456/clipboard/read
-# Response: {"success":true,"text":"clipboard content here"}
+curl http://localhost:3459/clipboard/read
 
 # Write clipboard
-curl -X POST http://localhost:3456/clipboard/write \
+curl -X POST http://localhost:3459/clipboard/write \
   -H "Content-Type: application/json" \
   -d '{"text":"Hello from API"}'
-# Response: {"success":true,"bytesWritten":14}
 ```
 
 ### Filesystem Tools
 
 ```bash
 # List directory
-curl -X POST http://localhost:3456/fs/list \
+curl -X POST http://localhost:3459/fs/list \
   -H "Content-Type: application/json" \
   -d '{"path":"/home/user"}'
-# Response:
-{
-  "success": true,
-  "path": "/home/user",
-  "entries": [
-    {"name": "Documents", "isDirectory": true, "isFile": false, "size": 4096},
-    {"name": "file.txt", "isDirectory": false, "isFile": true, "size": 1234}
-  ]
-}
 
 # Read file
-curl -X POST http://localhost:3456/fs/read \
+curl -X POST http://localhost:3459/fs/read \
   -H "Content-Type: application/json" \
   -d '{"path":"/etc/hostname"}'
-# Response: {"success":true,"content":"ubuntu-server\n","size":14}
 
 # Read specific lines
-curl -X POST http://localhost:3456/fs/read_range \
+curl -X POST http://localhost:3459/fs/read_range \
   -H "Content-Type: application/json" \
-  -d '{"path":"/etc/passwd","start_line":1,"end_line":5}'
+  -d '{"path":"/etc/passwd","startLine":1,"endLine":5}'
 
 # Write file
-curl -X POST http://localhost:3456/fs/write \
+curl -X POST http://localhost:3459/fs/write \
   -H "Content-Type: application/json" \
   -d '{"path":"/tmp/test.txt","content":"Hello World\n"}'
-# Response: {"success":true,"bytesWritten":12,"mode":"overwrite"}
 
 # Search files (glob)
-curl -X POST http://localhost:3456/fs/search \
+curl -X POST http://localhost:3459/fs/search \
   -H "Content-Type: application/json" \
-  -d '{"path":"/home/user","pattern":"*.txt"}'
-# Response: {"success":true,"count":5,"matches":["/home/user/a.txt",...]}
+  -d '{"path":"/home/user","glob":"*.txt"}'
 
 # Search content (grep)
-curl -X POST http://localhost:3456/fs/grep \
+curl -X POST http://localhost:3459/fs/grep \
   -H "Content-Type: application/json" \
   -d '{"path":"/var/log","pattern":"error.*failed"}'
-# Response: {"success":true,"count":3,"matches":[{"file":"/var/log/syslog","line":42,"content":"..."}]}
 
 # Delete file/directory
-curl -X POST http://localhost:3456/fs/delete \
+curl -X POST http://localhost:3459/fs/delete \
   -H "Content-Type: application/json" \
   -d '{"path":"/tmp/test.txt"}'
-# For directories: '{"path":"/tmp/mydir","recursive":true}'
 
 # Move/rename
-curl -X POST http://localhost:3456/fs/move \
+curl -X POST http://localhost:3459/fs/move \
   -H "Content-Type: application/json" \
   -d '{"source":"/tmp/old.txt","destination":"/tmp/new.txt"}'
 
 # Patch file
-curl -X POST http://localhost:3456/fs/patch \
+curl -X POST http://localhost:3459/fs/patch \
   -H "Content-Type: application/json" \
   -d '{
     "path": "/tmp/config.txt",
     "operations": [
-      {"type": "replace", "pattern": "old_value", "replacement": "new_value"},
-      {"type": "replace_all", "pattern": "foo", "replacement": "bar"}
+      {"type": "replace", "pattern": "old_value", "replacement": "new_value"}
     ]
   }'
-# Response: {"success":true,"modified":true,"path":"/tmp/config.txt"}
 ```
 
 ### Shell Tools
 
 ```bash
 # Execute command
-curl -X POST http://localhost:3456/shell/exec \
+curl -X POST http://localhost:3459/shell/exec \
   -H "Content-Type: application/json" \
   -d '{"command":"ls -la /tmp","timeout":30}'
 # Response:
 {
   "success": true,
   "command": "ls -la /tmp",
-  "exit_code": 0,
+  "exitCode": 0,
   "stdout": "total 48\ndrwxrwxrwt 12 root...",
   "stderr": ""
 }
 
 # Start interactive session
-curl -X POST http://localhost:3456/shell/session/start \
+curl -X POST http://localhost:3459/shell/session/start \
   -H "Content-Type: application/json" \
   -d '{"command":"bash","cwd":"/home/user"}'
-# Response: {"success":true,"sessionId":"abc123"}
 
 # Send input to session
-curl -X POST http://localhost:3456/shell/session/input \
+curl -X POST http://localhost:3459/shell/session/input \
   -H "Content-Type: application/json" \
-  -d '{"session_id":"abc123","input":"echo hello\n"}'
+  -d '{"sessionId":"abc123","input":"echo hello\n"}'
 
 # Stop session
-curl -X POST http://localhost:3456/shell/session/stop \
+curl -X POST http://localhost:3459/shell/session/stop \
   -H "Content-Type: application/json" \
-  -d '{"session_id":"abc123"}'
+  -d '{"sessionId":"abc123"}'
 ```
 
-### GUI Tools (X11/Wayland)
+### Machine Unlock
+
+```bash
+# Check lock status
+curl http://localhost:3459/unlock/status
+# Response:
+{
+  "success": true,
+  "hasStoredCredentials": true,
+  "isLocked": false,
+  "platform": "linux"
+}
+
+# Store unlock credentials (write-only - NO retrieval!)
+curl -X POST http://localhost:3459/unlock/credentials \
+  -H "Content-Type: application/json" \
+  -d '{"username":"myuser","password":"mypassword"}'
+
+# Unlock machine (uses stored credentials)
+curl -X POST http://localhost:3459/unlock
+
+# Clear stored credentials
+curl -X DELETE http://localhost:3459/unlock/credentials
+```
+
+### GUI Tools (via Tray App)
 
 ```bash
 # Screenshot
-curl "http://localhost:3456/screenshot?format=jpeg&quality=80" --output screen.jpg
-# Or get base64: curl "http://localhost:3456/screenshot?return_base64=true"
+curl "http://localhost:3459/screenshot?format=jpeg&quality=80"
 
 # Mouse position
-curl http://localhost:3456/mouse/position
-# Response: {"success":true,"x":512,"y":384}
+curl http://localhost:3459/mouse/position
 
 # Move mouse
-curl -X POST http://localhost:3456/mouse/move \
+curl -X POST http://localhost:3459/mouse/move \
   -H "Content-Type: application/json" \
   -d '{"x":100,"y":200}'
 
 # Click
-curl -X POST http://localhost:3456/click \
+curl -X POST http://localhost:3459/click \
   -H "Content-Type: application/json" \
   -d '{"x":100,"y":200,"button":"left"}'
-# Options: "left", "right", "middle"
-
-# Double click
-curl -X POST http://localhost:3456/click \
-  -H "Content-Type: application/json" \
-  -d '{"x":100,"y":200,"button":"left","clicks":2}'
-
-# Scroll
-curl -X POST http://localhost:3456/mouse/scroll \
-  -H "Content-Type: application/json" \
-  -d '{"direction":"down","amount":3}'
-
-# Drag
-curl -X POST http://localhost:3456/mouse/drag \
-  -H "Content-Type: application/json" \
-  -d '{"startX":100,"startY":100,"endX":300,"endY":300}'
 
 # Type text
-curl -X POST http://localhost:3456/keyboard/type \
+curl -X POST http://localhost:3459/keyboard/type \
   -H "Content-Type: application/json" \
   -d '{"text":"Hello World"}'
 
 # Press key
-curl -X POST http://localhost:3456/keyboard/key \
+curl -X POST http://localhost:3459/keyboard/key \
   -H "Content-Type: application/json" \
   -d '{"key":"Return"}'
-# Common keys: Return, Tab, Escape, BackSpace, Delete, Super_L, Control_L, Alt_L
 
 # List windows
-curl http://localhost:3456/ui/windows
-# Response:
-{
-  "success": true,
-  "windows": [
-    {"windowId": 12345, "title": "Terminal", "className": "gnome-terminal", "x": 0, "y": 0, "width": 800, "height": 600}
-  ]
-}
+curl http://localhost:3459/ui/windows
 
 # Focus window
-curl -X POST http://localhost:3456/ui/focus \
+curl -X POST http://localhost:3459/ui/focus \
   -H "Content-Type: application/json" \
   -d '{"windowId":12345}'
+```
+
+### Control Server Connection
+
+```bash
+# Connect to control server
+curl -X POST http://localhost:3459/control-server/connect \
+  -H "Content-Type: application/json" \
+  -d '{
+    "serverUrl": "wss://screencontrol.example.com/ws",
+    "agentName": "my-server"
+  }'
+
+# Disconnect
+curl -X POST http://localhost:3459/control-server/disconnect
+
+# Reconnect
+curl -X POST http://localhost:3459/control-server/reconnect
 ```
 
 ---
@@ -360,37 +507,37 @@ curl -X POST http://localhost:3456/ui/focus \
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake pkg-config \
-    libx11-dev libxext-dev libxtst-dev libxrandr-dev \
-    libgtk-3-dev xclip grim
+    libssl-dev libx11-dev libxrandr-dev libxtst-dev \
+    libsecret-1-dev
 ```
 
 #### Fedora/RHEL
 
 ```bash
 sudo dnf install -y gcc-c++ cmake pkgconfig \
-    libX11-devel libXext-devel libXtst-devel libXrandr-devel \
-    gtk3-devel xclip grim
+    openssl-devel libX11-devel libXrandr-devel libXtst-devel \
+    libsecret-devel
 ```
 
 #### Arch Linux
 
 ```bash
 sudo pacman -S base-devel cmake pkgconf \
-    libx11 libxext libxtst libxrandr gtk3 xclip grim
+    openssl libx11 libxrandr libxtst libsecret
 ```
 
 ### Build
 
 ```bash
-cd linux/screencontrol
+cd service
 mkdir -p build && cd build
 
-# GUI mode (with GTK tray icon)
-cmake .. -DBUILD_GUI=ON
+# Standard build
+cmake ..
 make -j$(nproc)
 
-# Headless mode only (smaller binary, no GTK dependency)
-cmake .. -DBUILD_GUI=OFF -DBUILD_HEADLESS=ON
+# Build with libsecret support (recommended)
+cmake .. -DHAVE_LIBSECRET=ON
 make -j$(nproc)
 ```
 
@@ -399,60 +546,55 @@ make -j$(nproc)
 ```bash
 sudo make install
 # Or manually:
-sudo cp screencontrol /usr/local/bin/
-sudo chmod +x /usr/local/bin/screencontrol
+sudo mkdir -p /opt/screencontrol
+sudo cp bin/ScreenControlService /opt/screencontrol/
+sudo chmod 755 /opt/screencontrol/ScreenControlService
 ```
 
 ---
 
 ## Configuration
 
-### Configuration File
+### Configuration Files
 
-The agent looks for configuration in these locations (in order):
+The service looks for configuration in these locations (in order):
+
 1. Path specified with `-c` flag
-2. `/etc/screencontrol/debug-config.json`
-3. `~/.config/screencontrol/config.json`
+2. `/etc/screencontrol/config.json`
 
 **Example configuration:**
 
 ```json
 {
-  "serverUrl": "wss://your-control-server.com/ws",
-  "serverHttpUrl": "https://your-control-server.com",
-  "endpointUuid": "your-endpoint-uuid",
+  "httpPort": 3459,
+  "guiBridgePort": 3460,
+  "controlServerUrl": "wss://screencontrol.example.com/ws",
+  "agentName": "my-linux-server",
   "customerId": "your-customer-id",
-  "connectOnStartup": true,
-  "port": 3456
+  "autoStart": true,
+  "enableLogging": true
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `serverUrl` | WebSocket URL of control server |
-| `serverHttpUrl` | HTTP URL of control server |
-| `endpointUuid` | MCP endpoint UUID (from control server) |
-| `customerId` | Customer/organization ID |
-| `connectOnStartup` | Auto-connect on agent start |
-| `port` | Local HTTP API port (default: 3456) |
+| Field | Description | Default |
+|-------|-------------|---------|
+| `httpPort` | Local HTTP API port | 3459 |
+| `guiBridgePort` | GUI proxy port (tray app) | 3460 |
+| `controlServerUrl` | WebSocket URL of control server | (required) |
+| `agentName` | Display name for this agent | hostname |
+| `customerId` | Customer/organization ID | - |
+| `autoStart` | Start service on boot | true |
+| `enableLogging` | Enable file logging | true |
 
 ### Command Line Options
 
 ```
-Usage: screencontrol [options]
+Usage: ScreenControlService [options]
 
 Options:
-  -d, --daemon       Run as background daemon (detach from terminal)
-  -p, --port PORT    HTTP server port (default: 3456)
   -c, --config FILE  Configuration file path
-  -l, --log FILE     Log file path
   -v, --verbose      Verbose logging
   -h, --help         Show help message
-  --version          Show version
-
-Service commands:
-  --install          Install systemd service
-  --uninstall        Remove systemd service
 ```
 
 ---
@@ -462,64 +604,77 @@ Service commands:
 ### Automatic Installation
 
 ```bash
-sudo screencontrol --install
-sudo systemctl start screencontrol
+# Use the installer
+sudo ./install.sh
+
+# Or after building:
+cd build
+sudo make install
+sudo systemctl daemon-reload
 sudo systemctl enable screencontrol
+sudo systemctl start screencontrol
 ```
 
-### Manual Installation
+### Systemd Unit File
 
-Create `/etc/systemd/system/screencontrol-agent.service`:
+The service uses this systemd unit (`/etc/systemd/system/screencontrol.service`):
 
 ```ini
 [Unit]
-Description=ScreenControl Linux Agent
-After=network.target graphical.target
+Description=ScreenControl Service
+Documentation=https://github.com/screencontrol/screencontrol
+After=network.target network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/screencontrol -c /etc/screencontrol/debug-config.json -p 3456 -v
+ExecStart=/opt/screencontrol/ScreenControlService
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
+
+# Run as root for full functionality
 User=root
+Group=root
 
-# For GUI tools (X11), set display environment
-Environment="DISPLAY=:0"
-Environment="XAUTHORITY=/tmp/xauth_XXXXXX"
+# Security hardening (relaxed for full access)
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+PrivateTmp=false
 
+# Environment
+Environment=HOME=/root
+WorkingDirectory=/opt/screencontrol
+
+# Logging
 StandardOutput=journal
 StandardError=journal
+SyslogIdentifier=screencontrol
 
 [Install]
 WantedBy=multi-user.target
-```
-
-**Important:** For GUI tools, you must set `DISPLAY` and `XAUTHORITY` to match your active X session. Find these values with:
-
-```bash
-# Find DISPLAY
-echo $DISPLAY
-
-# Find XAUTHORITY (from your window manager process)
-cat /proc/$(pgrep -f "kwin|gnome-shell|mutter")/environ | tr '\0' '\n' | grep XAUTHORITY
 ```
 
 ### Service Commands
 
 ```bash
 # Start/stop/restart
-sudo systemctl start screencontrol-agent
-sudo systemctl stop screencontrol-agent
-sudo systemctl restart screencontrol-agent
+sudo systemctl start screencontrol
+sudo systemctl stop screencontrol
+sudo systemctl restart screencontrol
 
 # Enable on boot
-sudo systemctl enable screencontrol-agent
+sudo systemctl enable screencontrol
 
 # Check status
-sudo systemctl status screencontrol-agent
+sudo systemctl status screencontrol
 
 # View logs
-sudo journalctl -u screencontrol-agent -f
+sudo journalctl -u screencontrol -f
+
+# View recent logs
+sudo journalctl -u screencontrol -n 100 --no-pager
 ```
 
 ---
@@ -528,7 +683,7 @@ sudo journalctl -u screencontrol-agent -f
 
 ### X11
 
-Full support for all GUI tools:
+Full support for all GUI tools when tray app is running:
 - Screenshots via `XGetImage`
 - Input simulation via `XTest` extension
 - Window management via `_NET_WM` protocols
@@ -536,134 +691,150 @@ Full support for all GUI tools:
 ### Wayland
 
 Limited support due to Wayland's security model:
-- **Screenshots**: Uses external tools (`grim`, `gnome-screenshot`, or `spectacle`)
-- **Input simulation**: Limited - XTest doesn't work under pure Wayland
+- **Screenshots**: Uses external tools (`grim`, `gnome-screenshot`)
+- **Input simulation**: Limited - requires XWayland for full support
 - **Window management**: Limited - no standardized protocol
 
 **Recommended for Wayland:**
-- Install `grim` for screenshots: `sudo apt install grim`
-- Consider running under XWayland for full input simulation support
+```bash
+# Install grim for screenshots
+sudo apt install grim  # or wl-copy for clipboard
+```
 
 ### Headless Mode
 
 For servers without a display:
-- All filesystem and shell tools work normally
-- Screenshot/input/window tools return appropriate errors
-- Use `-d` or `--daemon` flag to run as background service
+- All service tools work normally (filesystem, shell, system)
+- GUI tools return "Tray app unavailable" error
+- Machine unlock still works (doesn't require display)
+- Service handles all control server communication
 
 ---
 
 ## Security Considerations
 
-1. **Run as dedicated user**: For production, create a dedicated user instead of running as root
-2. **Firewall**: The HTTP API listens on localhost by default; use firewall rules if needed
-3. **TLS**: Control server connections use WSS (WebSocket Secure)
-4. **Permissions**: No special permissions needed for basic operation
-5. **Input group**: For keyboard/mouse simulation, user may need to be in `input` group
+### Credential Storage
+
+The service uses a **split-key** architecture for secure credential storage:
+
+1. **K1**: Stored in libsecret (GNOME Keyring, KDE Wallet) or protected file
+2. **K2**: Stored in `/etc/screencontrol/k1.key` (root-only access)
+3. **Encrypted blob**: Credentials encrypted with AES-256-GCM using combined key
+
+Credentials can be:
+- **Stored** via the API (write-only)
+- **Used** by the service for machine unlock
+- **Never retrieved** via any API endpoint
+
+### Service Permissions
+
+The service runs as root to:
+- Survive machine lock
+- Access libsecret across all user sessions
+- Perform machine unlock operations
+- Access all filesystems
+
+### Protected Paths
+
+The following paths are blocked from filesystem tools:
+- `/etc/screencontrol/credentials.enc`
+- `/etc/screencontrol/k1.key`
+
+### Network Security
+
+- HTTP API binds to `127.0.0.1` only (localhost)
+- Control server connections use WSS (WebSocket Secure)
+- All communication encrypted in transit
 
 ---
 
 ## Troubleshooting
 
-### Agent won't connect to control server
-
-```bash
-# Check connectivity
-curl -v https://your-control-server.com/health
-
-# Check config
-cat /etc/screencontrol/debug-config.json
-
-# Check logs
-sudo journalctl -u screencontrol-agent -n 50
-```
-
-### Screenshot returns error
-
-```bash
-# Check display environment
-echo $DISPLAY
-
-# For Wayland, ensure grim is installed
-which grim
-
-# Test screenshot locally
-curl http://localhost:3456/screenshot --output test.jpg
-```
-
-### Input simulation not working
-
-```bash
-# Verify XTest extension (X11)
-xdpyinfo | grep -i test
-
-# Check user is in input group
-groups $USER
-
-# Add user to input group if needed
-sudo usermod -aG input $USER
-```
-
-### Service fails to start
+### Service won't start
 
 ```bash
 # Check service status
-sudo systemctl status screencontrol-agent
+sudo systemctl status screencontrol
 
-# View full logs
-sudo journalctl -u screencontrol-agent --no-pager
+# View detailed logs
+sudo journalctl -u screencontrol --no-pager -n 50
 
 # Test binary directly
-/usr/local/bin/screencontrol -v
+sudo /opt/screencontrol/ScreenControlService -v
 ```
 
----
+### Can't connect to control server
 
-## Architecture
+```bash
+# Check network connectivity
+curl -v https://screencontrol.example.com/health
 
-### Source Structure
+# Verify config
+cat /etc/screencontrol/config.json
 
-```
-linux/screencontrol/
-├── CMakeLists.txt              # CMake build configuration
-├── main.cpp                    # Entry point, mode detection, WebSocket client
-├── server/
-│   └── http_server.h/cpp       # HTTP API endpoints
-├── core/
-│   ├── config.h/cpp            # Configuration loading
-│   └── logger.h/cpp            # Logging (syslog + file)
-├── tools/
-│   ├── gui_tools.h/cpp         # X11/Wayland screenshot, XTest input
-│   ├── filesystem_tools.h/cpp  # POSIX file operations
-│   ├── shell_tools.h/cpp       # fork/exec command execution
-│   ├── ui_automation.h/cpp     # X11 window management
-│   └── system_tools.h/cpp      # System info, clipboard, wait
-└── libs/
-    ├── httplib.h               # cpp-httplib (header-only HTTP server)
-    └── json.hpp                # nlohmann/json (header-only JSON)
+# Check connection status
+curl http://localhost:3459/control-server/status
+
+# Force reconnect
+curl -X POST http://localhost:3459/control-server/reconnect
 ```
 
-### Dependencies
+### GUI tools not working
 
-**Header-only libraries (included in source):**
-- [cpp-httplib](https://github.com/yhirose/cpp-httplib) - HTTP server
-- [nlohmann/json](https://github.com/nlohmann/json) - JSON handling
+```bash
+# Check if tray app is running
+ps aux | grep screencontrol
 
-**System libraries:**
-- X11, Xext, XTest, Xrandr - X Window System
-- GTK+ 3 (optional) - GUI mode tray icon
-- pthreads - Threading
-- OpenSSL - TLS for WebSocket connections
+# Check GUI bridge port
+curl http://localhost:3460/health
+
+# Check proxy status
+curl http://localhost:3459/screenshot
+# Will return "GUI proxy not available" if tray app not running
+```
+
+### Machine unlock fails
+
+```bash
+# Check if credentials are stored
+curl http://localhost:3459/unlock/status
+
+# Check lock status
+loginctl list-sessions
+loginctl show-session <session> -p LockedHint
+
+# View unlock logs
+sudo journalctl -u screencontrol | grep -i unlock
+```
+
+### libsecret not working
+
+```bash
+# Check if libsecret is installed
+pkg-config --modversion libsecret-1
+
+# Ensure D-Bus session is available
+echo $DBUS_SESSION_BUS_ADDRESS
+
+# Test secret service
+secret-tool store --label="test" key value
+```
 
 ---
 
 ## Version History
 
+### v1.2.0 (December 2024)
+- **New architecture**: Cross-platform shared service with GUI proxy
+- **Machine unlock**: Secure credential storage with split-key encryption
+- **Control server**: WebSocket client for remote command execution
+- **libsecret support**: Integration with GNOME Keyring / KDE Wallet
+- **HTTP API on port 3459** (changed from 3456)
+
 ### v1.0.0 (December 2024)
 - Initial release
-- Full headless tool support (15 tools)
-- X11 GUI tools (screenshot, input, windows)
-- Wayland screenshot support via grim
+- Full headless tool support
+- X11 GUI tools
+- Wayland screenshot support
 - WebSocket control server integration
 - Systemd service support
-- ARM64 and x86_64 support

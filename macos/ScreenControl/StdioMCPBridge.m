@@ -10,6 +10,7 @@
 #import "BrowserWebSocketServer.h"
 #import "FilesystemTools.h"
 #import "ShellTools.h"
+#import "ServiceClient.h"
 #import <Foundation/Foundation.h>
 
 static NSString *const kMCPVersion = @"2024-11-05";
@@ -25,6 +26,10 @@ static NSString *const kServerVersion = @"1.0.0";
 // Local servers
 @property (nonatomic, strong) MCPServer *mcpServer;
 @property (nonatomic, strong) BrowserWebSocketServer *browserWebSocketServer;
+
+// Service client (for routing shell/fs commands through service when available)
+@property (nonatomic, strong) ServiceClient *serviceClient;
+@property (nonatomic, assign) BOOL serviceAvailable;
 
 // Current app tracking (for screenshot_app)
 @property (nonatomic, strong) NSString *currentAppBundleId;
@@ -66,11 +71,35 @@ static NSString *const kServerVersion = @"1.0.0";
         [self logError:@"Browser tools will NOT be available."];
     }
 
+    // Check if ScreenControl service is running (for secure shell/fs command routing)
+    self.serviceClient = [[ServiceClient alloc] initWithPort:3459];
+    [self checkServiceAvailability];
+
     // Start reading from stdin
     [self startReadingStdin];
 
     // Run the main run loop
     [[NSRunLoop mainRunLoop] run];
+}
+
+- (void)checkServiceAvailability {
+    // Check if service is available - do this synchronously on startup
+    __block BOOL available = NO;
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+
+    [self.serviceClient checkHealthWithCompletion:^(BOOL isAvailable, NSDictionary *info, NSError *error) {
+        available = isAvailable;
+        if (isAvailable) {
+            [self logError:@"ScreenControl service detected - shell/fs commands will use service (security hardened)"];
+        } else {
+            [self logError:@"ScreenControl service not running - shell/fs commands will run locally"];
+        }
+        dispatch_semaphore_signal(semaphore);
+    }];
+
+    // Wait up to 2 seconds for service check
+    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+    self.serviceAvailable = available;
 }
 
 - (void)stop {
@@ -476,97 +505,123 @@ static NSString *const kServerVersion = @"1.0.0";
         }
 
         // ============= FILESYSTEM TOOLS =============
-        if ([toolName isEqualToString:@"fs_list"]) {
-            NSString *path = arguments[@"path"];
-            if (!path) return @{@"error": @"path is required"};
-            BOOL recursive = [arguments[@"recursive"] boolValue];
-            NSInteger maxDepth = arguments[@"max_depth"] ? [arguments[@"max_depth"] integerValue] : 3;
-            return [self.mcpServer.filesystemTools listDirectory:path recursive:recursive maxDepth:maxDepth];
-        }
-        if ([toolName isEqualToString:@"fs_read"]) {
-            NSString *path = arguments[@"path"];
-            if (!path) return @{@"error": @"path is required"};
-            NSInteger maxBytes = arguments[@"max_bytes"] ? [arguments[@"max_bytes"] integerValue] : 131072;
-            return [self.mcpServer.filesystemTools readFile:path maxBytes:maxBytes];
-        }
-        if ([toolName isEqualToString:@"fs_read_range"]) {
-            NSString *path = arguments[@"path"];
-            NSNumber *start = arguments[@"start_line"];
-            NSNumber *end = arguments[@"end_line"];
-            if (!path) return @{@"error": @"path is required"};
-            return [self.mcpServer.filesystemTools readFileRange:path startLine:start.integerValue endLine:end.integerValue];
-        }
-        if ([toolName isEqualToString:@"fs_write"]) {
-            NSString *path = arguments[@"path"];
-            NSString *content = arguments[@"content"];
-            if (!path || !content) return @{@"error": @"path and content are required"};
-            BOOL createDirs = arguments[@"create_directories"] ? [arguments[@"create_directories"] boolValue] : YES;
-            NSString *mode = arguments[@"mode"] ?: @"overwrite";
-            return [self.mcpServer.filesystemTools writeFile:path content:content createDirs:createDirs mode:mode];
-        }
-        if ([toolName isEqualToString:@"fs_delete"]) {
-            NSString *path = arguments[@"path"];
-            if (!path) return @{@"error": @"path is required"};
-            BOOL recursive = [arguments[@"recursive"] boolValue];
-            return [self.mcpServer.filesystemTools deletePath:path recursive:recursive];
-        }
-        if ([toolName isEqualToString:@"fs_move"]) {
-            NSString *source = arguments[@"source"];
-            NSString *dest = arguments[@"destination"];
-            if (!source || !dest) return @{@"error": @"source and destination are required"};
-            return [self.mcpServer.filesystemTools movePath:source toPath:dest];
-        }
-        if ([toolName isEqualToString:@"fs_search"]) {
-            NSString *path = arguments[@"path"];
-            NSString *pattern = arguments[@"pattern"];
-            if (!path || !pattern) return @{@"error": @"path and pattern are required"};
-            NSInteger maxResults = arguments[@"max_results"] ? [arguments[@"max_results"] integerValue] : 200;
-            return [self.mcpServer.filesystemTools searchFiles:path glob:pattern maxResults:maxResults];
-        }
-        if ([toolName isEqualToString:@"fs_grep"]) {
-            NSString *path = arguments[@"path"];
-            NSString *pattern = arguments[@"pattern"];
-            if (!path || !pattern) return @{@"error": @"path and pattern are required"};
-            NSString *glob = arguments[@"glob"];
-            NSInteger maxMatches = arguments[@"max_matches"] ? [arguments[@"max_matches"] integerValue] : 200;
-            return [self.mcpServer.filesystemTools grepFiles:path pattern:pattern glob:glob maxMatches:maxMatches];
-        }
-        if ([toolName isEqualToString:@"fs_patch"]) {
-            NSString *path = arguments[@"path"];
-            NSArray *operations = arguments[@"operations"];
-            if (!path || !operations) return @{@"error": @"path and operations are required"};
-            BOOL dryRun = [arguments[@"dry_run"] boolValue];
-            return [self.mcpServer.filesystemTools patchFile:path operations:operations dryRun:dryRun];
+        // Route through service when available (security hardened with protected paths)
+        if ([toolName hasPrefix:@"fs_"]) {
+            if (self.serviceAvailable) {
+                NSDictionary *result = [self executeToolViaService:toolName arguments:arguments];
+                if (result && !result[@"service_unavailable"]) {
+                    return result;
+                }
+                // Fall through to local execution if service call failed
+                [self logError:@"Service unavailable, falling back to local filesystem execution"];
+            }
+
+            // Local execution fallback
+            if ([toolName isEqualToString:@"fs_list"]) {
+                NSString *path = arguments[@"path"];
+                if (!path) return @{@"error": @"path is required"};
+                BOOL recursive = [arguments[@"recursive"] boolValue];
+                NSInteger maxDepth = arguments[@"max_depth"] ? [arguments[@"max_depth"] integerValue] : 3;
+                return [self.mcpServer.filesystemTools listDirectory:path recursive:recursive maxDepth:maxDepth];
+            }
+            if ([toolName isEqualToString:@"fs_read"]) {
+                NSString *path = arguments[@"path"];
+                if (!path) return @{@"error": @"path is required"};
+                NSInteger maxBytes = arguments[@"max_bytes"] ? [arguments[@"max_bytes"] integerValue] : 131072;
+                return [self.mcpServer.filesystemTools readFile:path maxBytes:maxBytes];
+            }
+            if ([toolName isEqualToString:@"fs_read_range"]) {
+                NSString *path = arguments[@"path"];
+                NSNumber *start = arguments[@"start_line"];
+                NSNumber *end = arguments[@"end_line"];
+                if (!path) return @{@"error": @"path is required"};
+                return [self.mcpServer.filesystemTools readFileRange:path startLine:start.integerValue endLine:end.integerValue];
+            }
+            if ([toolName isEqualToString:@"fs_write"]) {
+                NSString *path = arguments[@"path"];
+                NSString *content = arguments[@"content"];
+                if (!path || !content) return @{@"error": @"path and content are required"};
+                BOOL createDirs = arguments[@"create_directories"] ? [arguments[@"create_directories"] boolValue] : YES;
+                NSString *mode = arguments[@"mode"] ?: @"overwrite";
+                return [self.mcpServer.filesystemTools writeFile:path content:content createDirs:createDirs mode:mode];
+            }
+            if ([toolName isEqualToString:@"fs_delete"]) {
+                NSString *path = arguments[@"path"];
+                if (!path) return @{@"error": @"path is required"};
+                BOOL recursive = [arguments[@"recursive"] boolValue];
+                return [self.mcpServer.filesystemTools deletePath:path recursive:recursive];
+            }
+            if ([toolName isEqualToString:@"fs_move"]) {
+                NSString *source = arguments[@"source"];
+                NSString *dest = arguments[@"destination"];
+                if (!source || !dest) return @{@"error": @"source and destination are required"};
+                return [self.mcpServer.filesystemTools movePath:source toPath:dest];
+            }
+            if ([toolName isEqualToString:@"fs_search"]) {
+                NSString *path = arguments[@"path"];
+                NSString *pattern = arguments[@"pattern"];
+                if (!path || !pattern) return @{@"error": @"path and pattern are required"};
+                NSInteger maxResults = arguments[@"max_results"] ? [arguments[@"max_results"] integerValue] : 200;
+                return [self.mcpServer.filesystemTools searchFiles:path glob:pattern maxResults:maxResults];
+            }
+            if ([toolName isEqualToString:@"fs_grep"]) {
+                NSString *path = arguments[@"path"];
+                NSString *pattern = arguments[@"pattern"];
+                if (!path || !pattern) return @{@"error": @"path and pattern are required"};
+                NSString *glob = arguments[@"glob"];
+                NSInteger maxMatches = arguments[@"max_matches"] ? [arguments[@"max_matches"] integerValue] : 200;
+                return [self.mcpServer.filesystemTools grepFiles:path pattern:pattern glob:glob maxMatches:maxMatches];
+            }
+            if ([toolName isEqualToString:@"fs_patch"]) {
+                NSString *path = arguments[@"path"];
+                NSArray *operations = arguments[@"operations"];
+                if (!path || !operations) return @{@"error": @"path and operations are required"};
+                BOOL dryRun = [arguments[@"dry_run"] boolValue];
+                return [self.mcpServer.filesystemTools patchFile:path operations:operations dryRun:dryRun];
+            }
         }
 
         // ============= SHELL TOOLS =============
-        if ([toolName isEqualToString:@"shell_exec"]) {
-            NSString *command = arguments[@"command"];
-            if (!command) return @{@"error": @"command is required"};
-            NSString *cwd = arguments[@"cwd"];
-            NSTimeInterval timeout = [arguments[@"timeout_seconds"] doubleValue] ?: 600;
-            BOOL captureStderr = arguments[@"capture_stderr"] ? [arguments[@"capture_stderr"] boolValue] : YES;
-            return [self.mcpServer.shellTools executeCommand:command cwd:cwd timeoutSeconds:timeout captureStderr:captureStderr];
-        }
-        if ([toolName isEqualToString:@"shell_start_session"]) {
-            NSString *command = arguments[@"command"];
-            if (!command) return @{@"error": @"command is required"};
-            NSString *cwd = arguments[@"cwd"];
-            NSDictionary *env = arguments[@"env"];
-            BOOL captureStderr = arguments[@"capture_stderr"] ? [arguments[@"capture_stderr"] boolValue] : YES;
-            return [self.mcpServer.shellTools startSession:command cwd:cwd env:env captureStderr:captureStderr];
-        }
-        if ([toolName isEqualToString:@"shell_send_input"]) {
-            NSString *sessionId = arguments[@"session_id"];
-            NSString *input = arguments[@"input"];
-            if (!sessionId || !input) return @{@"error": @"session_id and input are required"};
-            return [self.mcpServer.shellTools sendInput:sessionId input:input];
-        }
-        if ([toolName isEqualToString:@"shell_stop_session"]) {
-            NSString *sessionId = arguments[@"session_id"];
-            if (!sessionId) return @{@"error": @"session_id is required"};
-            NSString *signal = arguments[@"signal"] ?: @"TERM";
-            return [self.mcpServer.shellTools stopSession:sessionId signal:signal];
+        // Route through service when available (security hardened with blocked commands)
+        if ([toolName hasPrefix:@"shell_"]) {
+            if (self.serviceAvailable) {
+                NSDictionary *result = [self executeToolViaService:toolName arguments:arguments];
+                if (result && !result[@"service_unavailable"]) {
+                    return result;
+                }
+                // Fall through to local execution if service call failed
+                [self logError:@"Service unavailable, falling back to local shell execution"];
+            }
+
+            // Local execution fallback
+            if ([toolName isEqualToString:@"shell_exec"]) {
+                NSString *command = arguments[@"command"];
+                if (!command) return @{@"error": @"command is required"};
+                NSString *cwd = arguments[@"cwd"];
+                NSTimeInterval timeout = [arguments[@"timeout_seconds"] doubleValue] ?: 600;
+                BOOL captureStderr = arguments[@"capture_stderr"] ? [arguments[@"capture_stderr"] boolValue] : YES;
+                return [self.mcpServer.shellTools executeCommand:command cwd:cwd timeoutSeconds:timeout captureStderr:captureStderr];
+            }
+            if ([toolName isEqualToString:@"shell_start_session"]) {
+                NSString *command = arguments[@"command"];
+                if (!command) return @{@"error": @"command is required"};
+                NSString *cwd = arguments[@"cwd"];
+                NSDictionary *env = arguments[@"env"];
+                BOOL captureStderr = arguments[@"capture_stderr"] ? [arguments[@"capture_stderr"] boolValue] : YES;
+                return [self.mcpServer.shellTools startSession:command cwd:cwd env:env captureStderr:captureStderr];
+            }
+            if ([toolName isEqualToString:@"shell_send_input"]) {
+                NSString *sessionId = arguments[@"session_id"];
+                NSString *input = arguments[@"input"];
+                if (!sessionId || !input) return @{@"error": @"session_id and input are required"};
+                return [self.mcpServer.shellTools sendInput:sessionId input:input];
+            }
+            if ([toolName isEqualToString:@"shell_stop_session"]) {
+                NSString *sessionId = arguments[@"session_id"];
+                if (!sessionId) return @{@"error": @"session_id is required"};
+                NSString *signal = arguments[@"signal"] ?: @"TERM";
+                return [self.mcpServer.shellTools stopSession:sessionId signal:signal];
+            }
         }
 
         // ============= BROWSER TOOLS =============
@@ -1391,6 +1446,43 @@ static NSString *const kServerVersion = @"1.0.0";
                     (unsigned long)browserCount, (unsigned long)tools.count]];
 
     [self writeMCPResponse:notification];
+}
+
+#pragma mark - Service Tool Execution
+
+- (NSDictionary *)executeToolViaService:(NSString *)toolName arguments:(NSDictionary *)arguments {
+    // Execute tool via the ScreenControl service HTTP API
+    // This routes through the service for security hardening (protected paths, blocked commands)
+
+    __block NSDictionary *result = nil;
+    __block BOOL completed = NO;
+
+    [self.serviceClient executeToolWithName:toolName
+                                 arguments:arguments
+                                completion:^(NSDictionary *response, NSError *error) {
+        if (error) {
+            [self logError:[NSString stringWithFormat:@"Service tool execution error: %@", error.localizedDescription]];
+            result = @{@"service_unavailable": @YES};
+        } else if (response[@"error"]) {
+            result = response;
+        } else {
+            result = response;
+        }
+        completed = YES;
+    }];
+
+    // Wait for response with timeout (30 seconds for shell commands)
+    NSDate *timeout = [NSDate dateWithTimeIntervalSinceNow:30.0];
+    while (!completed && [timeout timeIntervalSinceNow] > 0) {
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+    }
+
+    if (!completed) {
+        [self logError:@"Service tool execution timed out"];
+        return @{@"service_unavailable": @YES};
+    }
+
+    return result;
 }
 
 #pragma mark - Logging
