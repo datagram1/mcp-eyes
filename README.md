@@ -59,27 +59,41 @@ The project uses a **unified cross-platform C++ service** (`service/`) that comp
 
 ### Local Mode (Claude Code / Claude Desktop)
 
+**Multi-Instance Support**: Multiple Claude Code instances can share browser tools through a single GUI app.
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Claude Code / Claude Desktop                 │
-└───────────────────────────────────┬─────────────────────────────┘
-                                    │ stdio (MCP protocol)
-                                    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    ScreenControl.app --mcp-stdio                │
-│                                                                 │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
-│  │ Desktop Tools   │  │ Browser Tools   │  │ Filesystem/Shell│ │
-│  │ (Accessibility) │  │ (WebSocket:3457)│  │                 │ │
-│  └─────────────────┘  └────────┬────────┘  └─────────────────┘ │
-└────────────────────────────────┼───────────────────────────────┘
-                                 │ WebSocket
-                                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Browser Extension                            │
-│                    (Firefox / Chrome / Safari)                  │
+│     Claude Code Instance 1        Claude Code Instance 2        │
+│           ▼                              ▼                      │
+│    StdioMCPBridge #1              StdioMCPBridge #2             │
+│           │                              │                      │
+│           └──────────────┬───────────────┘                      │
+│                          │ HTTP POST :3457/command              │
+│                          ▼                                      │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │              ScreenControl.app (GUI)                    │   │
+│   │                                                         │   │
+│   │  ┌─────────────────┐  ┌─────────────────────────────┐  │   │
+│   │  │ Desktop Tools   │  │ BrowserWebSocketServer:3457 │  │   │
+│   │  │ (Accessibility) │  │  - Accepts browser WS conn  │  │   │
+│   │  │                 │  │  - Handles HTTP /command    │  │   │
+│   │  └─────────────────┘  └─────────────┬───────────────┘  │   │
+│   └─────────────────────────────────────┼───────────────────┘   │
+│                                         │ WebSocket             │
+│                                         ▼                       │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │                    Browser Extension                    │   │
+│   │                    (Firefox / Chrome / Safari)          │   │
+│   └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Points:**
+- GUI app owns the browser WebSocket connection on port 3457
+- Each Claude Code instance spawns its own `StdioMCPBridge` process
+- StdioMCPBridge checks port 3457 for browser tool availability (not local port 3458)
+- Browser commands are forwarded via HTTP POST to the GUI app
+- All instances share the same browser extension connection
 
 ### Remote Mode (Claude Web via Control Server)
 
@@ -363,6 +377,14 @@ curl http://localhost:3459/screenshot
 - Restart Claude Code after config changes
 
 ## Recent Changes
+
+### v1.4 (December 2024)
+
+- **Multi-instance browser tools**: Multiple Claude Code instances can now share browser tools
+  - StdioMCPBridge checks GUI app on port 3457 for browser availability
+  - Fixes issue where only first Claude Code instance saw browser_* tools
+  - All instances share the same browser extension connection via GUI app
+- **Improved architecture documentation**: Updated diagrams showing multi-instance flow
 
 ### v1.3 (December 2024)
 

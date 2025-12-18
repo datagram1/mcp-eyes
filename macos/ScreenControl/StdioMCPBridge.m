@@ -59,15 +59,15 @@ static NSString *const kServerVersion = @"1.0.0";
     [self.mcpServer start];
     [self logError:@"Started local MCPServer"];
 
-    // Start BrowserWebSocketServer for browser extension on port 3459
-    // (Port 3457 is used by GUI app, 3458 by TestServer)
-    self.browserWebSocketServer = [[BrowserWebSocketServer alloc] initWithPort:3459];
+    // Start BrowserWebSocketServer for browser extension on port 3458
+    // (Port 3457 is used by GUI app, 3459 by ScreenControlService for remote agents)
+    self.browserWebSocketServer = [[BrowserWebSocketServer alloc] initWithPort:3458];
     self.browserWebSocketServer.delegate = self;
     BOOL wsStarted = [self.browserWebSocketServer start];
     if (wsStarted) {
-        [self logError:@"Started BrowserWebSocketServer on port 3459"];
+        [self logError:@"Started BrowserWebSocketServer on port 3458"];
     } else {
-        [self logError:@"WARNING: Failed to start BrowserWebSocketServer on port 3459"];
+        [self logError:@"WARNING: Failed to start BrowserWebSocketServer on port 3458"];
         [self logError:@"Browser tools will NOT be available."];
     }
 
@@ -779,18 +779,84 @@ static NSString *const kServerVersion = @"1.0.0";
     return result;
 }
 
+#pragma mark - Browser Bridge Check
+
+- (BOOL)checkBrowserBridgeAvailable {
+    // Check if browser tools are available from any source:
+    // 1. Our own local WebSocket server (if we bound to 3458)
+    // 2. The GUI app on port 3457 (shared by all Claude Code instances)
+    //
+    // This allows all Claude Code instances to see browser tools if the GUI app
+    // has browsers connected, even if this instance couldn't bind to port 3458.
+
+    // First check our local WebSocket server
+    if (self.browserWebSocketServer && self.browserWebSocketServer.isRunning &&
+        self.browserWebSocketServer.connectedBrowsers.count > 0) {
+        [self logError:@"Browser bridge: using local WebSocket server (port 3458)"];
+        return YES;
+    }
+
+    // Check the GUI app on port 3457 via /command endpoint with listConnected action
+    __block BOOL available = NO;
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+
+    NSURL *url = [NSURL URLWithString:@"http://127.0.0.1:3457/command"];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    request.timeoutInterval = 1.0;  // Quick timeout for tool listing
+
+    // Send a getTabs command to check if browser bridge is responsive and has browsers connected
+    NSDictionary *body = @{@"action": @"getTabs", @"payload": @{}};
+    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+
+    [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!error && data) {
+            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+            if (httpResponse.statusCode == 200) {
+                // GUI app browser bridge is running and browser is connected
+                NSDictionary *result = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+                if (result[@"result"]) {
+                    // Got tabs - browser is connected
+                    [self logError:@"Browser bridge: using GUI app (port 3457) with connected browser"];
+                    available = YES;
+                } else if (result[@"error"]) {
+                    // Got error (e.g., "No browser connected")
+                    // Still show tools - they'll fail gracefully with helpful message
+                    [self logError:[NSString stringWithFormat:@"Browser bridge: GUI app running but: %@", result[@"error"]]];
+                    available = YES;
+                } else {
+                    // Some other response - assume bridge is available
+                    [self logError:@"Browser bridge: GUI app responding"];
+                    available = YES;
+                }
+            }
+        }
+        dispatch_semaphore_signal(semaphore);
+    }] resume];
+
+    // Wait up to 1 second for response
+    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC));
+
+    if (!available) {
+        [self logError:@"Browser bridge: not available (no response from port 3457)"];
+    }
+
+    return available;
+}
+
 #pragma mark - Tool Definitions
 
 - (NSArray *)getAvailableTools {
     NSMutableArray *tools = [NSMutableArray array];
 
-    // Include browser tools if the WebSocket server is running (matches Agent behavior)
-    // Tools will fail gracefully if no browser is connected when called
-    BOOL includeBrowserTools = self.browserWebSocketServer && self.browserWebSocketServer.isRunning;
+    // Check if browser tools are available via the GUI app on port 3457
+    // This allows all Claude Code instances to see browser tools if the GUI app has browsers connected
+    // We check 3457 (GUI app) which handles browser connections for all instances
+    BOOL includeBrowserTools = [self checkBrowserBridgeAvailable];
 
-    [self logError:[NSString stringWithFormat:@"Building tool list - Browser bridge running: %@, connected browsers: %lu",
-                    includeBrowserTools ? @"YES" : @"NO",
-                    (unsigned long)(self.browserWebSocketServer ? self.browserWebSocketServer.connectedBrowsers.count : 0)]];
+    [self logError:[NSString stringWithFormat:@"Building tool list - Browser bridge available: %@",
+                    includeBrowserTools ? @"YES" : @"NO"]];
 
     // Tool definitions by category
     NSDictionary *toolDefinitions = @{

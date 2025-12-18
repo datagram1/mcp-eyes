@@ -1,21 +1,76 @@
 # Browser Tools Architecture & Roadmap
 
-**Status:** Working (Temporary HTTP Solution)
-**Date:** December 9, 2025
+**Status:** Working (Multi-Instance Support Added)
+**Date:** December 18, 2025
 
 ---
 
 ## Current Architecture (Working)
 
-### Communication Chain
+### Multi-Instance Local Mode (Claude Code)
+
+Multiple Claude Code instances can share browser tools through a single GUI app:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│     Claude Code #1                Claude Code #2                │
+│          ↓ stdio                       ↓ stdio                  │
+│   StdioMCPBridge #1              StdioMCPBridge #2              │
+│   (tries port 3458 - SUCCESS)    (tries port 3458 - FAILS)      │
+│          │                              │                       │
+│          │                              │                       │
+│          │    checkBrowserBridgeAvailable()                     │
+│          │         ↓                    ↓                       │
+│          └─────────┴────────────────────┘                       │
+│                    │ HTTP POST :3457/command                    │
+│                    ▼                                            │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │        ScreenControl.app (GUI - Menu Bar App)           │   │
+│   │                                                         │   │
+│   │  BrowserWebSocketServer on port 3457                    │   │
+│   │  - Accepts browser extension WebSocket connections      │   │
+│   │  - Handles HTTP POST /command from StdioMCPBridge       │   │
+│   │  - Routes commands to connected browsers                │   │
+│   └─────────────────────────┬───────────────────────────────┘   │
+│                             │ WebSocket                         │
+│                             ▼                                   │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │                   Browser Extension                     │   │
+│   │              (Firefox / Chrome / Safari)                │   │
+│   └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Implementation Details:**
+
+1. **StdioMCPBridge.checkBrowserBridgeAvailable()** (added Dec 18, 2025):
+   - First checks local BrowserWebSocketServer on port 3458
+   - Falls back to checking GUI app on port 3457 via HTTP POST
+   - Sends `getTabs` action to verify browser is connected
+   - Returns YES if either source responds
+
+2. **Tool Availability Logic**:
+   ```objc
+   // OLD (broken for multi-instance):
+   BOOL includeBrowserTools = self.browserWebSocketServer.isRunning;
+
+   // NEW (works for multi-instance):
+   BOOL includeBrowserTools = [self checkBrowserBridgeAvailable];
+   ```
+
+3. **Browser Command Execution** (unchanged):
+   - All browser commands go to port 3457 via HTTP POST
+   - GUI app forwards to connected browser via WebSocket
+
+### Remote Mode Communication Chain
 ```
 Claude AI (MCP)
     ↓ (HTTP/SSE)
 Control Server (192.168.10.10:3000)
     ↓ (WebSocket)
 Agent (macOS ScreenControl.app)
-    ↓ (HTTP POST to localhost:3457/command) ← TEMPORARY
-Browser Bridge Server (Node.js on port 3457)
+    ↓ (HTTP POST to localhost:3457/command)
+BrowserWebSocketServer (port 3457)
     ↓ (WebSocket)
 Browser Extension (Firefox/Chrome/Edge/Safari)
     ↓ (Content Script → Injected Script)
@@ -385,17 +440,23 @@ curl -X POST http://localhost:3456/execute \
 - [x] Firefox extension receives commands
 - [x] Commands execute on web pages
 
-### WebSocket Implementation
+### Multi-Instance Support ✅ (December 18, 2025)
+- [x] Multiple Claude Code instances see browser tools
+- [x] StdioMCPBridge checks port 3457 fallback
+- [x] All instances share browser extension via GUI app
+- [x] No port conflicts between instances
+- [x] Documentation updated
+
+### WebSocket Implementation (Future)
 - [ ] Agent connects via WebSocket to browser bridge
 - [ ] All browser tools work via WebSocket
 - [ ] Reconnection logic handles disconnects
 - [ ] Latency improved vs HTTP
 - [ ] No regression in functionality
 
-### Final Cleanup
+### Final Cleanup (Future)
 - [ ] HTTP endpoint only in debug builds
 - [ ] Legacy wrapper code removed
-- [ ] Documentation updated
 - [ ] Production deployment successful
 - [ ] All tests passing
 
@@ -427,5 +488,5 @@ curl -X POST http://localhost:3456/execute \
 
 ---
 
-**Last Updated:** December 9, 2025
+**Last Updated:** December 18, 2025
 **Next Review:** After Phase 2 WebSocket implementation
