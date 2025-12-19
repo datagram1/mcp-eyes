@@ -207,12 +207,141 @@ jobs:
           retention-days: 30
 
   # ============================================
+  # Windows Service Build
+  # ============================================
+  build-windows-service:
+    name: Build Windows Service
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build Service with CMake
+        working-directory: service
+        run: |
+          mkdir build
+          cd build
+          cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release
+
+      - name: Verify Build
+        shell: pwsh
+        run: |
+          $exe = "service/build/bin/Release/ScreenControlService.exe"
+          if (Test-Path $exe) {
+            Write-Host "✅ Windows service build successful"
+            Get-Item $exe
+          } else {
+            Write-Host "❌ Windows service build failed"
+            Get-ChildItem -Recurse service/build -Filter "*.exe" | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
+
+      - name: Upload Windows Service
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenControl-Service-Windows
+          path: service/build/bin/Release/ScreenControlService.exe
+          retention-days: 30
+
+  # ============================================
+  # Windows Tray App Build
+  # ============================================
+  build-windows-tray:
+    name: Build Windows Tray App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build Tray App
+        working-directory: windows/ScreenControlTray
+        run: |
+          dotnet restore
+          dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+
+      - name: Verify Build
+        shell: pwsh
+        run: |
+          $exe = "windows/ScreenControlTray/publish/ScreenControlTray.exe"
+          if (Test-Path $exe) {
+            Write-Host "✅ Windows tray app build successful"
+            Get-Item $exe
+          } else {
+            Write-Host "❌ Windows tray app build failed"
+            exit 1
+          }
+
+      - name: Upload Windows Tray App
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenControl-Tray-Windows
+          path: windows/ScreenControlTray/publish/ScreenControlTray.exe
+          retention-days: 30
+
+  # ============================================
+  # Windows Credential Provider Build
+  # ============================================
+  build-windows-credential-provider:
+    name: Build Windows Credential Provider
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build Credential Provider with CMake
+        working-directory: service/src/platform/windows/credential_provider
+        run: |
+          mkdir build
+          cd build
+          cmake .. -G "Visual Studio 17 2022" -A x64
+          cmake --build . --config Release
+
+      - name: Verify Build
+        shell: pwsh
+        run: |
+          $dll = "service/src/platform/windows/credential_provider/build/bin/Release/ScreenControlCP.dll"
+          if (Test-Path $dll) {
+            Write-Host "✅ Windows credential provider build successful"
+            Get-Item $dll
+          } else {
+            Write-Host "❌ Windows credential provider build failed"
+            Get-ChildItem -Recurse service/src/platform/windows/credential_provider/build -Filter "*.dll" | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
+
+      - name: Upload Windows Credential Provider
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenControl-CredentialProvider-Windows
+          path: service/src/platform/windows/credential_provider/build/bin/Release/ScreenControlCP.dll
+          retention-days: 30
+
+  # ============================================
   # Status Check
   # ============================================
   status-check:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [build-macos-agent, build-linux-service]
+    needs: [build-macos-agent, build-linux-service, build-windows-service, build-windows-tray, build-windows-credential-provider]
     if: always()
 
     steps:
@@ -224,6 +353,18 @@ jobs:
           fi
           if [ "${{ needs.build-linux-service.result }}" != "success" ]; then
             echo "❌ Linux service build failed"
+            exit 1
+          fi
+          if [ "${{ needs.build-windows-service.result }}" != "success" ]; then
+            echo "❌ Windows service build failed"
+            exit 1
+          fi
+          if [ "${{ needs.build-windows-tray.result }}" != "success" ]; then
+            echo "❌ Windows tray app build failed"
+            exit 1
+          fi
+          if [ "${{ needs.build-windows-credential-provider.result }}" != "success" ]; then
+            echo "❌ Windows credential provider build failed"
             exit 1
           fi
           echo "✅ All builds passed!"

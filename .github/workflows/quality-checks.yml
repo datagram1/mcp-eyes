@@ -80,6 +80,73 @@ jobs:
         fi
 
   # ============================================
+  # Windows Service Build Check
+  # ============================================
+  windows-service-build:
+    name: Windows Service Build
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Build Service
+      working-directory: service
+      run: |
+        mkdir build
+        cd build
+        cmake .. -G "Visual Studio 17 2022" -A x64
+        cmake --build . --config Release
+
+    - name: Verify Build
+      shell: pwsh
+      run: |
+        $exe = "service/build/bin/Release/ScreenControlService.exe"
+        if (Test-Path $exe) {
+          Write-Host "✅ Windows service build successful"
+        } else {
+          Write-Host "❌ Windows service build failed"
+          exit 1
+        }
+
+  # ============================================
+  # Windows Tray App Build Check
+  # ============================================
+  windows-tray-build:
+    name: Windows Tray App Build
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Build Tray App
+      working-directory: windows/ScreenControlTray
+      run: |
+        dotnet restore
+        dotnet build -c Release
+
+    - name: Verify Build
+      shell: pwsh
+      run: |
+        if (Test-Path "windows/ScreenControlTray/bin/Release") {
+          Write-Host "✅ Windows tray app build successful"
+        } else {
+          Write-Host "❌ Windows tray app build failed"
+          exit 1
+        }
+
+  # ============================================
   # Code Quality Checks
   # ============================================
   code-quality:

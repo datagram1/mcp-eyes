@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- ApplicationIcon set when icon.ico is available -->
+    <AssemblyName>ScreenControlTray</AssemblyName>
+    <RootNamespace>ScreenControlTray</RootNamespace>
+    <Version>1.0.0</Version>
+    <Company>Key Network Services Ltd</Company>
+    <Product>ScreenControl</Product>
+    <Description>ScreenControl System Tray Application</Description>
+
+    <!-- Self-contained single file (RuntimeIdentifier set at build time) -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- Trimming not supported with Windows Forms -->
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- Enable cross-compilation from macOS/Linux -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <!-- Uncomment when icon files are available
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\icon.ico" />
+    <EmbeddedResource Include="Resources\icon_green.ico" />
+    <EmbeddedResource Include="Resources\icon_yellow.ico" />
+    <EmbeddedResource Include="Resources\icon_red.ico" />
+  </ItemGroup>
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
