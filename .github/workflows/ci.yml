@@ -164,6 +164,47 @@ jobs:
           echo "Agent stopped"
 
   # ============================================
+  # macOS Service Build (standalone C++ service)
+  # ============================================
+  build-macos-service:
+    name: Build macOS Service
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install openssl@3
+
+      - name: Build Service with CMake
+        working-directory: service
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Verify Build
+        run: |
+          if [ -f "service/build/bin/ScreenControlService" ]; then
+            echo "✅ macOS service build successful"
+            ls -la service/build/bin/ScreenControlService
+          else
+            echo "❌ macOS service build failed"
+            find service/build -name "ScreenControl*" -type f 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Upload macOS Service
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenControl-Service-macOS
+          path: service/build/bin/ScreenControlService
+          retention-days: 30
+
+  # ============================================
   # Linux Service Build
   # ============================================
   build-linux-service:
@@ -341,7 +382,7 @@ jobs:
   status-check:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [build-macos-agent, build-linux-service, build-windows-service, build-windows-tray, build-windows-credential-provider]
+    needs: [build-macos-agent, build-macos-service, build-linux-service, build-windows-service, build-windows-tray, build-windows-credential-provider]
     if: always()
 
     steps:
@@ -349,6 +390,10 @@ jobs:
         run: |
           if [ "${{ needs.build-macos-agent.result }}" != "success" ]; then
             echo "❌ macOS agent build failed"
+            exit 1
+          fi
+          if [ "${{ needs.build-macos-service.result }}" != "success" ]; then
+            echo "❌ macOS service build failed"
             exit 1
           fi
           if [ "${{ needs.build-linux-service.result }}" != "success" ]; then

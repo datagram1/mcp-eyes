@@ -112,6 +112,43 @@ jobs:
           retention-days: 30
 
   # ============================================
+  # Build macOS Service
+  # ============================================
+  build-macos-service:
+    name: Build macOS Service
+    runs-on: macos-14
+    needs: validate
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install openssl@3
+
+      - name: Build Service
+        working-directory: service
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release \
+            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Create tarball
+        run: |
+          mkdir -p release-macos-service
+          cp service/build/bin/ScreenControlService release-macos-service/
+          cp README.md release-macos-service/ 2>/dev/null || true
+          tar -czvf ScreenControlService-${{ needs.validate.outputs.version }}-macos.tar.gz release-macos-service
+
+      - name: Upload macOS Service
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-service-tarball
+          path: ScreenControlService-*.tar.gz
+          retention-days: 30
+
+  # ============================================
   # Build Linux Service
   # ============================================
   build-linux:
@@ -248,7 +285,7 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [validate, build-macos, build-linux, build-windows, test-macos]
+    needs: [validate, build-macos, build-macos-service, build-linux, build-windows, test-macos]
     permissions:
       contents: write
 
@@ -277,9 +314,10 @@ jobs:
 
           | Platform | File | Description |
           |----------|------|-------------|
-          | macOS | ScreenControl-$VERSION-macOS.dmg | Disk image installer |
-          | macOS | ScreenControl-$VERSION-macOS.zip | ZIP archive |
-          | Windows | ScreenControl-$VERSION-windows-x64.zip | Windows x64 (Service + Tray + Credential Provider) |
+          | macOS | ScreenControl-$VERSION-macOS.dmg | GUI Agent (Disk image) |
+          | macOS | ScreenControl-$VERSION-macOS.zip | GUI Agent (ZIP) |
+          | macOS | ScreenControlService-$VERSION-macos.tar.gz | Standalone service |
+          | Windows | ScreenControl-$VERSION-windows-x64.zip | Service + Tray + Credential Provider |
           | Linux | ScreenControl-$VERSION-linux-x64.tar.gz | Linux x64 service |
 
           ### Installation
@@ -316,6 +354,7 @@ jobs:
           files: |
             artifacts/macos-dmg/*.dmg
             artifacts/macos-zip/*.zip
+            artifacts/macos-service-tarball/*.tar.gz
             artifacts/windows-package/*.zip
             artifacts/linux-tarball/*.tar.gz
         env:
