@@ -161,6 +161,7 @@ screen_control/
 │   └── prisma/                 # Database schema
 │
 ├── docs/                       # Documentation
+│   ├── claude_mcp_setup.md     # Claude Code MCP configuration guide
 │   ├── linux_agent_docs.md     # Full Linux agent documentation
 │   └── windows_agent_install.md # Windows installation guide
 │
@@ -171,24 +172,40 @@ screen_control/
 
 ### macOS
 
-#### Build
+#### Option 1: Download Release
+Download `ScreenControl.app` from [Releases](https://github.com/datagram1/screen_control/releases) and copy to `/Applications`.
+
+#### Option 2: Build from Source
 ```bash
 cd macos
-xcodebuild -project ScreenControl.xcodeproj -scheme ScreenControl -configuration Debug build
+xcodebuild -project ScreenControl.xcodeproj -scheme ScreenControl -configuration Release build
+
+# Copy to Applications
+cp -R ~/Library/Developer/Xcode/DerivedData/ScreenControl-*/Build/Products/Release/ScreenControl.app /Applications/
+
+# Sign the app
+codesign --force --deep --sign - /Applications/ScreenControl.app
 ```
 
 #### Configure Claude Code
-Add to `~/.config/claude-code/config.json`:
+
+Add to `~/.claude.json` (global) or `.mcp.json` (project):
 ```json
 {
   "mcpServers": {
     "screencontrol": {
-      "command": "/path/to/ScreenControl.app/Contents/MacOS/ScreenControl",
+      "command": "/Applications/ScreenControl.app/Contents/MacOS/ScreenControl",
       "args": ["--mcp-stdio"]
     }
   }
 }
 ```
+
+#### Verify Setup
+1. Run `/mcp` in Claude Code to check connection status
+2. Should show 90 tools (39 without browser extension)
+
+For detailed configuration options, see [docs/claude_mcp_setup.md](docs/claude_mcp_setup.md).
 
 ### Linux
 
