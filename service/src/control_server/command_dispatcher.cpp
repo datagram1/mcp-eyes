@@ -632,6 +632,17 @@ json CommandDispatcher::handleToolsList()
          {"agentId", agentIdProp}},
         {"milliseconds"});
 
+    // ============ MACHINE CONTROL TOOLS (Windows only) ============
+#if PLATFORM_WINDOWS
+    addTool("machine_lock", "Lock the workstation screen",
+        {{"agentId", agentIdProp}});
+
+    addTool("machine_unlock", "Unlock the workstation using stored credentials. "
+        "Requires credentials to be stored first via the credential provider. "
+        "Only works on Windows with ScreenControl Credential Provider installed.",
+        {{"agentId", agentIdProp}});
+#endif
+
     // ============ FILESYSTEM TOOLS ============
     addTool("fs_list", "List directory contents",
         {{"path", {{"type", "string"}, {"description", "Directory path"}}},
