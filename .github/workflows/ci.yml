@@ -106,7 +106,7 @@ jobs:
         run: brew install openssl@3
 
       - name: Import signing certificates
-        if: ${{ env.MACOS_CERTIFICATE != '' }}
+        if: ${{ secrets.MACOS_CERTIFICATE != '' }}
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
@@ -127,11 +127,14 @@ jobs:
           # Import certificate to keychain
           security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # Add keychain to search list (prepend to ensure it's searched first)
+          security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychain -d user | tr -d '"')
 
           # Verify certificates imported
           echo "Verifying certificates..."
           security find-identity -v -p codesigning $KEYCHAIN_PATH
+          security find-identity -v $KEYCHAIN_PATH
 
       - name: Build and sign pkg installer
         working-directory: service/install/macos/pkg
