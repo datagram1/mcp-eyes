@@ -1623,33 +1623,66 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
 
     default: {
       // Check if this tool is advertised by an agent dynamically
-      // This allows agents to provide custom tools (like browser_* tools)
+      // This allows agents to provide custom tools (like browser_* tools, machine_lock, etc.)
       // without needing to hardcode them in this switch statement
 
       const agents = await getOnlineAgents();
-      let toolFoundInAgent = false;
 
+      // Find all agents that have this tool (important for platform-specific tools like machine_lock)
+      const agentsWithTool: typeof agents = [];
       for (const dbAgent of agents) {
         const connectedAgent = agentRegistry.getAgent(dbAgent.id);
         if (connectedAgent?.tools) {
           const agentTool = connectedAgent.tools.find(t => t.name === toolName);
           if (agentTool) {
-            toolFoundInAgent = true;
-            break;
+            agentsWithTool.push(dbAgent);
           }
         }
       }
 
-      if (toolFoundInAgent) {
-        // Forward this tool call to the agent
-        logMcp('FORWARDING AGENT TOOL', { tool: toolName, arguments: args });
-        const result = await selectAgent(args?.agentId);
-        if (result.error) return result.error;
-
-        return executeAgentCommand(result.agent, 'tools/call', {
-          name: toolName,
-          arguments: args || {},
+      if (agentsWithTool.length > 0) {
+        // Forward this tool call to an agent that has the tool
+        logMcp('FORWARDING AGENT TOOL', {
+          tool: toolName,
+          arguments: args,
+          agentsWithTool: agentsWithTool.map(a => ({ name: formatAgentName(a), os: a.osType })),
         });
+
+        // If agentId specified, check it's one of the agents with this tool
+        if (args?.agentId) {
+          const matches = findMatchingAgents(agentsWithTool, args.agentId);
+          if (matches.length === 0) {
+            return {
+              content: [{
+                type: 'text',
+                text: `The tool "${toolName}" is not available on agent "${args.agentId}".\n\nThis tool is available on:\n${agentsWithTool.map(a => `- "${formatAgentName(a)}" (${a.osType})`).join('\n')}\n\nPlease specify one of these agents.`,
+              }],
+              isError: true,
+            };
+          }
+          // Use the matching agent
+          return executeAgentCommand(matches[0].agent, 'tools/call', {
+            name: toolName,
+            arguments: args || {},
+          });
+        }
+
+        // No agentId specified - if only one agent has the tool, use it directly
+        if (agentsWithTool.length === 1) {
+          return executeAgentCommand(agentsWithTool[0], 'tools/call', {
+            name: toolName,
+            arguments: args || {},
+          });
+        }
+
+        // Multiple agents have this tool - ask user to choose
+        return {
+          content: [{
+            type: 'text',
+            text: `The tool "${toolName}" is available on multiple agents. Please ask the user which agent to use:\n\n${agentsWithTool.map(a => `- "${formatAgentName(a)}" (${a.osType})`).join('\n')}\n\nThen retry with the agentId parameter.`,
+          }],
+          isError: true,
+        };
       }
 
       // Tool not found anywhere
