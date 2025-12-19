@@ -7,8 +7,15 @@
 #
 # Usage:
 #   ./build_pkg.sh                    # Build unsigned installer
+#   ./build_pkg.sh --version 1.2.0    # Build with specific version
 #   ./build_pkg.sh --sign "Developer ID Installer: Your Name (TEAMID)"
-#   ./build_pkg.sh --notarize         # Sign and notarize (requires signing identity)
+#   ./build_pkg.sh --app-sign "Developer ID Application: Your Name (TEAMID)"
+#   ./build_pkg.sh --sign "..." --app-sign "..." --notarize  # Full signed + notarized build
+#
+# For CI/CD with signing:
+#   ./build_pkg.sh --version 1.2.0 \
+#     --sign "Developer ID Installer: Key Network Services Ltd (LZ7T6LSFQ5)" \
+#     --app-sign "Developer ID Application: Key Network Services Ltd (LZ7T6LSFQ5)"
 #
 
 set -e
@@ -32,8 +39,9 @@ MACOS_DIR="$PROJECT_ROOT/macos"
 BUILD_DIR="$SCRIPT_DIR/build"
 OUTPUT_DIR="$SCRIPT_DIR/output"
 
-# Installer identity (for signing)
+# Signing identities
 INSTALLER_IDENTITY=""
+APP_IDENTITY=""
 NOTARIZE=false
 
 # Parse arguments
@@ -41,6 +49,10 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --sign)
             INSTALLER_IDENTITY="$2"
+            shift 2
+            ;;
+        --app-sign)
+            APP_IDENTITY="$2"
             shift 2
             ;;
         --notarize)
@@ -153,6 +165,14 @@ mkdir -p "$BUILD_DIR/service_root/Library/Application Support/ScreenControl"
 cp "$SERVICE_BINARY" "$BUILD_DIR/service_root/Library/PrivilegedHelperTools/com.screencontrol.service"
 cp "$SCRIPT_DIR/../com.screencontrol.service.plist" "$BUILD_DIR/service_root/Library/LaunchDaemons/"
 
+# Sign the service binary if identity provided
+if [[ -n "$APP_IDENTITY" ]]; then
+    echo "  Signing service binary..."
+    codesign --force --options runtime --timestamp \
+        --sign "$APP_IDENTITY" \
+        "$BUILD_DIR/service_root/Library/PrivilegedHelperTools/com.screencontrol.service"
+fi
+
 # Copy uninstall script to Application Support
 cp "$SCRIPT_DIR/../uninstall.sh" "$BUILD_DIR/service_root/Library/Application Support/ScreenControl/"
 chmod 755 "$BUILD_DIR/service_root/Library/Application Support/ScreenControl/uninstall.sh"
@@ -161,6 +181,19 @@ chmod 755 "$BUILD_DIR/service_root/Library/Application Support/ScreenControl/uni
 echo "  Creating agent package root..."
 mkdir -p "$BUILD_DIR/agent_root/Applications"
 cp -R "$APP_BUNDLE" "$BUILD_DIR/agent_root/Applications/"
+
+# Sign the app bundle if identity provided
+if [[ -n "$APP_IDENTITY" ]]; then
+    echo "  Signing application bundle..."
+    # Sign all nested frameworks and binaries first (deep signing)
+    codesign --force --options runtime --timestamp --deep \
+        --sign "$APP_IDENTITY" \
+        "$BUILD_DIR/agent_root/Applications/ScreenControl.app"
+
+    # Verify the signature
+    echo "  Verifying app signature..."
+    codesign --verify --deep --strict "$BUILD_DIR/agent_root/Applications/ScreenControl.app"
+fi
 
 # Copy scripts
 echo "  Copying installer scripts..."
@@ -267,14 +300,25 @@ echo "Size: $(du -h "$INSTALLER_PATH" | cut -f1)"
 echo ""
 
 if [[ -n "$INSTALLER_IDENTITY" ]]; then
-    echo "Signed: Yes"
-    if [[ "$NOTARIZE" == true ]]; then
-        echo "Notarized: Yes"
-    else
-        echo "Notarized: No (use --notarize to notarize)"
-    fi
+    echo "Installer Signed: Yes ($INSTALLER_IDENTITY)"
 else
-    echo -e "${YELLOW}Signed: No (use --sign to sign)${NC}"
+    echo -e "${YELLOW}Installer Signed: No (use --sign to sign)${NC}"
+fi
+
+if [[ -n "$APP_IDENTITY" ]]; then
+    echo "App/Service Signed: Yes ($APP_IDENTITY)"
+else
+    echo -e "${YELLOW}App/Service Signed: No (use --app-sign to sign)${NC}"
+fi
+
+if [[ "$NOTARIZE" == true ]]; then
+    echo "Notarized: Yes"
+elif [[ -n "$INSTALLER_IDENTITY" ]]; then
+    echo "Notarized: No (use --notarize to notarize)"
+fi
+
+if [[ -z "$INSTALLER_IDENTITY" ]] || [[ -z "$APP_IDENTITY" ]]; then
+    echo ""
     echo "Note: Unsigned installers will show a Gatekeeper warning on macOS."
 fi
 

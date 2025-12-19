@@ -87,7 +87,7 @@ jobs:
           retention-days: 30
 
   # ============================================
-  # macOS Installer (.pkg)
+  # macOS Installer (.pkg) - Signed
   # ============================================
   build-macos-pkg:
     name: Build macOS Installer
@@ -105,23 +105,86 @@ jobs:
       - name: Install dependencies
         run: brew install openssl@3
 
-      - name: Build pkg installer
+      - name: Import signing certificates
+        if: ${{ env.MACOS_CERTIFICATE != '' }}
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # Import certificate from secrets
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # Verify certificates imported
+          echo "Verifying certificates..."
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
+      - name: Build and sign pkg installer
         working-directory: service/install/macos/pkg
         run: |
           chmod +x build_pkg.sh
-          ./build_pkg.sh --version 1.2.0
+          if [ -n "${{ secrets.MACOS_CERTIFICATE }}" ]; then
+            echo "Building signed installer..."
+            ./build_pkg.sh --version 1.2.0 \
+              --sign "Developer ID Installer: Key Network Services Ltd (LZ7T6LSFQ5)" \
+              --app-sign "Developer ID Application: Key Network Services Ltd (LZ7T6LSFQ5)"
+          else
+            echo "Building unsigned installer (no certificates configured)..."
+            ./build_pkg.sh --version 1.2.0
+          fi
         env:
           OPENSSL_ROOT_DIR: /opt/homebrew/opt/openssl@3
+
+      - name: Notarize pkg
+        if: ${{ env.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          PKG_PATH="service/install/macos/pkg/output/ScreenControl-1.2.0.pkg"
+          if [ -f "$PKG_PATH" ]; then
+            echo "Submitting for notarization..."
+            xcrun notarytool submit "$PKG_PATH" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --wait
+
+            echo "Stapling notarization ticket..."
+            xcrun stapler staple "$PKG_PATH"
+          fi
 
       - name: Verify pkg
         run: |
           if [ -f "service/install/macos/pkg/output/ScreenControl-1.2.0.pkg" ]; then
             echo "✅ macOS pkg build successful"
             ls -la service/install/macos/pkg/output/
+            # Check if signed
+            pkgutil --check-signature service/install/macos/pkg/output/ScreenControl-1.2.0.pkg || true
           else
             echo "❌ macOS pkg build failed"
             exit 1
           fi
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db 2>/dev/null || true
 
       - name: Upload macOS pkg
         uses: actions/upload-artifact@v4
