@@ -113,6 +113,8 @@ README/
 
 # Development directories
 SCRIPTS/
+# But include installer scripts
+!service/install/macos/pkg/scripts/
 test-screenshots/
 
 # Publishing scripts and logs

@@ -149,7 +149,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ScreenControl-Debug-macOS
-          path: agent
+          path: agent/ScreenControl.app
 
       - name: Make agent executable
         run: chmod +x agent/ScreenControl.app/Contents/MacOS/ScreenControl

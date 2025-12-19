@@ -1,0 +1,39 @@
+#!/bin/bash
+#
+# ScreenControl Service Preinstall Script
+#
+# This script runs before the pkg installer copies files.
+# It stops any existing service to ensure clean upgrade.
+#
+
+SERVICE_ID="com.screencontrol.service"
+SERVICE_PLIST="/Library/LaunchDaemons/${SERVICE_ID}.plist"
+APP_BUNDLE_ID="com.screencontrol.agent"
+
+# Log to installer log
+log() {
+    echo "[ScreenControl Preinstall] $1"
+}
+
+log "Starting preinstall..."
+
+# Stop existing service if running
+if launchctl list | grep -q "$SERVICE_ID" 2>/dev/null; then
+    log "Stopping existing service..."
+    launchctl unload "$SERVICE_PLIST" 2>/dev/null || true
+    sleep 1
+fi
+
+# Quit tray app if running
+if pgrep -f "ScreenControl.app" > /dev/null 2>&1; then
+    log "Quitting tray application..."
+    osascript -e 'quit app "ScreenControl"' 2>/dev/null || true
+    sleep 1
+fi
+
+# Kill any remaining processes
+pkill -f "ScreenControl" 2>/dev/null || true
+pkill -f "com.screencontrol.service" 2>/dev/null || true
+
+log "Preinstall complete"
+exit 0
