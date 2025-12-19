@@ -90,7 +90,12 @@ cd build
 
 # Configure with CMake
 echo "  Configuring with CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=Release -DPLATFORM_MACOS=1
+OPENSSL_PATH="${OPENSSL_ROOT_DIR:-$(brew --prefix openssl@3 2>/dev/null || echo '')}"
+if [[ -n "$OPENSSL_PATH" ]]; then
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DPLATFORM_MACOS=1 -DOPENSSL_ROOT_DIR="$OPENSSL_PATH"
+else
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DPLATFORM_MACOS=1
+fi
 
 # Build
 echo "  Compiling..."
