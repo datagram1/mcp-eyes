@@ -912,6 +912,49 @@ bool hasStoredCredentials()
            secure_storage::keyExists(CRED_K1_KEY_ID);
 }
 
+// VNC password functions - not implemented on Linux
+// (macOS-specific feature for login window unlock)
+bool storeVncPassword(const std::string& /* vncPassword */)
+{
+    return false;
+}
+
+bool clearVncPassword()
+{
+    return true;
+}
+
+bool hasVncPassword()
+{
+    return false;
+}
+
+// Credential Provider functions - Windows only, stubs for Linux
+void setUnlockPending(bool /* pending */)
+{
+    // Not implemented on Linux
+}
+
+bool isUnlockPending()
+{
+    return false;
+}
+
+bool getCredentialsForProvider(std::string& /* username */, std::string& /* password */, std::string& /* domain */)
+{
+    return false;
+}
+
+void reportUnlockResult(bool /* success */, const std::string& /* errorMessage */)
+{
+    // Not implemented on Linux
+}
+
+std::string getLastUnlockError()
+{
+    return "";
+}
+
 } // namespace unlock
 
 } // namespace platform

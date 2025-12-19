@@ -200,6 +200,20 @@ json CommandDispatcher::dispatch(const std::string& method, const json& params)
             return handleToolsList();
         }
 
+        // MCP tools/call - extract tool name and dispatch
+        else if (method == "tools/call")
+        {
+            std::string toolName = params.value("name", "");
+            json arguments = params.value("arguments", json::object());
+            if (toolName.empty())
+            {
+                return errorResponse("Missing 'name' in tools/call params");
+            }
+            Logger::info("tools/call dispatching to: " + toolName);
+            // Recursively dispatch to the actual tool handler
+            return dispatch(toolName, arguments);
+        }
+
         // Health check
         else if (method == "health" || method == "ping")
         {
@@ -405,9 +419,29 @@ json CommandDispatcher::handleMachineUnlock(const json& params)
     }
 
 #elif PLATFORM_WINDOWS
-    // Windows: Use LockWorkStation API (reverse is more complex)
-    // For unlock, we'd need to interface with credential providers
-    return errorResponse("Windows unlock not yet implemented");
+    // Windows: Use Credential Provider for unlock
+    // Check if we have stored credentials
+    if (!platform::unlock::hasStoredCredentials())
+    {
+        Logger::warn("No stored credentials for Windows unlock");
+        return errorResponse("No stored credentials - please store credentials first");
+    }
+
+    // Check if machine is actually locked
+    if (!platform::unlock::isLocked())
+    {
+        Logger::info("Machine is already unlocked");
+        return {{"success", true}, {"message", "Machine is already unlocked"}};
+    }
+
+    // Set unlock pending flag - the Credential Provider will pick this up
+    platform::unlock::setUnlockPending(true);
+    Logger::info("Unlock pending flag set - waiting for Credential Provider");
+
+    // The Credential Provider polls for the unlock pending flag and will
+    // automatically submit credentials to Windows when it sees the flag.
+    // We return immediately - the actual unlock happens asynchronously.
+    return {{"success", true}, {"message", "Unlock initiated via Credential Provider"}};
 
 #elif PLATFORM_LINUX
     // Linux: Various methods depending on display manager

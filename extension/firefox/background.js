@@ -33,10 +33,11 @@ const browserAPI = (() => {
 
   // Browser Bridge Server WebSocket URLs
   // Port 3457: GUI Agent app
-  // Port 3459: StdioMCPBridge (Claude Code)
+  // Port 3458: StdioMCPBridge (Claude Code)
+  // Port 3459: ScreenControlService (remote agents)
   const BROWSER_BRIDGE_URLS = [
     'ws://127.0.0.1:3457',
-    'ws://127.0.0.1:3459'
+    'ws://127.0.0.1:3458'
   ];
 
   // Native messaging host name (must match the host manifest) - fallback

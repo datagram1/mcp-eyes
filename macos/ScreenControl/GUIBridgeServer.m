@@ -8,6 +8,7 @@
 #import "GUIBridgeServer.h"
 #import <sys/socket.h>
 #import <netinet/in.h>
+#import <netinet/tcp.h>
 #import <arpa/inet.h>
 
 @interface GUIBridgeServer ()
@@ -157,17 +158,84 @@
 }
 
 - (void)handleClientSocket:(int)clientSocket {
-    // Read HTTP request
-    char buffer[65536];
-    ssize_t bytesRead = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+    // Set client socket to blocking mode (inherited non-blocking from listen socket)
+    int flags = fcntl(clientSocket, F_GETFL, 0);
+    fcntl(clientSocket, F_SETFL, flags & ~O_NONBLOCK);
 
-    if (bytesRead <= 0) {
-        close(clientSocket);
-        return;
+    // Set TCP_NODELAY on client socket
+    int nodelay = 1;
+    setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+    // Set socket timeout for reads (5 seconds)
+    struct timeval tv;
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    setsockopt(clientSocket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    // Read HTTP request - accumulate data until we have complete request
+    NSMutableData *requestData = [NSMutableData data];
+    char buffer[8192];
+    NSInteger contentLength = -1;
+    NSInteger headerEndOffset = -1;
+
+    // Keep reading until we have headers and full body
+    while (YES) {
+        ssize_t bytesRead = recv(clientSocket, buffer, sizeof(buffer), 0);
+
+        if (bytesRead <= 0) {
+            if (requestData.length == 0) {
+                close(clientSocket);
+                return;
+            }
+            // Timeout or connection closed - process what we have
+            break;
+        }
+
+        [requestData appendBytes:buffer length:bytesRead];
+
+        // Check if we have the complete headers
+        if (headerEndOffset < 0) {
+            NSString *partialRequest = [[NSString alloc] initWithData:requestData encoding:NSUTF8StringEncoding];
+            if (partialRequest) {
+                NSRange emptyLineRange = [partialRequest rangeOfString:@"\r\n\r\n"];
+                if (emptyLineRange.location != NSNotFound) {
+                    headerEndOffset = emptyLineRange.location + 4;
+
+                    // Parse Content-Length from headers
+                    NSString *headers = [partialRequest substringToIndex:emptyLineRange.location];
+                    NSArray *lines = [headers componentsSeparatedByString:@"\r\n"];
+                    for (NSString *line in lines) {
+                        if ([line.lowercaseString hasPrefix:@"content-length:"]) {
+                            NSString *value = [line substringFromIndex:15];
+                            contentLength = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]].integerValue;
+                            break;
+                        }
+                    }
+                    if (contentLength < 0) contentLength = 0;
+                }
+            }
+        }
+
+        // Check if we have the complete body
+        if (headerEndOffset >= 0) {
+            NSInteger bodyLength = requestData.length - headerEndOffset;
+            if (bodyLength >= contentLength) {
+                break;  // We have the complete request
+            }
+        }
+
+        // Safety limit - don't read more than 1MB
+        if (requestData.length > 1024 * 1024) {
+            [self sendErrorResponse:clientSocket statusCode:413 message:@"Request Too Large"];
+            return;
+        }
     }
 
-    buffer[bytesRead] = '\0';
-    NSString *request = [NSString stringWithUTF8String:buffer];
+    NSString *request = [[NSString alloc] initWithData:requestData encoding:NSUTF8StringEncoding];
+    if (!request) {
+        [self sendErrorResponse:clientSocket statusCode:400 message:@"Invalid Request Encoding"];
+        return;
+    }
 
     // Parse HTTP request
     NSArray *lines = [request componentsSeparatedByString:@"\r\n"];
@@ -185,16 +253,6 @@
 
     NSString *method = requestLineParts[0];
     NSString *path = requestLineParts[1];
-
-    // Find Content-Length header
-    NSInteger contentLength = 0;
-    for (NSString *line in lines) {
-        if ([line.lowercaseString hasPrefix:@"content-length:"]) {
-            NSString *value = [line substringFromIndex:15];
-            contentLength = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]].integerValue;
-            break;
-        }
-    }
 
     // Find body (after empty line)
     NSString *body = @"";

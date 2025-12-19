@@ -45,6 +45,7 @@ private:
     void setupShellRoutes();
     void setupSystemRoutes();
     void setupUnlockRoutes();
+    void setupCredentialProviderRoutes();
     void setupControlServerRoutes();
     void setupToolRoute();
 

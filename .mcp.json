@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "screencontrol": {
+      "command": "/Applications/ScreenControl.app/Contents/MacOS/ScreenControl",
+      "args": ["--mcp-stdio"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}

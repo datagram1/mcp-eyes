@@ -6,6 +6,7 @@
 #import "FilesystemTools.h"
 #import "ShellTools.h"
 #import <sys/socket.h>
+#import <sys/sysctl.h>
 #import <netinet/in.h>
 #import <arpa/inet.h>
 #import <Carbon/Carbon.h>
@@ -20,6 +21,17 @@
 // Dynamic loading for CGWindowListCreateImage (deprecated in macOS 15)
 typedef CGImageRef (*CGWindowListCreateImageFn)(CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption);
 static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
+
+// VM Detection - cached result for performance
+typedef NS_ENUM(NSInteger, VMEnvironment) {
+    VMEnvironmentUnknown = -1,
+    VMEnvironmentNative = 0,
+    VMEnvironmentParallels = 1,
+    VMEnvironmentVMware = 2,
+    VMEnvironmentVirtualBox = 3,
+    VMEnvironmentOther = 4
+};
+static VMEnvironment gDetectedVMEnvironment = VMEnvironmentUnknown;
 
 @interface MCPServer ()
 @property (nonatomic, assign) int serverSocket;
@@ -39,31 +51,139 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 @implementation MCPServer
 
 + (void)initialize {
+    fprintf(stderr, "[MCPServer.initialize] ENTRY\n"); fflush(stderr);
     if (self == [MCPServer class]) {
+        fprintf(stderr, "[MCPServer.initialize] Loading CoreGraphics\n"); fflush(stderr);
         // Load CGWindowListCreateImage dynamically
         void *handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY);
         if (handle) {
             gCGWindowListCreateImage = (CGWindowListCreateImageFn)dlsym(handle, "CGWindowListCreateImage");
         }
+        fprintf(stderr, "[MCPServer.initialize] Calling detectVMEnvironment\n"); fflush(stderr);
+        // Detect VM environment at startup
+        gDetectedVMEnvironment = [self detectVMEnvironment];
+        fprintf(stderr, "[MCPServer.initialize] detectVMEnvironment returned %d\n", gDetectedVMEnvironment); fflush(stderr);
+    }
+    fprintf(stderr, "[MCPServer.initialize] EXIT\n"); fflush(stderr);
+}
+
+#pragma mark - VM Detection
+
++ (VMEnvironment)detectVMEnvironment {
+    fprintf(stderr, "[VM Detection] Starting fast VM detection\n"); fflush(stderr);
+
+    // Method 1: Check sysctl for VM indicators (FAST - no subprocess)
+    size_t size = 0;
+    sysctlbyname("machdep.cpu.brand_string", NULL, &size, NULL, 0);
+    if (size > 0) {
+        char *cpuBrand = malloc(size);
+        if (cpuBrand) {
+            sysctlbyname("machdep.cpu.brand_string", cpuBrand, &size, NULL, 0);
+            NSString *cpuString = [NSString stringWithUTF8String:cpuBrand];
+            free(cpuBrand);
+            fprintf(stderr, "[VM Detection] CPU brand: %s\n", cpuString.UTF8String); fflush(stderr);
+
+            // Check for VM signatures in CPU brand
+            if ([cpuString containsString:@"Virtual"]) {
+                fprintf(stderr, "[VM Detection] Detected VM via CPU brand\n"); fflush(stderr);
+                return VMEnvironmentParallels;
+            }
+        }
+    }
+
+    // Method 2: Check for Parallels Tools directory (FAST - no subprocess)
+    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/Library/Parallels Guest Tools"]) {
+        fprintf(stderr, "[VM Detection] Detected Parallels VM via Guest Tools directory\n"); fflush(stderr);
+        return VMEnvironmentParallels;
+    }
+
+    // Method 3: Check sysctl hw.model for VM indicators (FAST - no subprocess)
+    size = 0;
+    sysctlbyname("hw.model", NULL, &size, NULL, 0);
+    if (size > 0) {
+        char *model = malloc(size);
+        if (model) {
+            sysctlbyname("hw.model", model, &size, NULL, 0);
+            NSString *modelString = [NSString stringWithUTF8String:model];
+            free(model);
+            fprintf(stderr, "[VM Detection] hw.model: %s\n", modelString.UTF8String); fflush(stderr);
+
+            if ([modelString containsString:@"Virtual"] || [modelString containsString:@"Parallels"]) {
+                fprintf(stderr, "[VM Detection] Detected VM via hw.model\n"); fflush(stderr);
+                return VMEnvironmentParallels;
+            }
+        }
+    }
+
+    // Method 4: Check kern.hv_vmm_present sysctl (FAST - tells us if running in hypervisor)
+    int hvPresent = 0;
+    size = sizeof(hvPresent);
+    if (sysctlbyname("kern.hv_vmm_present", &hvPresent, &size, NULL, 0) == 0 && hvPresent) {
+        fprintf(stderr, "[VM Detection] kern.hv_vmm_present=1, running in VM\n"); fflush(stderr);
+        // We're in a VM but don't know which one - check for Parallels files
+        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/local/bin/prlcc"] ||
+            [[NSFileManager defaultManager] fileExistsAtPath:@"/Library/Parallels"]) {
+            return VMEnvironmentParallels;
+        }
+        return VMEnvironmentOther;
+    }
+
+    fprintf(stderr, "[VM Detection] No VM detected, running on native hardware\n"); fflush(stderr);
+
+    NSLog(@"[VM Detection] No VM detected - running native macOS");
+    return VMEnvironmentNative;
+}
+
++ (BOOL)isRunningInVM {
+    return gDetectedVMEnvironment != VMEnvironmentNative;
+}
+
++ (BOOL)isRunningInParallels {
+    return gDetectedVMEnvironment == VMEnvironmentParallels;
+}
+
++ (NSString *)vmEnvironmentString {
+    switch (gDetectedVMEnvironment) {
+        case VMEnvironmentNative: return @"native";
+        case VMEnvironmentParallels: return @"parallels";
+        case VMEnvironmentVMware: return @"vmware";
+        case VMEnvironmentVirtualBox: return @"virtualbox";
+        case VMEnvironmentOther: return @"other_vm";
+        default: return @"unknown";
     }
 }
 
++ (BOOL)shouldUseWarpForMouseControl {
+    // Use CGWarpMouseCursorPosition in any VM environment for reliable mouse control
+    // CGWarpMouseCursorPosition is more reliable in VMs where standard CGEventPost
+    // may not properly update the cursor position
+    return [self isRunningInVM];
+}
+
 - (instancetype)initWithPort:(NSUInteger)port apiKey:(NSString *)apiKey {
+    fprintf(stderr, "[MCPServer.init] ENTRY port=%lu\n", (unsigned long)port); fflush(stderr);
     self = [super init];
+    fprintf(stderr, "[MCPServer.init] super init done, self=%p\n", (__bridge void *)self); fflush(stderr);
     if (self) {
         _serverPort = port;
         _apiKey = apiKey;
         _serverSocket = -1;
         _shouldStop = NO;
+        fprintf(stderr, "[MCPServer.init] Creating URL session\n"); fflush(stderr);
         // Create URL session for proxying browser commands
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
         config.timeoutIntervalForRequest = 30.0;
         _urlSession = [NSURLSession sessionWithConfiguration:config];
+        fprintf(stderr, "[MCPServer.init] URL session created\n"); fflush(stderr);
         // Initialize tool instances
+        fprintf(stderr, "[MCPServer.init] Creating FilesystemTools\n"); fflush(stderr);
         _filesystemTools = [[FilesystemTools alloc] init];
+        fprintf(stderr, "[MCPServer.init] Creating ShellTools\n"); fflush(stderr);
         _shellTools = [[ShellTools alloc] init];
+        fprintf(stderr, "[MCPServer.init] Creating screenshot storage\n"); fflush(stderr);
         // Initialize screenshot storage for serving to remote clients
         _screenshotStorage = [NSMutableDictionary dictionary];
+        fprintf(stderr, "[MCPServer.init] Done\n"); fflush(stderr);
     }
     return self;
 }
@@ -83,18 +203,22 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 #pragma mark - Server Lifecycle
 
 - (BOOL)start {
+    NSLog(@"[MCPServer.start] ENTRY - isRunning=%d, port=%lu", self.isRunning, (unsigned long)_serverPort);
     if (self.isRunning) return YES;
 
+    NSLog(@"[MCPServer.start] Creating socket...");
     // Create socket
     _serverSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (_serverSocket < 0) {
-        NSLog(@"Failed to create socket");
+        NSLog(@"[MCPServer.start] Failed to create socket, errno=%d", errno);
         return NO;
     }
+    NSLog(@"[MCPServer.start] Socket created: %d", _serverSocket);
 
     // Allow address reuse
     int yes = 1;
     setsockopt(_serverSocket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    NSLog(@"[MCPServer.start] Set SO_REUSEADDR");
 
     // Bind to port
     struct sockaddr_in addr;
@@ -103,27 +227,36 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     addr.sin_addr.s_addr = inet_addr("127.0.0.1");
     addr.sin_port = htons(_serverPort);
 
+    NSLog(@"[MCPServer.start] Binding to 127.0.0.1:%lu...", (unsigned long)_serverPort);
     if (bind(_serverSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        NSLog(@"Failed to bind to port %lu", (unsigned long)_serverPort);
+        NSLog(@"[MCPServer.start] Failed to bind to port %lu, errno=%d", (unsigned long)_serverPort, errno);
         close(_serverSocket);
         _serverSocket = -1;
         return NO;
     }
+    NSLog(@"[MCPServer.start] Bind successful");
 
     // Listen
+    NSLog(@"[MCPServer.start] Calling listen()...");
     if (listen(_serverSocket, 10) < 0) {
-        NSLog(@"Failed to listen");
+        NSLog(@"[MCPServer.start] Failed to listen, errno=%d", errno);
         close(_serverSocket);
         _serverSocket = -1;
         return NO;
     }
+    NSLog(@"[MCPServer.start] Listen successful");
 
     // Start server thread
+    NSLog(@"[MCPServer.start] Starting server thread...");
     _shouldStop = NO;
     _serverThread = [[NSThread alloc] initWithTarget:self selector:@selector(serverLoop) object:nil];
     [_serverThread start];
+    NSLog(@"[MCPServer.start] Server thread started");
 
     NSLog(@"MCP Server started on port %lu", (unsigned long)_serverPort);
+    NSLog(@"[VM Environment] Detected: %@ | Mouse control mode: %@",
+          [MCPServer vmEnvironmentString],
+          [MCPServer shouldUseWarpForMouseControl] ? @"CGWarpMouseCursorPosition (VM-optimized)" : @"CGEventPost (native)");
 
     if ([self.delegate respondsToSelector:@selector(serverDidStart:)]) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -1157,6 +1290,12 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 
     CGPoint point = CGPointMake(absX, absY);
 
+    // In VM environments, warp cursor first for reliable click positioning
+    if ([MCPServer shouldUseWarpForMouseControl]) {
+        CGWarpMouseCursorPosition(point);
+        usleep(10000); // Brief delay after warp
+    }
+
     CGEventRef mouseDown, mouseUp;
     if (rightButton) {
         mouseDown = CGEventCreateMouseEvent(NULL, kCGEventRightMouseDown, point, kCGMouseButtonRight);
@@ -1200,14 +1339,23 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     }
 
     CGPoint point = CGPointMake(absX, absY);
-    CGEventRef moveEvent = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, point, kCGMouseButtonLeft);
 
-    if (!moveEvent) {
-        return NO;
+    // Use CGWarpMouseCursorPosition in VM environments for reliable mouse movement
+    // Standard CGEventPost may not properly update cursor position in VMs like Parallels
+    if ([MCPServer shouldUseWarpForMouseControl]) {
+        CGError warpResult = CGWarpMouseCursorPosition(point);
+        if (warpResult != kCGErrorSuccess) {
+            NSLog(@"[Mouse] CGWarpMouseCursorPosition failed (VM mode: %@)", [MCPServer vmEnvironmentString]);
+            return NO;
+        }
     }
 
-    CGEventPost(kCGHIDEventTap, moveEvent);
-    CFRelease(moveEvent);
+    // Post a mouse moved event (primary method on native, supplementary on VM)
+    CGEventRef moveEvent = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, point, kCGMouseButtonLeft);
+    if (moveEvent) {
+        CGEventPost(kCGHIDEventTap, moveEvent);
+        CFRelease(moveEvent);
+    }
 
     return YES;
 }
@@ -1243,6 +1391,7 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     CGFloat absStartY = startY;
     CGFloat absEndX = endX;
     CGFloat absEndY = endY;
+    BOOL useWarp = [MCPServer shouldUseWarpForMouseControl];
 
     // If we have a current app, treat coordinates as relative (0-1)
     if (self.currentAppBounds) {
@@ -1262,7 +1411,10 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     CGPoint startPoint = CGPointMake(absStartX, absStartY);
     CGPoint endPoint = CGPointMake(absEndX, absEndY);
 
-    // Move to start position
+    // Move to start position (warp in VM environments for reliability)
+    if (useWarp) {
+        CGWarpMouseCursorPosition(startPoint);
+    }
     CGEventRef moveEvent = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, startPoint, kCGMouseButtonLeft);
     if (moveEvent) {
         CGEventPost(kCGHIDEventTap, moveEvent);
@@ -1285,6 +1437,10 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
         CGFloat currentY = absStartY + (absEndY - absStartY) * progress;
         CGPoint currentPoint = CGPointMake(currentX, currentY);
 
+        // Warp cursor for each step in VM environments
+        if (useWarp) {
+            CGWarpMouseCursorPosition(currentPoint);
+        }
         CGEventRef dragEvent = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDragged, currentPoint, kCGMouseButtonLeft);
         if (dragEvent) {
             CGEventPost(kCGHIDEventTap, dragEvent);
@@ -1320,6 +1476,12 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
     }
 
     CGPoint point = CGPointMake(absX, absY);
+
+    // In VM environments, warp cursor first for reliable click positioning
+    if ([MCPServer shouldUseWarpForMouseControl]) {
+        CGWarpMouseCursorPosition(point);
+        usleep(10000); // Brief delay after warp
+    }
 
     // Create double-click events
     CGEventRef mouseDown1 = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, point, kCGMouseButtonLeft);
@@ -1805,6 +1967,12 @@ static CGWindowListCreateImageFn gCGWindowListCreateImage = NULL;
 - (BOOL)clickAbsoluteX:(CGFloat)x y:(CGFloat)y rightButton:(BOOL)rightButton {
     // Click at absolute screen coordinates (in pixels)
     CGPoint clickPoint = CGPointMake(x, y);
+
+    // In VM environments, warp cursor first for reliable click positioning
+    if ([MCPServer shouldUseWarpForMouseControl]) {
+        CGWarpMouseCursorPosition(clickPoint);
+        usleep(10000); // Brief delay after warp
+    }
 
     CGEventRef mouseDown;
     CGEventRef mouseUp;

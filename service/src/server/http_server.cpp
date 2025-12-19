@@ -73,6 +73,7 @@ void HttpServer::setupRoutes()
     setupShellRoutes();
     setupSystemRoutes();
     setupUnlockRoutes();
+    setupCredentialProviderRoutes();
     setupControlServerRoutes();
     setupToolRoute();
 
@@ -619,7 +620,14 @@ void HttpServer::setupUnlockRoutes()
                 return;
             }
 
-            // Attempt unlock
+#ifdef _WIN32
+            // On Windows, use Credential Provider for proper lock screen unlock
+            // Set the pending flag - the Credential Provider polls for this and auto-unlocks
+            platform::unlock::setUnlockPending(true);
+            Logger::info("Unlock pending flag set - credential provider will auto-unlock");
+            res.set_content(json{{"success", true}, {"message", "Unlock initiated via Credential Provider"}}.dump(), "application/json");
+#else
+            // On other platforms, attempt direct unlock
             bool unlocked = platform::unlock::unlockWithStoredCredentials();
 
             if (unlocked)
@@ -632,6 +640,7 @@ void HttpServer::setupUnlockRoutes()
                 Logger::warn("Failed to unlock machine");
                 res.set_content(json{{"success", false}, {"error", "Unlock failed - check credentials"}}.dump(), "application/json");
             }
+#endif
         }
         catch (const std::exception& e)
         {
@@ -693,6 +702,122 @@ void HttpServer::setupUnlockRoutes()
             res.set_content(json{{"success", true}, {"message", "Credentials cleared (or were not stored)"}}.dump(), "application/json");
         }
     });
+}
+
+void HttpServer::setupCredentialProviderRoutes()
+{
+    // These endpoints are used by the Windows Credential Provider DLL
+    // to communicate with the service for automatic screen unlock.
+    // They are localhost-only and should not be exposed externally.
+
+#if PLATFORM_WINDOWS
+    // Check if unlock command is pending
+    // The credential provider polls this endpoint
+    m_server->Get("/credential-provider/unlock", [](const httplib::Request& req, httplib::Response& res) {
+        bool pending = platform::unlock::isUnlockPending();
+
+        // Log when unlock is pending (to debug CP polling)
+        if (pending) {
+            Logger::info("CP polling /credential-provider/unlock - unlock_pending=true");
+        }
+
+        json response = {
+            {"unlock_pending", pending}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Get credentials for the credential provider
+    // SECURITY: This endpoint returns actual credentials - must only be accessible locally
+    // The credential provider needs these to build the authentication package
+    m_server->Get("/credential-provider/credentials", [](const httplib::Request&, httplib::Response& res) {
+        std::string username, password, domain;
+
+        if (platform::unlock::getCredentialsForProvider(username, password, domain))
+        {
+            json response = {
+                {"success", true},
+                {"username", username},
+                {"password", password},
+                {"domain", domain}
+            };
+            res.set_content(response.dump(), "application/json");
+
+            // Clear sensitive data
+            std::fill(password.begin(), password.end(), '\0');
+        }
+        else
+        {
+            json response = {
+                {"success", false},
+                {"error", "Failed to retrieve credentials"}
+            };
+            res.set_content(response.dump(), "application/json");
+        }
+    });
+
+    // Report unlock result from credential provider
+    m_server->Post("/credential-provider/result", [](const httplib::Request& req, httplib::Response& res) {
+        try
+        {
+            auto body = json::parse(req.body);
+            bool success = body.value("success", false);
+            std::string error = body.value("error", "");
+
+            platform::unlock::reportUnlockResult(success, error);
+
+            // Clear the pending flag
+            platform::unlock::setUnlockPending(false);
+
+            if (success)
+            {
+                Logger::info("Credential provider reported successful unlock");
+            }
+            else
+            {
+                Logger::warn("Credential provider reported unlock failure: " + error);
+            }
+
+            res.set_content(json{{"success", true}}.dump(), "application/json");
+        }
+        catch (const std::exception& e)
+        {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Credential provider status (for diagnostics)
+    m_server->Get("/credential-provider/status", [](const httplib::Request&, httplib::Response& res) {
+        json response = {
+            {"success", true},
+            {"hasStoredCredentials", platform::unlock::hasStoredCredentials()},
+            {"unlockPending", platform::unlock::isUnlockPending()},
+            {"lastError", platform::unlock::getLastUnlockError()},
+            {"platform", "windows"},
+            {"credentialProviderEnabled", true}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    Logger::info("Credential provider routes configured (Windows)");
+#else
+    // On non-Windows platforms, return not implemented
+    m_server->Get("/credential-provider/unlock", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content(json{{"unlock_pending", false}, {"error", "Credential provider not available on this platform"}}.dump(), "application/json");
+    });
+
+    m_server->Get("/credential-provider/credentials", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content(json{{"success", false}, {"error", "Credential provider not available on this platform"}}.dump(), "application/json");
+    });
+
+    m_server->Post("/credential-provider/result", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content(json{{"success", false}, {"error", "Credential provider not available on this platform"}}.dump(), "application/json");
+    });
+
+    m_server->Get("/credential-provider/status", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content(json{{"success", true}, {"credentialProviderEnabled", false}, {"platform", PLATFORM_ID}}.dump(), "application/json");
+    });
+#endif
 }
 
 void HttpServer::setupControlServerRoutes()

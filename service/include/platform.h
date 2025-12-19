@@ -176,6 +176,31 @@ namespace unlock {
 
     // Check if credentials are stored
     bool hasStoredCredentials();
+
+    // VNC password management (for login window unlock on macOS)
+    // VNC provides RFB-level keyboard access that bypasses Secure Input
+    bool storeVncPassword(const std::string& vncPassword);
+    bool clearVncPassword();
+    bool hasVncPassword();
+
+    // Credential Provider support (Windows only)
+    // These functions support the Windows Credential Provider for automatic unlock
+
+    // Set unlock pending flag (called when remote unlock command received)
+    void setUnlockPending(bool pending);
+
+    // Check if unlock is pending
+    bool isUnlockPending();
+
+    // Get credentials for credential provider (internal use only - not exposed via HTTP)
+    // Returns false if no credentials stored or if caller is not authorized
+    bool getCredentialsForProvider(std::string& username, std::string& password, std::string& domain);
+
+    // Report unlock result from credential provider
+    void reportUnlockResult(bool success, const std::string& errorMessage);
+
+    // Get last unlock error message
+    std::string getLastUnlockError();
 }
 
 } // namespace platform

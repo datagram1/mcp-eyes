@@ -130,7 +130,11 @@ extern "C" {
     [self startAgent];
 
     // Start browser bridge server (manages Firefox/Chrome extension communication)
+    NSLog(@"[Startup] About to call startBrowserBridge...");
+    [self fileLog:@"[Startup] About to call startBrowserBridge..."];
     [self startBrowserBridge];
+    NSLog(@"[Startup] startBrowserBridge returned");
+    [self fileLog:@"[Startup] startBrowserBridge returned"];
 
     // Start GUI Bridge server (receives commands from service)
     [self startGUIBridgeServer];
@@ -2432,15 +2436,21 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 #pragma mark - Agent Management
 
 - (void)startAgent {
-    NSLog(@"ScreenControl Agent starting...");
+    NSLog(@"ScreenControl Agent starting... [BUILD-TEST-v123]");
 
     NSString *apiKey = [self loadOrGenerateAPIKey];
     NSString *portStr = [self loadSetting:kPortKey defaultValue:@"3456"];
     NSUInteger port = [portStr integerValue];
 
+    fprintf(stderr, "[DEBUG-STDERR] About to create MCPServer\n"); fflush(stderr);
     self.mcpServer = [[MCPServer alloc] initWithPort:port apiKey:apiKey];
+    fprintf(stderr, "[DEBUG-STDERR] MCPServer created at %p\n", (__bridge void *)self.mcpServer); fflush(stderr);
+    NSLog(@"[startAgent] MCPServer created at %p", (__bridge void *)self.mcpServer);
     self.mcpServer.delegate = self;
+    fprintf(stderr, "[DEBUG-STDERR] Delegate set\n"); fflush(stderr);
+    NSLog(@"[startAgent] Delegate set, about to call start");
 
+    fprintf(stderr, "[DEBUG-STDERR] About to call start\n"); fflush(stderr);
     if ([self.mcpServer start]) {
         NSLog(@"MCP Server started on port %lu", (unsigned long)port);
         [self saveTokenFile:apiKey port:port];
@@ -2451,6 +2461,8 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         [self updateStatus];
     });
+
+    NSLog(@"[startAgent] EXITING startAgent method");
 }
 
 - (void)stopAgent {
@@ -2469,31 +2481,49 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
 #pragma mark - Browser Bridge Server
 
 - (void)startBrowserBridge {
+    [self fileLog:@"[startBrowserBridge] ENTRY - starting browser bridge setup"];
+
     // Check if WebSocket server is already running
     if (self.browserWebSocketServer && self.browserWebSocketServer.isRunning) {
         NSLog(@"[WebSocket Bridge] WebSocket server already running");
+        [self fileLog:@"[startBrowserBridge] WebSocket server already running, returning early"];
         return;
     }
 
     // Stop legacy bridge server if running (can't both use port 3457)
     if (self.browserBridgeServer && self.browserBridgeServer.isRunning) {
         NSLog(@"[Browser Bridge] Stopping legacy bridge server...");
+        [self fileLog:@"[startBrowserBridge] Stopping legacy bridge server"];
         [self.browserBridgeServer stop];
         self.browserBridgeServer = nil;
     }
 
     // Start native WebSocket server (replaces legacy bridge and Node.js dependency)
     NSLog(@"[WebSocket Bridge] Starting native WebSocket server...");
-    self.browserWebSocketServer = [[BrowserWebSocketServer alloc] initWithPort:3457];
-    self.browserWebSocketServer.delegate = self;
+    [self fileLog:@"[startBrowserBridge] Creating BrowserWebSocketServer on port 3457"];
 
-    BOOL wsSuccess = [self.browserWebSocketServer start];
-    if (wsSuccess) {
-        NSLog(@"[WebSocket Bridge] Native WebSocket server started on port 3457");
-    } else {
-        NSLog(@"[WebSocket Bridge] Failed to start WebSocket server");
+    @try {
+        self.browserWebSocketServer = [[BrowserWebSocketServer alloc] initWithPort:3457];
+        [self fileLog:@"[startBrowserBridge] BrowserWebSocketServer allocated, setting delegate"];
+        self.browserWebSocketServer.delegate = self;
+
+        [self fileLog:@"[startBrowserBridge] Calling start on WebSocket server"];
+        BOOL wsSuccess = [self.browserWebSocketServer start];
+        if (wsSuccess) {
+            NSLog(@"[WebSocket Bridge] Native WebSocket server started on port 3457");
+            [self fileLog:@"[startBrowserBridge] SUCCESS - WebSocket server started on port 3457"];
+        } else {
+            NSLog(@"[WebSocket Bridge] Failed to start WebSocket server");
+            [self fileLog:@"[startBrowserBridge] FAILED - WebSocket server start returned NO"];
+            self.browserWebSocketServer = nil;
+        }
+    } @catch (NSException *exception) {
+        [self fileLog:[NSString stringWithFormat:@"[startBrowserBridge] EXCEPTION: %@ - %@", exception.name, exception.reason]];
+        NSLog(@"[WebSocket Bridge] Exception starting server: %@", exception);
         self.browserWebSocketServer = nil;
     }
+
+    [self fileLog:@"[startBrowserBridge] EXIT"];
 }
 
 - (void)stopBrowserBridge {

@@ -470,6 +470,10 @@ namespace unlock {
 // Key IDs for stored credentials
 static const char* CRED_KEY_ID = "unlock_credentials";
 static const char* CRED_K1_KEY_ID = "unlock_k1";
+static const char* VNC_PASSWORD_KEY_ID = "vnc_password";
+
+// Path to VNC unlock script (installed by service)
+static const char* VNC_UNLOCK_SCRIPT = "/usr/local/share/screencontrol/vnc_unlock.py";
 
 // Helper to get console user
 static std::string getConsoleUser()
@@ -534,6 +538,64 @@ bool isLocked()
 
     CFRelease(sessionDict);
     return locked;
+}
+
+// Helper to retrieve VNC password from keychain
+static std::string getVncPassword()
+{
+    std::vector<uint8_t> vncPwData = secure_storage::retrieveKey(VNC_PASSWORD_KEY_ID);
+    if (vncPwData.empty())
+    {
+        return "";
+    }
+    std::string vncPw(vncPwData.begin(), vncPwData.end());
+    crypto::secureWipe(vncPwData);
+    return vncPw;
+}
+
+// Helper to try VNC-based unlock (works at login window where osascript fails)
+static bool tryVncUnlock(const std::string& unlockPassword)
+{
+    // Check if VNC unlock script exists
+    struct stat st;
+    if (stat(VNC_UNLOCK_SCRIPT, &st) != 0)
+    {
+        // Script not installed
+        return false;
+    }
+
+    // Get VNC password from keychain
+    std::string vncPassword = getVncPassword();
+    if (vncPassword.empty())
+    {
+        // No VNC password stored
+        return false;
+    }
+
+    // Check if Screen Sharing is available (port 5900)
+    auto checkResult = executeCommand("netstat -an | grep 'LISTEN' | grep '\\.5900'", 5000);
+    if (checkResult.exitCode != 0 || checkResult.stdoutData.empty())
+    {
+        // Screen Sharing not running
+        crypto::secureWipe(vncPassword);
+        return false;
+    }
+
+    // Build command to run VNC unlock script
+    // Note: We use single quotes for the passwords to handle special characters
+    std::string cmd = "python3 " + std::string(VNC_UNLOCK_SCRIPT) + " '" +
+                      vncPassword + "' '" + unlockPassword + "'";
+
+    // Clear VNC password
+    crypto::secureWipe(vncPassword);
+
+    // Execute VNC unlock
+    auto result = executeCommand(cmd, 15000);
+
+    // Clear command
+    crypto::secureWipe(cmd);
+
+    return result.exitCode == 0;
 }
 
 bool unlockWithStoredCredentials()
@@ -642,7 +704,7 @@ bool unlockWithStoredCredentials()
         return false;
     }
 
-    // Attempt unlock using osascript (works when running as root)
+    // Method 1: Attempt unlock using osascript (works for screensaver lock)
     // This simulates keystrokes at the login window
     std::string script = R"(
         tell application "System Events"
@@ -651,17 +713,34 @@ bool unlockWithStoredCredentials()
         end tell
     )";
 
-    // Clear password after building script
-    crypto::secureWipe(password);
-
     // Execute unlock script
-    auto result = executeCommand("osascript -e '" + script + "'", 10000);
+    executeCommand("osascript -e '" + script + "'", 10000);
 
     // Clear script
     crypto::secureWipe(script);
 
     // Wait a moment and check if unlock succeeded
     sleepMs(2000);
+
+    if (!isLocked())
+    {
+        crypto::secureWipe(password);
+        return true;
+    }
+
+    // Method 2: Fall back to VNC-based unlock (works at login window)
+    // osascript fails at the actual login screen due to macOS Secure Input mode
+    // VNC operates at RFB protocol level and can bypass this restriction
+    bool vncSuccess = tryVncUnlock(password);
+
+    // Clear password
+    crypto::secureWipe(password);
+
+    if (vncSuccess)
+    {
+        // Wait for unlock to take effect
+        sleepMs(2000);
+    }
 
     return !isLocked();
 }
@@ -791,6 +870,56 @@ bool hasStoredCredentials()
 {
     return secure_storage::keyExists(CRED_KEY_ID) &&
            secure_storage::keyExists(CRED_K1_KEY_ID);
+}
+
+bool storeVncPassword(const std::string& vncPassword)
+{
+    if (vncPassword.empty() || vncPassword.length() > 8)
+    {
+        // VNC passwords are limited to 8 characters
+        return false;
+    }
+
+    std::vector<uint8_t> pwData(vncPassword.begin(), vncPassword.end());
+    bool success = secure_storage::storeKey(VNC_PASSWORD_KEY_ID, pwData);
+    crypto::secureWipe(pwData);
+    return success;
+}
+
+bool clearVncPassword()
+{
+    return secure_storage::deleteKey(VNC_PASSWORD_KEY_ID);
+}
+
+bool hasVncPassword()
+{
+    return secure_storage::keyExists(VNC_PASSWORD_KEY_ID);
+}
+
+// Credential Provider functions - Windows only, stubs for macOS
+void setUnlockPending(bool /* pending */)
+{
+    // Not implemented on macOS - uses VNC-based unlock instead
+}
+
+bool isUnlockPending()
+{
+    return false;
+}
+
+bool getCredentialsForProvider(std::string& /* username */, std::string& /* password */, std::string& /* domain */)
+{
+    return false;
+}
+
+void reportUnlockResult(bool /* success */, const std::string& /* errorMessage */)
+{
+    // Not implemented on macOS
+}
+
+std::string getLastUnlockError()
+{
+    return "";
 }
 
 } // namespace unlock
