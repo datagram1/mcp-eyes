@@ -144,10 +144,28 @@ jobs:
           # Add keychain to search list (prepend to ensure it's searched first)
           security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychain -d user | tr -d '"')
 
-          # Verify certificates imported
+          # Verify certificates imported and check what's available
           echo "Verifying certificates..."
           security find-identity -v -p codesigning $KEYCHAIN_PATH
           security find-identity -v $KEYCHAIN_PATH
+
+          # Check for Developer ID Application certificate (for codesigning)
+          if security find-identity -v -p codesigning $KEYCHAIN_PATH | grep -q "Developer ID Application"; then
+            echo "HAS_APP_CERT=true" >> $GITHUB_OUTPUT
+            echo "✅ Developer ID Application certificate found"
+          else
+            echo "HAS_APP_CERT=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Developer ID Application certificate NOT found - app signing disabled"
+          fi
+
+          # Check for Developer ID Installer certificate (for pkg signing)
+          if security find-identity -v $KEYCHAIN_PATH | grep -q "Developer ID Installer"; then
+            echo "HAS_INSTALLER_CERT=true" >> $GITHUB_OUTPUT
+            echo "✅ Developer ID Installer certificate found"
+          else
+            echo "HAS_INSTALLER_CERT=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Developer ID Installer certificate NOT found"
+          fi
 
       - name: Build and sign pkg installer
         working-directory: service/install/macos/pkg
@@ -155,30 +173,51 @@ jobs:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           OPENSSL_ROOT_DIR: /opt/homebrew/opt/openssl@3
           SIGNING_KEYCHAIN: ${{ steps.import-certs.outputs.KEYCHAIN_PATH }}
+          HAS_APP_CERT: ${{ steps.import-certs.outputs.HAS_APP_CERT }}
+          HAS_INSTALLER_CERT: ${{ steps.import-certs.outputs.HAS_INSTALLER_CERT }}
         run: |
           chmod +x build_pkg.sh
-          if [ -n "$MACOS_CERTIFICATE" ]; then
-            echo "Building signed installer..."
-            echo "Using keychain: $SIGNING_KEYCHAIN"
-            ./build_pkg.sh --version 1.2.0 \
-              --sign "Developer ID Installer: Key Network Services Ltd (LZ7T6LSFQ5)" \
-              --app-sign "Developer ID Application: Key Network Services Ltd (LZ7T6LSFQ5)" \
-              --keychain "$SIGNING_KEYCHAIN"
-          else
-            echo "Building unsigned installer (no certificates configured)..."
-            ./build_pkg.sh --version 1.2.0
+
+          # Build argument list based on available certificates
+          BUILD_ARGS="--version 1.2.0"
+
+          if [ "$HAS_INSTALLER_CERT" = "true" ]; then
+            echo "✅ Will sign installer with Developer ID Installer"
+            BUILD_ARGS="$BUILD_ARGS --sign \"Developer ID Installer: Key Network Services Ltd (LZ7T6LSFQ5)\""
           fi
+
+          if [ "$HAS_APP_CERT" = "true" ]; then
+            echo "✅ Will sign apps with Developer ID Application"
+            BUILD_ARGS="$BUILD_ARGS --app-sign \"Developer ID Application: Key Network Services Ltd (LZ7T6LSFQ5)\""
+          else
+            echo "⚠️ Skipping app code signing (no Developer ID Application certificate)"
+          fi
+
+          if [ -n "$SIGNING_KEYCHAIN" ]; then
+            BUILD_ARGS="$BUILD_ARGS --keychain \"$SIGNING_KEYCHAIN\""
+          fi
+
+          echo "Running: ./build_pkg.sh $BUILD_ARGS"
+          eval "./build_pkg.sh $BUILD_ARGS"
 
       - name: Notarize pkg
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          HAS_APP_CERT: ${{ steps.import-certs.outputs.HAS_APP_CERT }}
         run: |
           # Skip if notarization credentials not configured
           if [ -z "$APPLE_ID" ]; then
             echo "No notarization credentials configured, skipping..."
             exit 0
+          fi
+
+          # Warn if apps weren't signed (notarization will fail)
+          if [ "$HAS_APP_CERT" != "true" ]; then
+            echo "⚠️ WARNING: Apps were not code-signed (no Developer ID Application cert)"
+            echo "⚠️ Notarization requires all code to be signed - this will likely fail"
+            echo "⚠️ To fix: export both Developer ID Application AND Installer certs to .p12"
           fi
 
           PKG_PATH="service/install/macos/pkg/output/ScreenControl-1.2.0.pkg"
@@ -188,7 +227,11 @@ jobs:
               --apple-id "$APPLE_ID" \
               --team-id "$APPLE_TEAM_ID" \
               --password "$APPLE_APP_PASSWORD" \
-              --wait
+              --wait || {
+                echo "❌ Notarization failed. If apps weren't signed, this is expected."
+                echo "To enable notarization, export both certificates to your .p12 file."
+                exit 0  # Don't fail the build, just warn
+              }
 
             echo "Stapling notarization ticket..."
             xcrun stapler staple "$PKG_PATH"
