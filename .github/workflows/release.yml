@@ -126,7 +126,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libx11-dev libxtst-dev libpng-dev libssl-dev
+          sudo apt-get install -y cmake build-essential pkg-config \
+            libx11-dev libxrandr-dev libxtst-dev libpng-dev \
+            libssl-dev libsecret-1-dev
 
       - name: Build Service
         working-directory: service
@@ -138,7 +140,7 @@ jobs:
       - name: Create tarball
         run: |
           mkdir -p release-linux
-          cp service/build/screencontrol_service release-linux/
+          cp service/build/bin/ScreenControlService release-linux/
           cp README.md release-linux/ 2>/dev/null || true
           tar -czvf ScreenControl-${{ needs.validate.outputs.version }}-linux-x64.tar.gz release-linux
 

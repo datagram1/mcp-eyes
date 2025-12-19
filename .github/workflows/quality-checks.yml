@@ -58,7 +58,9 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake build-essential libx11-dev libxtst-dev libpng-dev libssl-dev
+        sudo apt-get install -y cmake build-essential pkg-config \
+          libx11-dev libxrandr-dev libxtst-dev libpng-dev \
+          libssl-dev libsecret-1-dev
 
     - name: Build Service
       working-directory: service
@@ -69,10 +71,11 @@ jobs:
 
     - name: Verify Build
       run: |
-        if [ -f "service/build/screencontrol_service" ]; then
+        if [ -f "service/build/bin/ScreenControlService" ]; then
           echo "✅ Linux service build successful"
         else
           echo "❌ Linux service build failed"
+          find service/build -name "ScreenControl*" -type f 2>/dev/null || true
           exit 1
         fi
 
