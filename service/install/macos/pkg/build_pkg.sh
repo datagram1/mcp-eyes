@@ -43,6 +43,7 @@ OUTPUT_DIR="$SCRIPT_DIR/output"
 INSTALLER_IDENTITY=""
 APP_IDENTITY=""
 NOTARIZE=false
+KEYCHAIN=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -53,6 +54,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --app-sign)
             APP_IDENTITY="$2"
+            shift 2
+            ;;
+        --keychain)
+            KEYCHAIN="$2"
             shift 2
             ;;
         --notarize)
@@ -168,7 +173,12 @@ cp "$SCRIPT_DIR/../com.screencontrol.service.plist" "$BUILD_DIR/service_root/Lib
 # Sign the service binary if identity provided
 if [[ -n "$APP_IDENTITY" ]]; then
     echo "  Signing service binary..."
+    KEYCHAIN_OPT=""
+    if [[ -n "$KEYCHAIN" ]]; then
+        KEYCHAIN_OPT="--keychain $KEYCHAIN"
+    fi
     codesign --force --options runtime --timestamp \
+        $KEYCHAIN_OPT \
         --sign "$APP_IDENTITY" \
         "$BUILD_DIR/service_root/Library/PrivilegedHelperTools/com.screencontrol.service"
 fi
@@ -185,8 +195,13 @@ cp -R "$APP_BUNDLE" "$BUILD_DIR/agent_root/Applications/"
 # Sign the app bundle if identity provided
 if [[ -n "$APP_IDENTITY" ]]; then
     echo "  Signing application bundle..."
+    KEYCHAIN_OPT=""
+    if [[ -n "$KEYCHAIN" ]]; then
+        KEYCHAIN_OPT="--keychain $KEYCHAIN"
+    fi
     # Sign all nested frameworks and binaries first (deep signing)
     codesign --force --options runtime --timestamp --deep \
+        $KEYCHAIN_OPT \
         --sign "$APP_IDENTITY" \
         "$BUILD_DIR/agent_root/Applications/ScreenControl.app"
 
@@ -247,11 +262,16 @@ cp "$BUILD_DIR/agent.pkg" "$SCRIPT_DIR/resources/"
 # Build the product archive
 if [[ -n "$INSTALLER_IDENTITY" ]]; then
     echo "  Building signed installer..."
+    KEYCHAIN_ARGS=""
+    if [[ -n "$KEYCHAIN" ]]; then
+        KEYCHAIN_ARGS="--keychain $KEYCHAIN"
+    fi
     productbuild \
         --distribution "$SCRIPT_DIR/Distribution.xml" \
         --resources "$SCRIPT_DIR/resources" \
         --package-path "$SCRIPT_DIR/resources" \
         --sign "$INSTALLER_IDENTITY" \
+        $KEYCHAIN_ARGS \
         "$INSTALLER_PATH"
 else
     echo "  Building unsigned installer..."

@@ -106,6 +106,7 @@ jobs:
         run: brew install openssl@3
 
       - name: Import signing certificates
+        id: import-certs
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
@@ -114,12 +115,16 @@ jobs:
           # Skip if no certificate configured
           if [ -z "$MACOS_CERTIFICATE" ]; then
             echo "No signing certificate configured, skipping..."
+            echo "KEYCHAIN_PATH=" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Create variables
           CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # Export keychain path for subsequent steps
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_OUTPUT
 
           # Import certificate from secrets
           echo -n "$MACOS_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
@@ -132,6 +137,9 @@ jobs:
           # Import certificate to keychain
           security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Set this keychain as the default for the user (this persists across steps)
+          security default-keychain -s $KEYCHAIN_PATH
 
           # Add keychain to search list (prepend to ensure it's searched first)
           security list-keychain -d user -s $KEYCHAIN_PATH $(security list-keychain -d user | tr -d '"')
@@ -146,13 +154,16 @@ jobs:
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           OPENSSL_ROOT_DIR: /opt/homebrew/opt/openssl@3
+          SIGNING_KEYCHAIN: ${{ steps.import-certs.outputs.KEYCHAIN_PATH }}
         run: |
           chmod +x build_pkg.sh
           if [ -n "$MACOS_CERTIFICATE" ]; then
             echo "Building signed installer..."
+            echo "Using keychain: $SIGNING_KEYCHAIN"
             ./build_pkg.sh --version 1.2.0 \
               --sign "Developer ID Installer: Key Network Services Ltd (LZ7T6LSFQ5)" \
-              --app-sign "Developer ID Application: Key Network Services Ltd (LZ7T6LSFQ5)"
+              --app-sign "Developer ID Application: Key Network Services Ltd (LZ7T6LSFQ5)" \
+              --keychain "$SIGNING_KEYCHAIN"
           else
             echo "Building unsigned installer (no certificates configured)..."
             ./build_pkg.sh --version 1.2.0
