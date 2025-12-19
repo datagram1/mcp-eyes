@@ -112,6 +112,41 @@ jobs:
           retention-days: 30
 
   # ============================================
+  # Build macOS Installer (.pkg)
+  # ============================================
+  build-macos-pkg:
+    name: Build macOS Installer
+    runs-on: macos-14
+    needs: validate
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install dependencies
+        run: brew install openssl@3
+
+      - name: Build pkg installer
+        working-directory: service/install/macos/pkg
+        run: |
+          chmod +x build_pkg.sh
+          ./build_pkg.sh --version ${{ needs.validate.outputs.version }}
+        env:
+          OPENSSL_ROOT_DIR: /opt/homebrew/opt/openssl@3
+
+      - name: Upload macOS pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: service/install/macos/pkg/output/*.pkg
+          retention-days: 30
+
+  # ============================================
   # Build macOS Service
   # ============================================
   build-macos-service:
@@ -285,7 +320,7 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [validate, build-macos, build-macos-service, build-linux, build-windows, test-macos]
+    needs: [validate, build-macos, build-macos-pkg, build-macos-service, build-linux, build-windows, test-macos]
     permissions:
       contents: write
 
@@ -314,9 +349,10 @@ jobs:
 
           | Platform | File | Description |
           |----------|------|-------------|
-          | macOS | ScreenControl-$VERSION-macOS.dmg | GUI Agent (Disk image) |
-          | macOS | ScreenControl-$VERSION-macOS.zip | GUI Agent (ZIP) |
-          | macOS | ScreenControlService-$VERSION-macos.tar.gz | Standalone service |
+          | macOS | ScreenControl-$VERSION.pkg | **Installer** (Agent + Service) |
+          | macOS | ScreenControl-$VERSION-macOS.dmg | GUI Agent only (Disk image) |
+          | macOS | ScreenControl-$VERSION-macOS.zip | GUI Agent only (ZIP) |
+          | macOS | ScreenControlService-$VERSION-macos.tar.gz | Standalone service only |
           | Windows | ScreenControl-$VERSION-windows-x64.zip | Service + Tray + Credential Provider |
           | Linux | ScreenControl-$VERSION-linux-x64.tar.gz | Linux x64 service |
 
@@ -352,6 +388,7 @@ jobs:
           draft: false
           prerelease: ${{ github.event.inputs.prerelease || false }}
           files: |
+            artifacts/macos-pkg/*.pkg
             artifacts/macos-dmg/*.dmg
             artifacts/macos-zip/*.zip
             artifacts/macos-service-tarball/*.tar.gz

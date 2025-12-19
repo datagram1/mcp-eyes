@@ -87,6 +87,50 @@ jobs:
           retention-days: 30
 
   # ============================================
+  # macOS Installer (.pkg)
+  # ============================================
+  build-macos-pkg:
+    name: Build macOS Installer
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install dependencies
+        run: brew install openssl@3
+
+      - name: Build pkg installer
+        working-directory: service/install/macos/pkg
+        run: |
+          chmod +x build_pkg.sh
+          ./build_pkg.sh --version 1.2.0
+        env:
+          OPENSSL_ROOT_DIR: /opt/homebrew/opt/openssl@3
+
+      - name: Verify pkg
+        run: |
+          if [ -f "service/install/macos/pkg/output/ScreenControl-1.2.0.pkg" ]; then
+            echo "✅ macOS pkg build successful"
+            ls -la service/install/macos/pkg/output/
+          else
+            echo "❌ macOS pkg build failed"
+            exit 1
+          fi
+
+      - name: Upload macOS pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenControl-macOS-pkg
+          path: service/install/macos/pkg/output/*.pkg
+          retention-days: 30
+
+  # ============================================
   # macOS Agent Integration Tests (via TestServer)
   # Note: These tests require accessibility permissions which
   # CI runners don't have. They're informational only.
@@ -382,7 +426,7 @@ jobs:
   status-check:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [build-macos-agent, build-macos-service, build-linux-service, build-windows-service, build-windows-tray, build-windows-credential-provider]
+    needs: [build-macos-agent, build-macos-service, build-macos-pkg, build-linux-service, build-windows-service, build-windows-tray, build-windows-credential-provider]
     if: always()
 
     steps:
@@ -394,6 +438,10 @@ jobs:
           fi
           if [ "${{ needs.build-macos-service.result }}" != "success" ]; then
             echo "❌ macOS service build failed"
+            exit 1
+          fi
+          if [ "${{ needs.build-macos-pkg.result }}" != "success" ]; then
+            echo "❌ macOS pkg build failed"
             exit 1
           fi
           if [ "${{ needs.build-linux-service.result }}" != "success" ]; then
