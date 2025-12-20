@@ -32,11 +32,12 @@ const browserAPI = (() => {
   }
 
   // Browser Bridge Server WebSocket URLs
-  // Port 3457: GUI Agent app
-  // Port 3459: StdioMCPBridge (Claude Code)
+  // Port 3457: GUI Agent app (WebSocket server)
+  // Port 3458: StdioMCPBridge (WebSocket server for Claude Code)
+  // Note: Port 3459 (ScreenControlService) is HTTP-only, not WebSocket
   const BROWSER_BRIDGE_URLS = [
     'ws://127.0.0.1:3457',
-    'ws://127.0.0.1:3459'
+    'ws://127.0.0.1:3458'
   ];
 
   // Native messaging host name (must match the host manifest) - fallback
@@ -306,15 +307,21 @@ const browserAPI = (() => {
             break;
 
           case 'screenshot':
-            result = await captureScreenshot(payload?.tabId, payload?.selector, payload?.fullPage);
+            result = await captureScreenshot(payload?.tabId, payload?.selector, payload?.fullPage, payload?.format, payload?.quality);
             break;
 
           case 'goBack':
+          case 'go_back':
             result = await goBack(payload?.tabId);
             break;
 
           case 'goForward':
+          case 'go_forward':
             result = await goForward(payload?.tabId);
+            break;
+
+          case 'searchVisibleText':
+            result = await sendToContentScript({ tabId: payload?.tabId, url: payload?.url }, { action, payload });
             break;
 
           case 'hover':
@@ -566,15 +573,21 @@ const browserAPI = (() => {
           break;
 
         case 'screenshot':
-          response = await captureScreenshot(payload?.tabId, payload?.selector, payload?.fullPage);
+          response = await captureScreenshot(payload?.tabId, payload?.selector, payload?.fullPage, payload?.format, payload?.quality);
           break;
 
         case 'goBack':
+        case 'go_back':
           response = await goBack(payload?.tabId);
           break;
 
         case 'goForward':
+        case 'go_forward':
           response = await goForward(payload?.tabId);
+          break;
+
+        case 'searchVisibleText':
+          response = await sendToContentScript({ tabId, url: payload?.url }, { action, payload });
           break;
 
         case 'hover':
@@ -1153,7 +1166,7 @@ const browserAPI = (() => {
   /**
    * Capture a screenshot of the visible tab
    */
-  async function captureScreenshot(tabId, selector, fullPage) {
+  async function captureScreenshot(tabId, selector, fullPage, format, quality) {
     try {
       // Get target tab
       let targetTabId = tabId;
@@ -1169,10 +1182,22 @@ const browserAPI = (() => {
       // Small delay to ensure tab is visible
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Capture the visible tab
-      const dataUrl = await browserAPI.tabs.captureVisibleTab(null, {
-        format: 'png'
+      // Use JPEG by default for smaller file size, PNG for lossless
+      const imageFormat = format === 'png' ? 'png' : 'jpeg';
+      const imageQuality = quality || (imageFormat === 'jpeg' ? 80 : undefined);
+
+      // Capture the visible tab with timeout protection
+      const capturePromise = browserAPI.tabs.captureVisibleTab(null, {
+        format: imageFormat,
+        quality: imageQuality
       });
+
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Screenshot capture timeout')), 10000);
+      });
+
+      const dataUrl = await Promise.race([capturePromise, timeoutPromise]);
 
       // If selector is specified, we need to crop via content script
       if (selector) {
@@ -1181,9 +1206,9 @@ const browserAPI = (() => {
           payload: { screenshot: dataUrl, selector }
         });
         if (cropResult.error) {
-          return { screenshot: dataUrl, note: 'Could not crop to selector, returning full screenshot' };
+          return { screenshot: dataUrl, format: imageFormat, note: 'Could not crop to selector, returning full screenshot' };
         }
-        return { screenshot: cropResult.screenshot, selector };
+        return { screenshot: cropResult.screenshot, selector, format: imageFormat };
       }
 
       // If fullPage is requested, we need to scroll and stitch
@@ -1191,11 +1216,12 @@ const browserAPI = (() => {
         // For now, just return visible area with a note
         return {
           screenshot: dataUrl,
+          format: imageFormat,
           note: 'Full page screenshot requires scrolling - returning visible area'
         };
       }
 
-      return { screenshot: dataUrl };
+      return { screenshot: dataUrl, format: imageFormat };
     } catch (error) {
       return { error: error.message };
     }

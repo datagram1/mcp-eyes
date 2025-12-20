@@ -24,6 +24,8 @@ static const int WS_OPCODE_PONG = 0xA;
 @interface BrowserConnection : NSObject
 @property (nonatomic, assign) int socket;
 @property (nonatomic, strong) NSString *browserId;
+@property (nonatomic, strong) NSString *browserType;  // chrome, firefox, edge, safari
+@property (nonatomic, strong) NSString *browserName;  // Display name (e.g., "Google Chrome")
 @property (nonatomic, assign) BOOL handshakeComplete;
 @property (nonatomic, strong) NSMutableData *receiveBuffer;
 @property (nonatomic, strong) dispatch_source_t readSource;
@@ -321,23 +323,48 @@ static const int WS_OPCODE_PONG = 0xA;
             return;
         }
 
-        // Forward to the first connected browser via WebSocket
+        // Find target browser - use specific browser if requested, otherwise first available
+        NSString *targetBrowser = request[@"browser"];  // e.g., "chrome", "firefox"
         BrowserConnection *browserConn = nil;
+        NSMutableArray *availableBrowsers = [NSMutableArray array];
+
         @synchronized (self.connections) {
             for (BrowserConnection *conn in self.connections.allValues) {
-                if (conn.handshakeComplete && conn != connection) {
-                    browserConn = conn;
-                    break;
+                if (conn.handshakeComplete && conn != connection && conn.browserType) {
+                    [availableBrowsers addObject:conn.browserType];
+
+                    // If specific browser requested, match it
+                    if (targetBrowser) {
+                        if ([conn.browserType isEqualToString:[targetBrowser lowercaseString]]) {
+                            browserConn = conn;
+                            break;
+                        }
+                    } else if (!browserConn) {
+                        // No specific browser requested, use first available
+                        browserConn = conn;
+                    }
                 }
             }
         }
 
         if (!browserConn) {
-            NSLog(@"[WebSocketServer] No browser connected to forward command");
-            [self sendHTTPError:@"No browser connected" code:503 toConnection:connection];
+            NSString *errorMsg;
+            if (targetBrowser && availableBrowsers.count > 0) {
+                errorMsg = [NSString stringWithFormat:@"Browser '%@' not connected. Available: %@",
+                           targetBrowser, [availableBrowsers componentsJoinedByString:@", "]];
+            } else if (targetBrowser) {
+                errorMsg = [NSString stringWithFormat:@"Browser '%@' not connected. No browsers available.", targetBrowser];
+            } else {
+                errorMsg = @"No browser connected";
+            }
+            NSLog(@"[WebSocketServer] %@", errorMsg);
+            [self sendHTTPError:errorMsg code:503 toConnection:connection];
             [self closeConnection:connection];
             return;
         }
+
+        NSLog(@"[WebSocketServer] Routing command to browser: %@ (%@)",
+              browserConn.browserName, browserConn.browserType);
 
         // Generate a request ID to track this HTTP request
         NSString *requestId = [[NSUUID UUID] UUIDString];
@@ -370,6 +397,28 @@ static const int WS_OPCODE_PONG = 0xA;
             NSLog(@"[WebSocketServer] No action found in request");
             [self sendHTTPError:@"No action specified" code:400 toConnection:connection];
             [self closeConnection:connection];
+            return;
+        }
+
+        // Handle listConnected locally (doesn't need to go to a browser extension)
+        if ([action isEqualToString:@"listConnected"]) {
+            NSMutableArray *browsers = [NSMutableArray array];
+            @synchronized (self.connections) {
+                for (BrowserConnection *conn in self.connections.allValues) {
+                    if (conn.handshakeComplete && conn.browserType) {
+                        [browsers addObject:@{
+                            @"id": conn.browserId,
+                            @"type": conn.browserType,
+                            @"name": conn.browserName ?: conn.browserType
+                        }];
+                    }
+                }
+            }
+            NSDictionary *response = @{
+                @"browsers": browsers,
+                @"count": @(browsers.count)
+            };
+            [self sendHTTPResponse:response toConnection:connection];
             return;
         }
 
@@ -560,8 +609,15 @@ static const int WS_OPCODE_PONG = 0xA;
     // Check for browser identify message
     NSString *action = request[@"action"];
     if ([action isEqualToString:@"identify"]) {
-        NSString *browserName = request[@"browserName"] ?: request[@"browser"] ?: @"Unknown";
-        NSLog(@"[WebSocketServer] Browser %@ identified as: %@", connection.browserId, browserName);
+        NSString *browserType = request[@"browser"] ?: @"unknown";  // chrome, firefox, edge, safari
+        NSString *browserName = request[@"browserName"] ?: browserType;  // Display name
+
+        // Store browser type for routing
+        connection.browserType = [browserType lowercaseString];
+        connection.browserName = browserName;
+
+        NSLog(@"[WebSocketServer] Browser %@ identified as: %@ (type: %@)",
+              connection.browserId, browserName, connection.browserType);
 
         // Notify delegate of browser connection
         if ([self.delegate respondsToSelector:@selector(browserWebSocketServer:browserDidConnect:browserName:)]) {

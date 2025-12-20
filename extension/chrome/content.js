@@ -167,6 +167,9 @@
         case 'getVisibleText':
           return await sendToInjectedScript('getVisibleText', payload);
 
+        case 'searchVisibleText':
+          return await sendToInjectedScript('searchVisibleText', payload);
+
         case 'waitForSelector':
           return await sendToInjectedScript('waitForSelector', payload);
 
@@ -455,8 +458,10 @@
 
   // Initialize
   function init() {
-    // Inject the page context script immediately
-    injectPageScript();
+    // In MV3 with world: "MAIN" in manifest.json, injected.js is loaded automatically
+    // by Chrome into the page context. No manual injection needed.
+    // The old injectPageScript() approach is kept as fallback but not called.
+    // This bypasses CSP restrictions that plague MV3 extensions.
 
     // Set up mutation observer once DOM is ready
     if (document.readyState === 'loading') {

@@ -770,6 +770,65 @@
     };
   }
 
+  /**
+   * Search for text in the visible content
+   */
+  function searchVisibleText(query, options = {}) {
+    if (!query) {
+      return { error: 'Query is required' };
+    }
+
+    const { caseSensitive = false, maxResults = 50 } = options;
+
+    // Get the main text content
+    const text = document.body.innerText || '';
+
+    // Create search pattern
+    const flags = caseSensitive ? 'g' : 'gi';
+    let pattern;
+    try {
+      // Try as regex first
+      pattern = new RegExp(query, flags);
+    } catch (e) {
+      // Escape special regex chars and use as literal
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      pattern = new RegExp(escaped, flags);
+    }
+
+    // Find all matches with context
+    const matches = [];
+    const lines = text.split('\n');
+
+    for (let lineNum = 0; lineNum < lines.length && matches.length < maxResults; lineNum++) {
+      const line = lines[lineNum];
+      let match;
+      const linePattern = new RegExp(pattern.source, flags);
+
+      while ((match = linePattern.exec(line)) !== null && matches.length < maxResults) {
+        // Get context around the match
+        const start = Math.max(0, match.index - 50);
+        const end = Math.min(line.length, match.index + match[0].length + 50);
+        const context = line.substring(start, end);
+
+        matches.push({
+          text: match[0],
+          line: lineNum + 1,
+          column: match.index + 1,
+          context: (start > 0 ? '...' : '') + context + (end < line.length ? '...' : '')
+        });
+      }
+    }
+
+    return {
+      query,
+      found: matches.length > 0,
+      count: matches.length,
+      matches,
+      url: window.location.href,
+      title: document.title
+    };
+  }
+
   // ========== BROWSER AUTOMATION TOOLS (Playwright-style) ==========
 
   /**
@@ -3245,6 +3304,12 @@
         // ========== NEW TOOL ACTIONS ==========
         case 'getVisibleText':
           response = getVisibleText(payload.maxLength);
+          break;
+        case 'searchVisibleText':
+          response = searchVisibleText(payload.query, {
+            caseSensitive: payload.caseSensitive,
+            maxResults: payload.maxResults
+          });
           break;
         case 'waitForSelector':
           response = await waitForSelector(payload.selector, payload.timeout);
