@@ -65,6 +65,9 @@ model User {
   oauthCodes              OAuthAuthorizationCode[]
   mcpConnections          McpConnection[]
 
+  // Rescue tokens for boot USB pairing
+  rescueTokens            RescueToken[]
+
   @@map("users")
 }
 
@@ -784,4 +787,136 @@ enum CommandStatus {
   FAILED      // Failed with error
   TIMEOUT     // Timed out
   CANCELLED   // Cancelled before completion
+}
+
+// ============================================
+// AUTO-UPDATE SYSTEM
+// ============================================
+
+// Track available agent versions
+model AgentVersion {
+  id              String    @id @default(cuid())
+  version         String    @unique  // Semantic version: "1.2.3"
+  channel         UpdateChannel @default(STABLE)
+
+  // Release info
+  releaseNotes    String?   @db.Text
+  releaseDate     DateTime  @default(now())
+
+  // Platform builds
+  builds          AgentBuild[]
+
+  // Rollout control
+  isActive        Boolean   @default(true)
+  rolloutPercent  Int       @default(100)  // Gradual rollout: 0-100
+
+  // Minimum version required (for forced updates)
+  minVersion      String?   // Agents below this must update
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([version])
+  @@index([channel])
+  @@map("agent_versions")
+}
+
+// Platform-specific builds
+model AgentBuild {
+  id              String    @id @default(cuid())
+  versionId       String
+  platform        Platform
+  arch            String    // "x64", "arm64"
+
+  // File info
+  filename        String
+  fileSize        Int       // bytes
+  sha256          String    // For integrity verification
+
+  // Download tracking
+  downloadCount   Int       @default(0)
+
+  // Storage path (relative to builds directory)
+  storagePath     String
+
+  createdAt       DateTime  @default(now())
+
+  version         AgentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, platform, arch])
+  @@index([platform, arch])
+  @@map("agent_builds")
+}
+
+// Per-agent update settings (optional, defaults to global)
+model AgentUpdateSettings {
+  id              String    @id @default(cuid())
+  agentId         String    @unique
+
+  // Update preferences
+  updateMode      UpdateMode @default(AUTO)
+  channel         UpdateChannel @default(STABLE)
+
+  // Scheduling
+  scheduledTime   DateTime?  // For SCHEDULED mode
+  quietHoursStart Int?       // Hour (0-23)
+  quietHoursEnd   Int?       // Hour (0-23)
+
+  // Status
+  pendingVersion  String?    // Downloaded but not installed
+  lastCheckAt     DateTime?
+  lastUpdateAt    DateTime?
+
+  updatedAt       DateTime   @updatedAt
+
+  @@map("agent_update_settings")
+}
+
+enum UpdateChannel {
+  STABLE
+  BETA
+  DEV
+}
+
+enum UpdateMode {
+  AUTO        // Download and install automatically
+  DOWNLOAD    // Auto-download, manual install
+  MANUAL      // Manual check and install
+  SCHEDULED   // Install at scheduled time
+  DISABLED    // No updates
+}
+
+// ============================================
+// RESCUE TOKENS (for boot USB pairing)
+// ============================================
+
+model RescueToken {
+  id              String    @id @default(cuid())
+  userId          String
+
+  // Token for pairing (format: xxxx-xxxx-xxxx-xxxx)
+  token           String    @unique
+
+  // Metadata
+  name            String?   // Optional name for this token
+  description     String?
+
+  // Usage limits
+  maxUses         Int       @default(10)  // How many rescue systems can use this
+  usedCount       Int       @default(0)
+
+  // Validity
+  expiresAt       DateTime?              // Optional expiration
+  isActive        Boolean   @default(true)
+
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  lastUsedAt      DateTime?
+
+  // Relations
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("rescue_tokens")
 }

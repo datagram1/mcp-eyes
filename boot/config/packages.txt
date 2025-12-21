@@ -1,0 +1,85 @@
+# ScreenControl Rescue - Package List
+# Base packages are installed in build-iso.sh
+# This file lists additional packages that can be added
+
+# Base System
+alpine-base
+busybox
+openrc
+linux-lts
+linux-firmware
+eudev
+
+# Networking
+dhcpcd
+wpa_supplicant
+openssh-client
+curl
+wget
+ca-certificates
+
+# Filesystem Support - Linux
+e2fsprogs
+e2fsprogs-extra
+xfsprogs
+btrfs-progs
+
+# Filesystem Support - Windows
+ntfs-3g
+ntfs-3g-progs
+dosfstools
+exfatprogs
+
+# Filesystem Support - macOS
+hfsprogs
+
+# Disk Management
+parted
+gptfdisk
+lvm2
+mdadm
+dmraid
+cryptsetup
+
+# Disk Tools
+smartmontools
+hdparm
+sdparm
+nvme-cli
+
+# Recovery Tools
+ddrescue
+testdisk
+
+# System Diagnostics
+pciutils
+usbutils
+lshw
+dmidecode
+memtester
+stress-ng
+
+# Utilities
+htop
+iotop
+ncdu
+mc
+nano
+vim
+less
+file
+tree
+rsync
+screen
+tmux
+jq
+tzdata
+
+# Bootloader Tools
+efibootmgr
+grub
+grub-bios
+syslinux
+
+# Windows Tools
+chntpw

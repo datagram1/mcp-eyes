@@ -1,0 +1,20 @@
+{
+  "httpPort": 3459,
+  "httpHost": "127.0.0.1",
+  "agentName": "Rescue",
+  "autoStart": true,
+  "enableLogging": true,
+  "rescueMode": true,
+  "tools": {
+    "disk": true,
+    "filesystem": true,
+    "bootloader": true,
+    "windows": true,
+    "linux": true,
+    "macos": true,
+    "recovery": true,
+    "hardware": true,
+    "network": true,
+    "shell": true
+  }
+}
