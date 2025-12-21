@@ -129,6 +129,7 @@ screen_control/
 │   │   ├── core/               # Config, logging, security, crypto
 │   │   ├── server/             # HTTP REST API server
 │   │   ├── control_server/     # WebSocket client for control server
+│   │   ├── update/             # Auto-update system
 │   │   ├── tools/              # Tool implementations
 │   │   │   ├── filesystem_tools.cpp  # fs_* tools
 │   │   │   ├── shell_tools.cpp       # shell_* tools
@@ -136,12 +137,17 @@ screen_control/
 │   │   ├── platform/           # Platform-specific code
 │   │   │   ├── linux/          # Linux entry point
 │   │   │   ├── macos/          # macOS entry point
-│   │   │   └── windows/        # Windows entry point
+│   │   │   └── windows/        # Windows entry point + Credential Provider
 │   │   └── libs/               # Header-only libraries (httplib, json)
 │   └── install/                # Installation scripts per platform
 │       ├── linux/
 │       ├── macos/
 │       └── windows/
+│
+├── boot/                       # Rescue Boot USB system (Alpine Linux)
+│   ├── Dockerfile              # Build environment
+│   ├── build.sh                # Build script
+│   └── build/build-iso.sh      # ISO generation
 │
 ├── macos/                      # Native macOS app (Objective-C)
 │   └── ScreenControl/
@@ -308,6 +314,13 @@ These tools work in all modes (headless, GUI, local, remote):
 | `shell_session_read` | `POST /shell/session/read` | Read session output |
 | `shell_session_stop` | `POST /shell/session/stop` | Stop shell session |
 
+#### Windows-Specific Tools
+
+| Tool | Endpoint | Description |
+|------|----------|-------------|
+| `machine_lock` | `POST /machine/lock` | Lock the Windows workstation |
+| `machine_unlock` | `POST /machine/unlock` | Unlock with credentials (requires Credential Provider) |
+
 ### GUI Tools (Require Desktop/Tray App)
 
 These tools are proxied to the GUI application:
@@ -395,6 +408,41 @@ curl http://localhost:3459/screenshot
 
 ## Recent Changes
 
+### v1.5 (December 2024)
+
+- **Rescue Boot USB System**: Alpine Linux-based bootable rescue environment
+  - Boot from USB to diagnose and repair broken operating systems
+  - Filesystem support: ext4, NTFS, HFS+, FAT32, XFS, Btrfs, exFAT
+  - Disk tools: parted, gdisk, smartctl, ddrescue, testdisk
+  - Bootloader repair: GRUB, Windows BCD (chntpw), EFI boot manager
+  - Automatic ScreenControl agent connection via token pairing
+  - Build with Docker: `cd boot && ./build.sh`
+
+- **Auto-Update System**: Agents can update themselves automatically
+  - Configurable update channels: stable, beta, dev
+  - Update modes: auto, download-only, manual, scheduled
+  - Version checking and gradual rollout support
+  - Dashboard control for per-agent update settings
+
+- **Per-Agent Browser Preference**: Set default browser per agent
+  - Configure preferred browser in agent settings (Chrome, Firefox, Safari, Edge)
+  - Browser tools automatically target the configured browser
+  - Synced from control server to agent on connection
+
+- **Windows Lock/Unlock Tools**: Platform-specific machine control
+  - `machine_lock` - Lock the Windows workstation
+  - `machine_unlock` - Unlock with password (requires Credential Provider)
+  - Tools only advertised on Windows agents
+
+- **macOS .pkg Installer**: Signed installer package
+  - Code-signed app and installer for macOS
+  - CI/CD pipeline builds signed .pkg releases
+  - Notarization support for Gatekeeper
+
+- **Browser Targeting Improvements**:
+  - Tools correctly routed based on target browser
+  - Multi-browser support in single session
+
 ### v1.4 (December 2024)
 
 - **Multi-instance browser tools**: Multiple Claude Code instances can now share browser tools
@@ -432,10 +480,44 @@ curl http://localhost:3459/screenshot
 - **Token-safe screenshots**: File paths by default, optional base64
 - **URL-based tab targeting**: Playwright-like browser automation
 
+## Rescue Boot USB
+
+ScreenControl includes an Alpine Linux-based bootable rescue system for diagnosing and repairing broken operating systems.
+
+### Building the Rescue ISO
+
+```bash
+cd boot
+
+# Build without pre-configured tenant (requires token pairing at boot)
+./build.sh
+
+# Build with pre-configured tenant
+TENANT_ID=your-customer-id ./build.sh
+```
+
+### Rescue System Features
+
+- **Filesystem Support**: ext4, NTFS, HFS+, FAT32, XFS, Btrfs, exFAT
+- **Disk Tools**: parted, gdisk, smartctl, ddrescue, testdisk, chntpw
+- **Auto-Connect**: Agent connects to ScreenControl server on boot
+- **Token Pairing**: Run `screencontrol-pair <TOKEN>` to connect to your tenant
+
+### Writing to USB
+
+```bash
+# Linux/macOS
+sudo dd if=boot/dist/screencontrol-rescue-1.0.0-x86_64.iso of=/dev/sdX bs=4M status=progress
+
+# Windows: Use Rufus or balenaEtcher
+```
+
+See [boot/README.md](boot/README.md) for full documentation.
+
 ## License
 
 MIT License
 
 ## Links
 
-- **GitHub**: [github.com/anthropics/screen_control](https://github.com/anthropics/screen_control)
+- **GitHub**: [github.com/datagram1/screen_control](https://github.com/datagram1/screen_control)
