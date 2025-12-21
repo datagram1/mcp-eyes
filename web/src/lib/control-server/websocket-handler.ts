@@ -10,6 +10,7 @@ import { AgentMessage, ConnectedAgent } from './types';
 import { NetworkUtils } from './network';
 import { LocalAgentRegistry } from './agent-registry';
 import { checkLicenseStatus } from './db-service';
+import { checkUpdateAvailable } from './update-service';
 
 /**
  * Handle a new agent WebSocket connection
@@ -92,7 +93,21 @@ export function handleAgentConnection(
                 // Check if there are pending commands for this agent
                 const hasPendingCommands = registry.hasPendingQueuedCommands(agent.id);
 
-                // Send heartbeat_ack with license status and pending commands flag
+                // Check for available updates (1.3.0)
+                let updateFlag = 0;
+                if (agent.agentVersion && agent.osType && agent.arch) {
+                  const updateInfo = await checkUpdateAvailable(
+                    agent.agentVersion,
+                    agent.osType,
+                    agent.arch,
+                    agent.machineId
+                  );
+                  if (updateInfo.hasUpdate) {
+                    updateFlag = updateInfo.isForced ? 2 : 1; // 2 = forced, 1 = available
+                  }
+                }
+
+                // Send heartbeat_ack with license status, pending commands flag, and update flag
                 socket.send(
                   JSON.stringify({
                     type: 'heartbeat_ack',
@@ -101,6 +116,7 @@ export function handleAgentConnection(
                     licenseChanged: licenseCheck.changed,
                     licenseMessage: licenseCheck.message,
                     pendingCommands: hasPendingCommands, // (1.2.19)
+                    u: updateFlag, // Update flag: 0 = none, 1 = available, 2 = forced (1.3.0)
                     config: licenseCheck.changed
                       ? {
                           heartbeatInterval: getHeartbeatInterval(agent.powerState),

@@ -9,6 +9,7 @@
 #include "platform.h"
 #include "../core/config.h"
 #include "../core/logger.h"
+#include "../update/update_manager.h"
 #include <fstream>
 #include <sstream>
 #include <cstring>
@@ -816,6 +817,15 @@ void WebSocketClient::handleHeartbeatAck(const json& j)
     if (m_statusCallback)
     {
         m_statusCallback(m_agentId, m_licenseStatus);
+    }
+
+    // Check for update flag (1.3.0)
+    // u: 0 = no update, 1 = update available, 2 = forced update
+    int updateFlag = j.value("u", 0);
+    if (updateFlag > 0)
+    {
+        // Notify UpdateManager of available update
+        UpdateManager::getInstance().onHeartbeat(updateFlag);
     }
 }
 

@@ -323,6 +323,7 @@ export default function AgentsPage() {
                 <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Power</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Last Seen</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">IP</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Version</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-slate-300">Actions</th>
               </tr>
             </thead>
@@ -368,6 +369,9 @@ export default function AgentsPage() {
                   </td>
                   <td className="px-4 py-3 text-slate-400 text-sm font-mono">
                     {agent.ipAddress || '-'}
+                  </td>
+                  <td className="px-4 py-3 text-slate-300 text-sm font-mono">
+                    {agent.agentVersion || '-'}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end space-x-2">

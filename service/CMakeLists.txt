@@ -26,6 +26,7 @@ set(COMMON_SOURCES
     src/tools/filesystem_tools.cpp
     src/tools/shell_tools.cpp
     src/tools/system_tools.cpp
+    src/update/update_manager.cpp
 )
 
 # Platform-specific sources (OpenSSL on macOS/Linux, native APIs on Windows)
@@ -42,17 +43,20 @@ if(PLATFORM_MACOS)
     set(PLATFORM_SOURCES
         src/platform/macos/main_macos.cpp
         src/platform/macos/platform_macos.cpp
+        src/update/update_macos.cpp
     )
 elseif(PLATFORM_WINDOWS)
     set(PLATFORM_SOURCES
         src/platform/windows/main_windows.cpp
         src/platform/windows/platform_windows.cpp
+        src/update/update_windows.cpp
     )
     add_definitions(-DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX)
 else()
     set(PLATFORM_SOURCES
         src/platform/linux/main_linux.cpp
         src/platform/linux/platform_linux.cpp
+        src/update/update_linux.cpp
     )
 endif()
 
@@ -78,6 +82,9 @@ if(PLATFORM_MACOS)
     # OpenSSL (for WebSocket TLS)
     find_package(OpenSSL REQUIRED)
 
+    # libcurl (for update downloads)
+    find_package(CURL REQUIRED)
+
     target_link_libraries(ScreenControlService
         ${COCOA_FRAMEWORK}
         ${IOKIT_FRAMEWORK}
@@ -87,6 +94,7 @@ if(PLATFORM_MACOS)
         ${COREFOUNDATION_FRAMEWORK}
         OpenSSL::SSL
         OpenSSL::Crypto
+        CURL::libcurl
         pthread
     )
 
@@ -123,6 +131,7 @@ elseif(PLATFORM_WINDOWS)
         wtsapi32      # Windows Terminal Services
         userenv       # User environment (profiles)
         credui        # Credential UI
+        winhttp       # WinHTTP (for update downloads)
     )
 
     # Static linking for standalone executable
@@ -146,6 +155,7 @@ else()
     # Find required packages
     find_package(PkgConfig REQUIRED)
     find_package(OpenSSL REQUIRED)
+    find_package(CURL REQUIRED)
     pkg_check_modules(X11 x11 xrandr xtst)
     pkg_check_modules(LIBSECRET libsecret-1)
 
@@ -153,6 +163,7 @@ else()
         pthread
         OpenSSL::SSL
         OpenSSL::Crypto
+        CURL::libcurl
         ${X11_LIBRARIES}
     )
 
