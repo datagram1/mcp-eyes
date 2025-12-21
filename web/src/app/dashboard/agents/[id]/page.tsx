@@ -4,6 +4,8 @@ import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+type BrowserType = 'SYSTEM' | 'CHROME' | 'FIREFOX' | 'SAFARI' | 'EDGE' | null;
+
 interface Agent {
   id: string;
   agentKey: string;
@@ -32,6 +34,7 @@ interface Agent {
   label: string | null;
   groupName: string | null;
   tags: string[];
+  defaultBrowser: BrowserType;
 }
 
 const osIcons: Record<string, string> = {
@@ -59,6 +62,14 @@ const powerStateColors: Record<string, string> = {
   SLEEP: 'bg-purple-400',
 };
 
+const browserOptions = [
+  { value: 'SYSTEM', label: 'System Default', icon: '🌐' },
+  { value: 'CHROME', label: 'Chrome', icon: '🔵' },
+  { value: 'FIREFOX', label: 'Firefox', icon: '🦊' },
+  { value: 'SAFARI', label: 'Safari', icon: '🧭' },
+  { value: 'EDGE', label: 'Edge', icon: '🔷' },
+];
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }
@@ -76,6 +87,7 @@ export default function AgentDetailPage({ params }: PageProps) {
   const [displayName, setDisplayName] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showResetSecretModal, setShowResetSecretModal] = useState(false);
+  const [browserSaving, setBrowserSaving] = useState(false);
 
   // Display name preference
   const [nameDisplay, setNameDisplay] = useState<'friendly' | 'machine' | 'both'>(() => {
@@ -186,6 +198,23 @@ export default function AgentDetailPage({ params }: PageProps) {
     } finally {
       setActionLoading(null);
       setShowResetSecretModal(false);
+    }
+  };
+
+  const handleBrowserChange = async (browser: BrowserType) => {
+    setBrowserSaving(true);
+    try {
+      const res = await fetch(`/api/agents/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultBrowser: browser }),
+      });
+      if (!res.ok) throw new Error('Failed to update browser preference');
+      await fetchAgent();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save browser preference');
+    } finally {
+      setBrowserSaving(false);
     }
   };
 
@@ -533,6 +562,39 @@ export default function AgentDetailPage({ params }: PageProps) {
             </div>
           </dl>
         </div>
+      </div>
+
+      {/* Browser Settings */}
+      <div className="bg-slate-800 rounded-lg p-4">
+        <h3 className="text-white font-medium mb-4">Browser Settings</h3>
+        <p className="text-slate-400 text-sm mb-4">
+          Select the default browser for LLM tools. When an AI uses browser automation tools,
+          it will use this browser unless a specific browser is requested.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {browserOptions.map((option) => {
+            const isSelected = (agent.defaultBrowser || 'SYSTEM') === option.value;
+            return (
+              <button
+                key={option.value}
+                onClick={() => handleBrowserChange(option.value as BrowserType)}
+                disabled={browserSaving}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
+                  isSelected
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : 'bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-500'
+                } ${browserSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <span className="text-lg">{option.icon}</span>
+                <span>{option.label}</span>
+                {isSelected && <span className="ml-1 text-xs">&#10003;</span>}
+              </button>
+            );
+          })}
+        </div>
+        {browserSaving && (
+          <p className="text-blue-400 text-sm mt-3">Saving...</p>
+        )}
       </div>
 
       {/* Fingerprint Details */}

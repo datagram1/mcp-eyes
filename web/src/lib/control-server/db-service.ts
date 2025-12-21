@@ -545,11 +545,13 @@ export async function checkLicenseStatus(agentDbId: string): Promise<{
   licenseStatus: 'active' | 'pending' | 'expired' | 'blocked';
   changed: boolean;
   message?: string;
+  defaultBrowser?: string;
 }> {
   const agent = await prisma.agent.findUnique({
     where: { id: agentDbId },
     select: {
       state: true,
+      defaultBrowser: true,
       license: {
         select: {
           status: true,
@@ -618,7 +620,12 @@ export async function checkLicenseStatus(agentDbId: string): Promise<{
     changed = true;
   }
 
-  return { licenseStatus: newStatus, changed, message };
+  return {
+    licenseStatus: newStatus,
+    changed,
+    message,
+    defaultBrowser: agent.defaultBrowser?.toLowerCase() || undefined,
+  };
 }
 
 /**

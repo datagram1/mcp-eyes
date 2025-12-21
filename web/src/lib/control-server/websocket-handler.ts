@@ -117,6 +117,7 @@ export function handleAgentConnection(
                     licenseMessage: licenseCheck.message,
                     pendingCommands: hasPendingCommands, // (1.2.19)
                     u: updateFlag, // Update flag: 0 = none, 1 = available, 2 = forced (1.3.0)
+                    defaultBrowser: licenseCheck.defaultBrowser, // Browser preference (1.3.1)
                     config: licenseCheck.changed
                       ? {
                           heartbeatInterval: getHeartbeatInterval(agent.powerState),

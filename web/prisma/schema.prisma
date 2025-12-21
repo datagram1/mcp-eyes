@@ -195,6 +195,9 @@ model Agent {
   // Debug/Testing
   isMock            Boolean     @default(false)  // True for mock agents created in debug mode
 
+  // Browser settings
+  defaultBrowser    BrowserType?  // Preferred browser for LLM tools (null = system default)
+
   // Timestamps
   firstSeenAt       DateTime    @default(now())
   lastSeenAt        DateTime    @default(now())
@@ -750,6 +753,14 @@ enum OSType {
   WINDOWS
   MACOS
   LINUX
+}
+
+enum BrowserType {
+  SYSTEM    // Use system default browser
+  CHROME
+  FIREFOX
+  SAFARI
+  EDGE
 }
 
 enum ScheduleMode {

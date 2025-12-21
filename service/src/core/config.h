@@ -60,6 +60,10 @@ public:
     bool isLicensed() const { return m_licensed; }
     std::string getLicenseStatus() const { return m_licenseStatus; }
 
+    // Browser settings (synced from server)
+    std::string getDefaultBrowser() const { return m_defaultBrowser; }
+    void setDefaultBrowser(const std::string& browser) { m_defaultBrowser = browser; }
+
     // Security settings
     bool hasStoredCredentials() const { return m_hasStoredCredentials; }
 
@@ -95,6 +99,9 @@ private:
     bool m_loggingEnabled = true;
     bool m_licensed = false;
     std::string m_licenseStatus = "Not Licensed";
+
+    // Browser settings
+    std::string m_defaultBrowser = "system";  // "system", "chrome", "firefox", "safari", "edge"
 
     // Security
     bool m_hasStoredCredentials = false;

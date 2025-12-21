@@ -13,6 +13,7 @@
 #import <netinet/in.h>
 #import <arpa/inet.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <AppKit/AppKit.h>
 
 // WebSocket protocol constants
 static const NSString *WS_GUID = @"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -323,10 +324,21 @@ static const int WS_OPCODE_PONG = 0xA;
             return;
         }
 
-        // Find target browser - use specific browser if requested, otherwise first available
+        // Find target browser - use specific browser if requested, otherwise use configured default
         NSString *targetBrowser = request[@"browser"];  // e.g., "chrome", "firefox"
         BrowserConnection *browserConn = nil;
         NSMutableArray *availableBrowsers = [NSMutableArray array];
+
+        // If no browser specified, use configured default or system default
+        if (!targetBrowser && self.defaultBrowser) {
+            if ([self.defaultBrowser isEqualToString:@"system"] || [self.defaultBrowser isEqualToString:@"SYSTEM"]) {
+                targetBrowser = [BrowserWebSocketServer detectSystemDefaultBrowser];
+                NSLog(@"[WebSocketServer] Using system default browser: %@", targetBrowser);
+            } else if (![self.defaultBrowser isEqualToString:@""]) {
+                targetBrowser = [self.defaultBrowser lowercaseString];
+                NSLog(@"[WebSocketServer] Using configured default browser: %@", targetBrowser);
+            }
+        }
 
         @synchronized (self.connections) {
             for (BrowserConnection *conn in self.connections.allValues) {
@@ -340,8 +352,19 @@ static const int WS_OPCODE_PONG = 0xA;
                             break;
                         }
                     } else if (!browserConn) {
-                        // No specific browser requested, use first available
+                        // No specific browser requested and no default configured, use first available
                         browserConn = conn;
+                    }
+                }
+            }
+
+            // If target browser not found but others are available, fallback to first available
+            if (!browserConn && availableBrowsers.count > 0 && targetBrowser) {
+                NSLog(@"[WebSocketServer] Target browser '%@' not connected, falling back to first available", targetBrowser);
+                for (BrowserConnection *conn in self.connections.allValues) {
+                    if (conn.handshakeComplete && conn != connection && conn.browserType) {
+                        browserConn = conn;
+                        break;
                     }
                 }
             }
@@ -892,6 +915,41 @@ static const int WS_OPCODE_PONG = 0xA;
 
 - (void)dealloc {
     [self stop];
+}
+
+#pragma mark - System Default Browser Detection
+
++ (NSString *)detectSystemDefaultBrowser {
+    // Get the default browser for http URLs
+    NSURL *url = [NSURL URLWithString:@"https://example.com"];
+    NSURL *defaultBrowserURL = [[NSWorkspace sharedWorkspace] URLForApplicationToOpenURL:url];
+
+    if (!defaultBrowserURL) {
+        NSLog(@"[WebSocketServer] Could not detect system default browser");
+        return @"safari";  // Fallback to Safari on macOS
+    }
+
+    NSString *bundleId = [[NSBundle bundleWithURL:defaultBrowserURL] bundleIdentifier];
+    NSLog(@"[WebSocketServer] System default browser bundle ID: %@", bundleId);
+
+    // Map bundle IDs to browser types
+    if ([bundleId isEqualToString:@"com.google.Chrome"]) {
+        return @"chrome";
+    } else if ([bundleId isEqualToString:@"org.mozilla.firefox"]) {
+        return @"firefox";
+    } else if ([bundleId isEqualToString:@"com.apple.Safari"]) {
+        return @"safari";
+    } else if ([bundleId containsString:@"microsoft.edge"] || [bundleId containsString:@"Microsoft Edge"]) {
+        return @"edge";
+    } else if ([bundleId containsString:@"brave"]) {
+        return @"chrome";  // Brave is Chromium-based, use Chrome extension
+    } else if ([bundleId containsString:@"arc"]) {
+        return @"chrome";  // Arc is Chromium-based, use Chrome extension
+    }
+
+    // Unknown browser - return the bundle ID for debugging
+    NSLog(@"[WebSocketServer] Unknown browser, returning raw bundle ID: %@", bundleId);
+    return @"safari";  // Default fallback
 }
 
 @end

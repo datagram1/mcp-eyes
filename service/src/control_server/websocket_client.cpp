@@ -827,6 +827,19 @@ void WebSocketClient::handleHeartbeatAck(const json& j)
         // Notify UpdateManager of available update
         UpdateManager::getInstance().onHeartbeat(updateFlag);
     }
+
+    // Check for browser preference (1.3.1)
+    if (j.contains("defaultBrowser"))
+    {
+        std::string browser = j["defaultBrowser"];
+        auto& config = Config::getInstance();
+        if (!browser.empty() && config.getDefaultBrowser() != browser)
+        {
+            log("Updating default browser preference: " + browser);
+            config.setDefaultBrowser(browser);
+            config.save();
+        }
+    }
 }
 
 void WebSocketClient::handleRequest(const json& j)

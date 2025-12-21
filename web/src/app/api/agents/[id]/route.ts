@@ -111,7 +111,7 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const { state, label, groupName, tags, displayName } = body;
+    const { state, label, groupName, tags, displayName, defaultBrowser } = body;
 
     // Build update data
     type UpdateData = {
@@ -121,6 +121,7 @@ export async function PATCH(
       groupName?: string;
       tags?: string[];
       displayName?: string;
+      defaultBrowser?: 'SYSTEM' | 'CHROME' | 'FIREFOX' | 'SAFARI' | 'EDGE' | null;
     };
 
     const updateData: UpdateData = {};
@@ -151,6 +152,18 @@ export async function PATCH(
     if (groupName !== undefined) updateData.groupName = groupName;
     if (tags !== undefined) updateData.tags = tags;
     if (displayName !== undefined) updateData.displayName = displayName;
+
+    // Handle browser preference
+    if (defaultBrowser !== undefined) {
+      const validBrowsers = ['SYSTEM', 'CHROME', 'FIREFOX', 'SAFARI', 'EDGE', null];
+      if (!validBrowsers.includes(defaultBrowser)) {
+        return NextResponse.json(
+          { error: 'Invalid browser type. Valid options: SYSTEM, CHROME, FIREFOX, SAFARI, EDGE' },
+          { status: 400 }
+        );
+      }
+      updateData.defaultBrowser = defaultBrowser;
+    }
 
     const agent = await prisma.agent.update({
       where: { id },

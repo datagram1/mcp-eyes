@@ -25,6 +25,7 @@
 @property (nonatomic, assign, readonly) NSUInteger port;
 @property (nonatomic, assign, readonly) BOOL isRunning;
 @property (nonatomic, strong, readonly) NSMutableSet *connectedBrowsers;
+@property (nonatomic, copy) NSString *defaultBrowser;  // "system", "chrome", "firefox", "safari", "edge"
 
 - (instancetype)initWithPort:(NSUInteger)port;
 - (BOOL)start;
@@ -33,5 +34,8 @@
 // Send response back to browser
 - (void)sendResponse:(NSDictionary *)response toBrowser:(NSString *)browserId;
 - (void)broadcastMessage:(NSDictionary *)message;
+
+// Detect system default browser
++ (NSString *)detectSystemDefaultBrowser;
 
 @end

@@ -2507,6 +2507,9 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         [self fileLog:@"[startBrowserBridge] BrowserWebSocketServer allocated, setting delegate"];
         self.browserWebSocketServer.delegate = self;
 
+        // Load default browser preference from service config
+        [self loadBrowserPreferenceFromServiceConfig];
+
         [self fileLog:@"[startBrowserBridge] Calling start on WebSocket server"];
         BOOL wsSuccess = [self.browserWebSocketServer start];
         if (wsSuccess) {
@@ -2539,6 +2542,48 @@ static NSString * const kKeychainService = @"com.screencontrol.agent.oauth";
         NSLog(@"[WebSocket Bridge] Stopping WebSocket server...");
         [self.browserWebSocketServer stop];
         self.browserWebSocketServer = nil;
+    }
+}
+
+- (void)loadBrowserPreferenceFromServiceConfig {
+    // Read the service config from /Library/Application Support/ScreenControl/config.json
+    NSString *configPath = @"/Library/Application Support/ScreenControl/config.json";
+
+    if (![[NSFileManager defaultManager] fileExistsAtPath:configPath]) {
+        NSLog(@"[Browser Config] Service config not found at %@, using system default", configPath);
+        self.browserWebSocketServer.defaultBrowser = @"system";
+        return;
+    }
+
+    NSError *error = nil;
+    NSData *configData = [NSData dataWithContentsOfFile:configPath options:0 error:&error];
+    if (!configData) {
+        NSLog(@"[Browser Config] Failed to read service config: %@", error.localizedDescription);
+        self.browserWebSocketServer.defaultBrowser = @"system";
+        return;
+    }
+
+    NSDictionary *config = [NSJSONSerialization JSONObjectWithData:configData options:0 error:&error];
+    if (!config) {
+        NSLog(@"[Browser Config] Failed to parse service config: %@", error.localizedDescription);
+        self.browserWebSocketServer.defaultBrowser = @"system";
+        return;
+    }
+
+    NSString *defaultBrowser = config[@"defaultBrowser"];
+    if (defaultBrowser && [defaultBrowser length] > 0) {
+        self.browserWebSocketServer.defaultBrowser = defaultBrowser;
+        NSLog(@"[Browser Config] Loaded default browser preference: %@", defaultBrowser);
+    } else {
+        self.browserWebSocketServer.defaultBrowser = @"system";
+        NSLog(@"[Browser Config] No browser preference in config, using system default");
+    }
+}
+
+- (void)reloadBrowserPreference {
+    // Called when config changes - reload browser preference
+    if (self.browserWebSocketServer) {
+        [self loadBrowserPreferenceFromServiceConfig];
     }
 }
 

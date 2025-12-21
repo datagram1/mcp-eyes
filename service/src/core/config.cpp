@@ -100,6 +100,10 @@ void Config::load(const std::string& path)
         if (config.contains("hasStoredCredentials"))
             m_hasStoredCredentials = config["hasStoredCredentials"];
 
+        // Browser settings
+        if (config.contains("defaultBrowser"))
+            m_defaultBrowser = config["defaultBrowser"];
+
         Logger::info("Configuration loaded from " + m_configPath);
     }
     catch (const std::exception& e)
@@ -137,7 +141,8 @@ void Config::save()
         {"enableLogging", m_loggingEnabled},
         {"licensed", m_licensed},
         {"licenseStatus", m_licenseStatus},
-        {"hasStoredCredentials", m_hasStoredCredentials}
+        {"hasStoredCredentials", m_hasStoredCredentials},
+        {"defaultBrowser", m_defaultBrowser}
     };
 
     std::ofstream file(m_configPath);
