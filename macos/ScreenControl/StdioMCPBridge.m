@@ -306,6 +306,116 @@ static NSString *const kServerVersion = @"1.0.0";
             NSString *prefix = appIdentifier ? [appIdentifier stringByReplacingOccurrencesOfString:@"." withString:@"_"] : @"app";
             return [self saveScreenshotToFile:imageData prefix:prefix format:format quality:0.8];
         }
+        if ([toolName isEqualToString:@"screenshot_grid"]) {
+            // Take screenshot with grid overlay for visual coordinate reference
+            NSString *appIdentifier = arguments[@"identifier"];
+            NSInteger cols = arguments[@"columns"] ? [arguments[@"columns"] integerValue] : 20;
+            NSInteger rows = arguments[@"rows"] ? [arguments[@"rows"] integerValue] : 15;
+
+            // Clamp to reasonable values
+            cols = MAX(5, MIN(cols, 40));
+            rows = MAX(5, MIN(rows, 30));
+
+            // Get screenshot
+            NSData *imageData = nil;
+            CGFloat imageWidth = 0;
+            CGFloat imageHeight = 0;
+            NSDictionary *windowBounds = nil;
+
+            if (appIdentifier) {
+                CGWindowID windowID = [self.mcpServer getWindowIDForApp:appIdentifier];
+                if (windowID != kCGNullWindowID) {
+                    imageData = [self.mcpServer takeScreenshotOfWindow:windowID];
+                    windowBounds = [self.mcpServer getWindowBounds:windowID];
+                    if (windowBounds) {
+                        imageWidth = [windowBounds[@"width"] floatValue];
+                        imageHeight = [windowBounds[@"height"] floatValue];
+                        // Store bounds for subsequent click_grid calls
+                        self.currentAppBounds = windowBounds;
+                        self.currentAppBundleId = appIdentifier;
+                    }
+                }
+            } else if (self.currentAppBundleId) {
+                CGWindowID windowID = [self.mcpServer getWindowIDForCurrentApp];
+                if (windowID != kCGNullWindowID) {
+                    imageData = [self.mcpServer takeScreenshotOfWindow:windowID];
+                    if (self.currentAppBounds) {
+                        imageWidth = [self.currentAppBounds[@"width"] floatValue];
+                        imageHeight = [self.currentAppBounds[@"height"] floatValue];
+                    }
+                }
+            } else {
+                imageData = [self.mcpServer takeScreenshot];
+                NSScreen *mainScreen = [NSScreen mainScreen];
+                imageWidth = mainScreen.frame.size.width;
+                imageHeight = mainScreen.frame.size.height;
+            }
+
+            if (!imageData) return @{@"error": @"Failed to take screenshot"};
+
+            // Get actual image dimensions if needed
+            if (imageWidth == 0 || imageHeight == 0) {
+                NSImage *img = [[NSImage alloc] initWithData:imageData];
+                if (img) {
+                    imageWidth = img.size.width;
+                    imageHeight = img.size.height;
+                }
+            }
+
+            // Run OCR on original image (before grid overlay) to detect text elements
+            BOOL skipOCR = [arguments[@"skip_ocr"] boolValue];
+            NSArray *detectedElements = @[];
+            if (!skipOCR) {
+                detectedElements = [self.mcpServer performOCRAndMapToGrid:imageData columns:cols rows:rows];
+            }
+
+            // Add grid overlay
+            NSData *gridImageData = [self.mcpServer addGridOverlayToImageData:imageData columns:cols rows:rows];
+            if (!gridImageData) return @{@"error": @"Failed to add grid overlay"};
+
+            // Build response
+            NSMutableDictionary *response = [NSMutableDictionary dictionary];
+            response[@"columns"] = @(cols);
+            response[@"rows"] = @(rows);
+            response[@"imageWidth"] = @(imageWidth);
+            response[@"imageHeight"] = @(imageHeight);
+            response[@"cellWidth"] = @(imageWidth / cols);
+            response[@"cellHeight"] = @(imageHeight / rows);
+
+            // Include window position so click_grid knows where to click
+            if (windowBounds) {
+                response[@"windowBounds"] = windowBounds;
+                response[@"windowX"] = windowBounds[@"x"];
+                response[@"windowY"] = windowBounds[@"y"];
+            } else if (self.currentAppBounds) {
+                response[@"windowBounds"] = self.currentAppBounds;
+                response[@"windowX"] = self.currentAppBounds[@"x"];
+                response[@"windowY"] = self.currentAppBounds[@"y"];
+            }
+
+            // Add detected elements with grid positions
+            if (detectedElements.count > 0) {
+                response[@"elements"] = detectedElements;
+                response[@"element_count"] = @(detectedElements.count);
+                response[@"usage"] = @"Elements detected with grid positions. Use click_grid(cell='XX') to click.";
+            } else {
+                response[@"elements"] = @[];
+                response[@"element_count"] = @0;
+                response[@"usage"] = @"No text detected. View image and use click_grid with cell reference like 'E7'";
+            }
+
+            BOOL returnBase64 = [arguments[@"return_base64"] boolValue];
+            if (returnBase64) {
+                response[@"image"] = [gridImageData base64EncodedStringWithOptions:0];
+                response[@"format"] = @"png";
+            } else {
+                NSString *prefix = appIdentifier ? [NSString stringWithFormat:@"%@_grid", [appIdentifier stringByReplacingOccurrencesOfString:@"." withString:@"_"]] : @"grid";
+                NSDictionary *fileResult = [self saveScreenshotToFile:gridImageData prefix:prefix format:@"png" quality:1.0];
+                [response addEntriesFromDictionary:fileResult];
+            }
+
+            return response;
+        }
 
         // ============= MOUSE ACTIONS =============
         if ([toolName isEqualToString:@"click"]) {
@@ -323,6 +433,95 @@ static NSString *const kServerVersion = @"1.0.0";
             NSString *button = arguments[@"button"] ?: @"left";
             BOOL success = [self.mcpServer clickAbsoluteX:x.floatValue y:y.floatValue rightButton:[button isEqualToString:@"right"]];
             return @{@"success": @(success)};
+        }
+        if ([toolName isEqualToString:@"click_grid"]) {
+            // Click using grid coordinates from screenshot_grid
+            NSString *cellRef = arguments[@"cell"];
+            NSNumber *column = arguments[@"column"];
+            NSNumber *row = arguments[@"row"];
+            NSInteger cols = arguments[@"columns"] ? [arguments[@"columns"] integerValue] : 20;
+            NSInteger rows = arguments[@"rows"] ? [arguments[@"rows"] integerValue] : 15;
+            NSString *button = arguments[@"button"] ?: @"left";
+            NSString *identifier = arguments[@"identifier"];
+
+            if (!cellRef && (!column || !row)) {
+                return @{@"error": @"Either 'cell' (e.g., 'E7') or both 'column' and 'row' are required"};
+            }
+
+            // Get target dimensions and offset
+            CGFloat targetWidth = 0;
+            CGFloat targetHeight = 0;
+            CGFloat offsetX = 0;
+            CGFloat offsetY = 0;
+            NSDictionary *usedBounds = nil;
+
+            // If identifier provided, look up window bounds freshly
+            if (identifier) {
+                CGWindowID windowID = [self.mcpServer getWindowIDForApp:identifier];
+                if (windowID != kCGNullWindowID) {
+                    NSDictionary *bounds = [self.mcpServer getWindowBounds:windowID];
+                    if (bounds) {
+                        targetWidth = [bounds[@"width"] floatValue];
+                        targetHeight = [bounds[@"height"] floatValue];
+                        offsetX = [bounds[@"x"] floatValue];
+                        offsetY = [bounds[@"y"] floatValue];
+                        usedBounds = bounds;
+                        // Update stored bounds
+                        self.currentAppBounds = bounds;
+                        self.currentAppBundleId = identifier;
+                    }
+                }
+            }
+
+            // Fall back to stored bounds if identifier not provided or lookup failed
+            if (targetWidth == 0 && self.currentAppBounds) {
+                targetWidth = [self.currentAppBounds[@"width"] floatValue];
+                targetHeight = [self.currentAppBounds[@"height"] floatValue];
+                offsetX = [self.currentAppBounds[@"x"] floatValue];
+                offsetY = [self.currentAppBounds[@"y"] floatValue];
+                usedBounds = self.currentAppBounds;
+            }
+
+            // Fall back to full screen if no bounds available
+            if (targetWidth == 0) {
+                NSScreen *mainScreen = [NSScreen mainScreen];
+                targetWidth = mainScreen.frame.size.width;
+                targetHeight = mainScreen.frame.size.height;
+                usedBounds = @{@"x": @0, @"y": @0, @"width": @(targetWidth), @"height": @(targetHeight), @"source": @"fullscreen"};
+            }
+
+            // Convert grid reference to pixel coordinates
+            NSDictionary *coords = [self.mcpServer gridCoordinatesToPixels:cellRef
+                                                                   column:column
+                                                                      row:row
+                                                                    width:targetWidth
+                                                                   height:targetHeight
+                                                                  columns:cols
+                                                                     rows:rows];
+
+            if (coords[@"error"]) return coords;
+
+            // Calculate absolute screen position
+            CGFloat clickX = offsetX + [coords[@"pixelX"] floatValue];
+            CGFloat clickY = offsetY + [coords[@"pixelY"] floatValue];
+
+            // Perform click using absolute coordinates
+            BOOL success = [self.mcpServer clickAbsoluteX:clickX y:clickY rightButton:[button isEqualToString:@"right"]];
+
+            NSMutableDictionary *result = [NSMutableDictionary dictionary];
+            result[@"success"] = @(success);
+            result[@"cell"] = cellRef ?: [NSString stringWithFormat:@"%c%ld", (char)('A' + [column integerValue] - 1), (long)[row integerValue]];
+            result[@"clickedAt"] = @{@"x": @(clickX), @"y": @(clickY)};
+            result[@"gridInfo"] = coords;
+            if (usedBounds) {
+                result[@"windowBounds"] = usedBounds;
+            }
+            if (identifier) {
+                result[@"identifier"] = identifier;
+            } else if (self.currentAppBundleId) {
+                result[@"identifier"] = self.currentAppBundleId;
+            }
+            return result;
         }
         if ([toolName isEqualToString:@"doubleClick"]) {
             NSNumber *x = arguments[@"x"];
@@ -862,8 +1061,8 @@ static NSString *const kServerVersion = @"1.0.0";
     NSDictionary *toolDefinitions = @{
         @"gui": @[
             @"listApplications", @"focusApplication", @"launchApplication",
-            @"screenshot", @"screenshot_app", @"click", @"click_absolute",
-            @"doubleClick", @"clickElement", @"moveMouse", @"scroll",
+            @"screenshot", @"screenshot_app", @"screenshot_grid", @"click", @"click_absolute",
+            @"click_grid", @"doubleClick", @"clickElement", @"moveMouse", @"scroll",
             @"scrollMouse", @"drag", @"getClickableElements", @"getUIElements",
             @"getMousePosition", @"typeText", @"pressKey", @"analyzeWithOCR",
             @"checkPermissions", @"closeApp", @"wait",
@@ -941,7 +1140,9 @@ static NSString *const kServerVersion = @"1.0.0";
         @"screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"desktop_screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"screenshot_app": @"Take a screenshot of a specific application window. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
+        @"screenshot_grid": @"Take a screenshot with labeled grid overlay (A-T columns, 1-15 rows) + OCR element detection. Returns detected text mapped to grid cells. FALLBACK when browser_* tools fail - some sites block script injection. Use screenshot_grid + click_grid for direct mouse control. Response includes 'elements' array with {text, cell, column, row} for each detected element.",
         @"click": @"Click at coordinates relative to current app",
+        @"click_grid": @"Click at a grid cell position (e.g., cell='E7'). FALLBACK when browser_clickElement fails - provides direct mouse control. Use after screenshot_grid to click by grid reference. Pass same 'identifier' as screenshot_grid for accurate window targeting.",
         @"click_absolute": @"Click at absolute screen coordinates",
         @"doubleClick": @"Double-click at coordinates",
         @"clickElement": @"Click a UI element by index",
@@ -968,12 +1169,13 @@ static NSString *const kServerVersion = @"1.0.0";
         @"clipboard_write": @"Write content to clipboard",
 
         // Browser tools (token-safe: screenshots save to file, elements summarized by default)
+        // NOTE: Some sites block script injection - use screenshot_grid + click_grid as fallback
         @"browser_navigate": @"Navigate browser to a URL",
         @"browser_screenshot": @"Take a browser screenshot. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
-        @"browser_getVisibleText": @"Get visible text from a tab (use 'url' parameter to target background tab without switching)",
-        @"browser_searchVisibleText": @"Search for text in a tab",
-        @"browser_clickElement": @"Click an element in the browser",
-        @"browser_fillElement": @"Fill a form field",
+        @"browser_getVisibleText": @"Get visible text from a tab (use 'url' parameter to target background tab without switching). If fails, use screenshot_grid with OCR instead.",
+        @"browser_searchVisibleText": @"Search for text in a tab. If site blocks scripts, use screenshot_grid with OCR instead.",
+        @"browser_clickElement": @"Click an element in the browser. If fails (some sites block scripts), use screenshot_grid + click_grid for direct mouse control.",
+        @"browser_fillElement": @"Fill a form field. If fails, use click_grid to focus field then typeText.",
         @"browser_getTabs": @"Get list of open tabs",
         @"browser_getActiveTab": @"Get the active tab",
         @"browser_focusTab": @"Focus a specific tab",
@@ -1062,6 +1264,21 @@ static NSString *const kServerVersion = @"1.0.0";
             properties[@"return_base64"] = @{@"type": @"boolean", @"description": @"Return base64 instead of file path (default: false, saves tokens)"};
             properties[@"format"] = @{@"type": @"string", @"enum": @[@"jpeg", @"png"], @"description": @"Image format: jpeg (smaller, default) or png (lossless)"};
         }
+    }
+    else if ([toolName isEqualToString:@"screenshot_grid"]) {
+        properties[@"identifier"] = @{@"type": @"string", @"description": @"App bundle ID or name (optional, uses focused app or full screen)"};
+        properties[@"columns"] = @{@"type": @"number", @"description": @"Number of grid columns (default: 20, range: 5-40)"};
+        properties[@"rows"] = @{@"type": @"number", @"description": @"Number of grid rows (default: 15, range: 5-30)"};
+        properties[@"return_base64"] = @{@"type": @"boolean", @"description": @"Return base64 instead of file path (default: false)"};
+    }
+    else if ([toolName isEqualToString:@"click_grid"]) {
+        properties[@"cell"] = @{@"type": @"string", @"description": @"Grid cell reference (e.g., 'E7', 'A1', 'T15')"};
+        properties[@"column"] = @{@"type": @"number", @"description": @"Column number (1-20), alternative to cell reference"};
+        properties[@"row"] = @{@"type": @"number", @"description": @"Row number (1-15), alternative to cell reference"};
+        properties[@"columns"] = @{@"type": @"number", @"description": @"Grid columns used in screenshot_grid (default: 20)"};
+        properties[@"rows"] = @{@"type": @"number", @"description": @"Grid rows used in screenshot_grid (default: 15)"};
+        properties[@"button"] = @{@"type": @"string", @"enum": @[@"left", @"right"], @"description": @"Mouse button (default: left)"};
+        properties[@"identifier"] = @{@"type": @"string", @"description": @"App bundle ID or name to click in (optional, uses window from last screenshot_grid)"};
     }
     else if ([toolName isEqualToString:@"wait"]) {
         properties[@"milliseconds"] = @{@"type": @"number", @"description": @"Time to wait in milliseconds"};
