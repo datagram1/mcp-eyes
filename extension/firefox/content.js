@@ -458,10 +458,11 @@
 
   // Initialize
   function init() {
-    // In MV3 with world: "MAIN" in manifest.json, injected.js is loaded automatically
-    // by Chrome into the page context. No manual injection needed.
-    // The old injectPageScript() approach is kept as fallback but not called.
-    // This bypasses CSP restrictions that plague MV3 extensions.
+    // Firefox MV2 and older browsers need manual script injection.
+    // Chrome MV3 with world: "MAIN" loads injected.js automatically,
+    // but Firefox doesn't support that, so we must inject manually.
+    // The injected.js is in web_accessible_resources, so we can load it via URL.
+    injectPageScript();
 
     // Set up mutation observer once DOM is ready
     if (document.readyState === 'loading') {
