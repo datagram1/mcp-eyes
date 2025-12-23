@@ -203,6 +203,50 @@ namespace unlock {
     std::string getLastUnlockError();
 }
 
+// GUI operations (Linux shell-based, Windows via tray app proxy)
+namespace gui {
+    // Take screenshot with grid overlay
+    // Returns path to saved image, or empty string on failure
+    std::string screenshotWithGrid(int cols, int rows, std::string& errorMsg);
+
+    // Click at grid cell (e.g., "E7" or col=5, row=7)
+    bool clickGrid(const std::string& cell, int col, int row, int cols, int rows, bool rightButton = false);
+
+    // Click at absolute screen coordinates
+    bool clickAt(int x, int y, bool rightButton = false);
+
+    // Type text
+    bool typeText(const std::string& text);
+
+    // Get display server type (X11, Wayland/GNOME, etc.)
+    std::string getDisplayServer();
+}
+
+// Dependency management (Linux runtime dependency detection/installation)
+namespace deps {
+    // Status of grid tool dependencies
+    struct DependencyStatus {
+        bool screenshotTool = false;
+        bool inputTool = false;
+        bool imageMagick = false;
+        std::string screenshotToolName;
+        std::string inputToolName;
+        std::string missingPackages;
+        std::string installCommand;
+        std::string displayServer;
+        std::string packageManager;
+    };
+
+    // Check if all dependencies are available
+    DependencyStatus checkDependencies();
+
+    // Attempt to install missing dependencies (requires root)
+    bool installDependencies(bool interactive = true);
+
+    // Get a shell script that installs dependencies
+    std::string getInstallScript();
+}
+
 } // namespace platform
 
 #endif // SCREENCONTROL_PLATFORM_H

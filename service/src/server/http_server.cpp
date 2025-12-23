@@ -15,6 +15,7 @@
 #include "../control_server/websocket_client.h"
 #include "../control_server/command_dispatcher.h"
 #include "platform.h"
+#include <fstream>
 
 using json = nlohmann::json;
 
@@ -91,7 +92,7 @@ void HttpServer::setupHealthRoutes()
     m_server->Get("/status", [](const httplib::Request&, httplib::Response& res) {
         json response = {
             {"success", true},
-            {"version", "1.2.0"},
+            {"version", "1.4.0"},
             {"platform", PLATFORM_ID},
             {"platformName", PLATFORM_NAME},
             {"licensed", Config::getInstance().isLicensed()},
@@ -169,6 +170,97 @@ void HttpServer::setupGuiRoutes()
 
         auto result = proxyGuiRequest("/screenshot", params.dump());
         res.set_content(result, "application/json");
+    });
+
+    // Screenshot with grid overlay (for visual coordinate-based clicking)
+    m_server->Post("/screenshot_grid", [this](const httplib::Request& req, httplib::Response& res) {
+#if PLATFORM_LINUX
+        // Linux: Handle directly using shell commands
+        try {
+            json params = req.body.empty() ? json::object() : json::parse(req.body);
+            int cols = params.value("columns", 20);
+            int rows = params.value("rows", 15);
+
+            std::string errorMsg;
+            std::string imagePath = platform::gui::screenshotWithGrid(cols, rows, errorMsg);
+
+            if (imagePath.empty()) {
+                json response = {{"success", false}, {"error", errorMsg}};
+                res.set_content(response.dump(), "application/json");
+            } else {
+                // Read image and return as base64
+                std::ifstream file(imagePath, std::ios::binary);
+                std::vector<char> buffer((std::istreambuf_iterator<char>(file)),
+                                          std::istreambuf_iterator<char>());
+
+                // Base64 encode
+                static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                std::string encoded;
+                int val = 0, valb = -6;
+                for (unsigned char c : buffer) {
+                    val = (val << 8) + c;
+                    valb += 8;
+                    while (valb >= 0) {
+                        encoded.push_back(b64[(val >> valb) & 0x3F]);
+                        valb -= 6;
+                    }
+                }
+                if (valb > -6) encoded.push_back(b64[((val << 8) >> (valb + 8)) & 0x3F]);
+                while (encoded.size() % 4) encoded.push_back('=');
+
+                json response = {
+                    {"success", true},
+                    {"columns", cols},
+                    {"rows", rows},
+                    {"file_path", imagePath},
+                    {"image", encoded},
+                    {"format", "png"},
+                    {"displayServer", platform::gui::getDisplayServer()},
+                    {"usage", "Use click_grid with cell='E7' or column/row numbers to click"}
+                };
+                res.set_content(response.dump(), "application/json");
+            }
+        } catch (const std::exception& e) {
+            json response = {{"success", false}, {"error", e.what()}};
+            res.set_content(response.dump(), "application/json");
+        }
+#else
+        // Windows/macOS: Proxy to GUI app
+        auto result = proxyGuiRequest("/screenshot_grid", req.body);
+        res.set_content(result, "application/json");
+#endif
+    });
+
+    // Click using grid coordinates
+    m_server->Post("/click_grid", [this](const httplib::Request& req, httplib::Response& res) {
+#if PLATFORM_LINUX
+        // Linux: Handle directly using shell commands
+        try {
+            json params = req.body.empty() ? json::object() : json::parse(req.body);
+            std::string cell = params.value("cell", "");
+            int col = params.value("column", 0);
+            int row = params.value("row", 0);
+            int cols = params.value("columns", 20);
+            int rows = params.value("rows", 15);
+            std::string button = params.value("button", "left");
+
+            bool success = platform::gui::clickGrid(cell, col, row, cols, rows, button == "right");
+
+            json response = {
+                {"success", success},
+                {"cell", cell.empty() ? std::string(1, 'A' + (col > 0 ? col-1 : 0)) + std::to_string(row > 0 ? row : 1) : cell},
+                {"displayServer", platform::gui::getDisplayServer()}
+            };
+            res.set_content(response.dump(), "application/json");
+        } catch (const std::exception& e) {
+            json response = {{"success", false}, {"error", e.what()}};
+            res.set_content(response.dump(), "application/json");
+        }
+#else
+        // Windows/macOS: Proxy to GUI app
+        auto result = proxyGuiRequest("/click_grid", req.body);
+        res.set_content(result, "application/json");
+#endif
     });
 
     // Click
@@ -581,6 +673,107 @@ void HttpServer::setupSystemRoutes()
             res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
         }
     });
+
+#if PLATFORM_LINUX
+    // Get dependency status (Linux only)
+    m_server->Get("/system/dependencies", [](const httplib::Request&, httplib::Response& res) {
+        auto status = platform::deps::checkDependencies();
+
+        json response = {
+            {"success", true},
+            {"displayServer", status.displayServer},
+            {"packageManager", status.packageManager},
+            {"dependencies", {
+                {"screenshotTool", {
+                    {"available", status.screenshotTool},
+                    {"tool", status.screenshotToolName}
+                }},
+                {"inputTool", {
+                    {"available", status.inputTool},
+                    {"tool", status.inputToolName}
+                }},
+                {"imageMagick", {
+                    {"available", status.imageMagick},
+                    {"tool", "convert"}
+                }}
+            }},
+            {"allAvailable", status.screenshotTool && status.inputTool && status.imageMagick},
+            {"missingPackages", status.missingPackages},
+            {"installCommand", status.installCommand}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Install missing dependencies (Linux only, requires root)
+    m_server->Post("/system/dependencies/install", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            // Check if running as root
+            if (!platform::isRunningAsRoot()) {
+                json response = {
+                    {"success", false},
+                    {"error", "Root privileges required for dependency installation"},
+                    {"hint", "Run the service as root or use: " + platform::deps::checkDependencies().installCommand}
+                };
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+
+            bool success = platform::deps::installDependencies(false);
+
+            if (success) {
+                auto status = platform::deps::checkDependencies();
+                json response = {
+                    {"success", true},
+                    {"message", "Dependencies installed successfully"},
+                    {"dependencies", {
+                        {"screenshotTool", status.screenshotTool},
+                        {"inputTool", status.inputTool},
+                        {"imageMagick", status.imageMagick}
+                    }}
+                };
+                res.set_content(response.dump(), "application/json");
+            } else {
+                json response = {
+                    {"success", false},
+                    {"error", "Failed to install dependencies"},
+                    {"hint", "Check logs for details or install manually"}
+                };
+                res.set_content(response.dump(), "application/json");
+            }
+        }
+        catch (const std::exception& e) {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Get install script (for manual installation)
+    m_server->Get("/system/dependencies/script", [](const httplib::Request&, httplib::Response& res) {
+        std::string script = platform::deps::getInstallScript();
+        res.set_content(script, "text/x-shellscript");
+    });
+#else
+    // Non-Linux platforms - dependencies managed differently
+    m_server->Get("/system/dependencies", [](const httplib::Request&, httplib::Response& res) {
+        json response = {
+            {"success", true},
+            {"platform", PLATFORM_ID},
+            {"message", "Dependency management not required on " PLATFORM_NAME}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    m_server->Post("/system/dependencies/install", [](const httplib::Request&, httplib::Response& res) {
+        json response = {
+            {"success", false},
+            {"error", "Dependency installation not available on " PLATFORM_NAME}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    m_server->Get("/system/dependencies/script", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content("# No install script needed for " PLATFORM_NAME "\n", "text/x-shellscript");
+    });
+#endif
 }
 
 void HttpServer::setupUnlockRoutes()

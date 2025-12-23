@@ -135,16 +135,17 @@ build_service() {
         )
         link_libs=(-lws2_32 -ladvapi32 -luser32 -lgdi32 -lgdiplus -lole32 -loleaut32 -lpsapi -lshlwapi -lshell32 -lbcrypt -lwtsapi32 -luserenv -lcredui -lsecur32 -lcrypt32)
     elif [[ "$target" == "linux"* ]]; then
-        # Linux: use OpenSSL-based crypto/websocket
+        # Linux: use stub crypto/websocket for cross-compilation (no OpenSSL dependency)
+        # For production, build natively with OpenSSL using Docker
         src_files+=(
-            src/core/crypto.cpp
-            src/control_server/websocket_client.cpp
+            src/core/crypto_linux_stub.cpp
+            src/control_server/websocket_client_linux_stub.cpp
         )
         platform_files=(
             src/platform/linux/main_linux.cpp
             src/platform/linux/platform_linux.cpp
         )
-        link_libs=(-lpthread -lssl -lcrypto)
+        link_libs=(-lpthread)
     fi
 
     zig c++ -target ${zig_target} \

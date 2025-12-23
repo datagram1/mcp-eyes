@@ -957,4 +957,487 @@ std::string getLastUnlockError()
 
 } // namespace unlock
 
+// ============================================================================
+// GUI Operations (Screenshots, Input) - Shell-based for Wayland/X11
+// ============================================================================
+
+namespace gui {
+
+// Detect if running under Wayland
+static bool isWayland()
+{
+    return getenv("WAYLAND_DISPLAY") != nullptr;
+}
+
+// Get screen dimensions
+static bool getScreenSize(int& width, int& height)
+{
+    CommandResult result;
+
+    if (isWayland()) {
+        // Try wlr-randr for wlroots compositors
+        result = executeCommand("wlr-randr 2>/dev/null | grep -oP '\\d+x\\d+' | head -1", 5000);
+        if (result.exitCode != 0 || result.stdoutData.empty()) {
+            // Try GNOME/KDE via D-Bus
+            result = executeCommand("gdbus call --session --dest org.gnome.Mutter.DisplayConfig "
+                "--object-path /org/gnome/Mutter/DisplayConfig "
+                "--method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>/dev/null | "
+                "grep -oP '\\d+, \\d+' | head -1 | tr ',' 'x'", 5000);
+        }
+    } else {
+        // X11 - use xdpyinfo
+        result = executeCommand("xdpyinfo 2>/dev/null | grep dimensions | awk '{print $2}'", 5000);
+    }
+
+    if (result.exitCode == 0 && !result.stdoutData.empty()) {
+        if (sscanf(result.stdoutData.c_str(), "%dx%d", &width, &height) == 2) {
+            return true;
+        }
+    }
+
+    // Fallback defaults
+    width = 1920;
+    height = 1080;
+    return false;
+}
+
+// Take screenshot and save to file
+std::string takeScreenshot(const std::string& outputPath)
+{
+    std::string path = outputPath.empty() ? "/tmp/screenshot_grid.png" : outputPath;
+    CommandResult result;
+
+    if (isWayland()) {
+        // Try grim first (wlroots)
+        result = executeCommand("grim \"" + path + "\" 2>/dev/null", 10000);
+        if (result.exitCode != 0) {
+            // Try gnome-screenshot
+            result = executeCommand("gnome-screenshot -f \"" + path + "\" 2>/dev/null", 10000);
+        }
+        if (result.exitCode != 0) {
+            // Try spectacle (KDE)
+            result = executeCommand("spectacle -b -n -o \"" + path + "\" 2>/dev/null", 10000);
+        }
+    } else {
+        // X11 - use scrot or import
+        result = executeCommand("scrot \"" + path + "\" 2>/dev/null", 10000);
+        if (result.exitCode != 0) {
+            result = executeCommand("import -window root \"" + path + "\" 2>/dev/null", 10000);
+        }
+    }
+
+    if (result.exitCode == 0) {
+        return path;
+    }
+    return "";
+}
+
+// Add grid overlay to image using ImageMagick
+bool addGridOverlay(const std::string& inputPath, const std::string& outputPath,
+                    int cols, int rows)
+{
+    int width, height;
+
+    // Get image dimensions
+    CommandResult dimResult = executeCommand(
+        "identify -format '%wx%h' \"" + inputPath + "\" 2>/dev/null", 5000);
+
+    if (dimResult.exitCode != 0 ||
+        sscanf(dimResult.stdoutData.c_str(), "%dx%d", &width, &height) != 2) {
+        return false;
+    }
+
+    float cellWidth = (float)width / cols;
+    float cellHeight = (float)height / rows;
+
+    // Build ImageMagick command to draw grid
+    std::string cmd = "convert \"" + inputPath + "\" ";
+
+    // Draw vertical lines
+    for (int i = 0; i <= cols; i++) {
+        int x = (int)(i * cellWidth);
+        cmd += "-stroke 'rgba(255,0,0,0.7)' -strokewidth 2 ";
+        cmd += "-draw 'line " + std::to_string(x) + ",0 " + std::to_string(x) + "," + std::to_string(height) + "' ";
+    }
+
+    // Draw horizontal lines
+    for (int i = 0; i <= rows; i++) {
+        int y = (int)(i * cellHeight);
+        cmd += "-draw 'line 0," + std::to_string(y) + " " + std::to_string(width) + "," + std::to_string(y) + "' ";
+    }
+
+    // Draw column labels (A-Z)
+    cmd += "-font DejaVu-Sans-Bold -pointsize 14 -fill 'rgba(255,0,0,0.9)' ";
+    for (int i = 0; i < cols && i < 26; i++) {
+        int x = (int)(i * cellWidth + cellWidth/2 - 5);
+        char label[2] = {(char)('A' + i), 0};
+        cmd += "-draw \"text " + std::to_string(x) + ",15 '" + label + "'\" ";
+    }
+
+    // Draw row labels (1-N)
+    for (int i = 0; i < rows; i++) {
+        int y = (int)(i * cellHeight + cellHeight/2 + 5);
+        cmd += "-draw \"text 5," + std::to_string(y) + " '" + std::to_string(i+1) + "'\" ";
+    }
+
+    cmd += "\"" + outputPath + "\" 2>/dev/null";
+
+    CommandResult result = executeCommand(cmd, 30000);
+    return result.exitCode == 0;
+}
+
+// Take screenshot with grid overlay
+std::string screenshotWithGrid(int cols, int rows, std::string& errorMsg)
+{
+    cols = std::max(5, std::min(cols, 40));
+    rows = std::max(5, std::min(rows, 30));
+
+    // Take screenshot
+    std::string tempPath = "/tmp/screenshot_" + std::to_string(time(nullptr)) + ".png";
+    std::string screenshotPath = takeScreenshot(tempPath);
+
+    if (screenshotPath.empty()) {
+        errorMsg = "Failed to take screenshot. Ensure grim/scrot/gnome-screenshot is installed.";
+        return "";
+    }
+
+    // Add grid overlay
+    std::string gridPath = "/tmp/screenshot_grid_" + std::to_string(time(nullptr)) + ".png";
+    if (!addGridOverlay(screenshotPath, gridPath, cols, rows)) {
+        errorMsg = "Failed to add grid overlay. Ensure ImageMagick is installed.";
+        unlink(screenshotPath.c_str());
+        return "";
+    }
+
+    // Clean up temp file
+    unlink(screenshotPath.c_str());
+
+    return gridPath;
+}
+
+// Click at screen coordinates
+bool clickAt(int x, int y, bool rightButton)
+{
+    CommandResult result;
+    std::string button = rightButton ? "3" : "1";
+
+    if (isWayland()) {
+        // ydotool for Wayland (requires ydotoold running)
+        result = executeCommand(
+            "ydotool mousemove --absolute -x " + std::to_string(x) + " -y " + std::to_string(y) +
+            " && ydotool click 0xC0" + (rightButton ? "01" : "00"), 5000);
+    } else {
+        // xdotool for X11
+        result = executeCommand(
+            "xdotool mousemove " + std::to_string(x) + " " + std::to_string(y) +
+            " click " + button, 5000);
+    }
+
+    return result.exitCode == 0;
+}
+
+// Click at grid cell
+bool clickGrid(const std::string& cell, int col, int row, int cols, int rows, bool rightButton)
+{
+    int targetCol = -1, targetRow = -1;
+
+    // Parse cell reference (e.g., "E7")
+    if (!cell.empty() && cell.length() >= 2) {
+        char colChar = toupper(cell[0]);
+        if (colChar >= 'A' && colChar <= 'Z') {
+            targetCol = colChar - 'A';
+            targetRow = atoi(cell.c_str() + 1) - 1;
+        }
+    }
+
+    // Override with explicit col/row
+    if (col > 0) targetCol = col - 1;
+    if (row > 0) targetRow = row - 1;
+
+    if (targetCol < 0 || targetCol >= cols || targetRow < 0 || targetRow >= rows) {
+        return false;
+    }
+
+    // Get screen size
+    int screenWidth, screenHeight;
+    getScreenSize(screenWidth, screenHeight);
+
+    // Calculate click position (center of cell)
+    float cellWidth = (float)screenWidth / cols;
+    float cellHeight = (float)screenHeight / rows;
+    int clickX = (int)((targetCol + 0.5f) * cellWidth);
+    int clickY = (int)((targetRow + 0.5f) * cellHeight);
+
+    return clickAt(clickX, clickY, rightButton);
+}
+
+// Type text
+bool typeText(const std::string& text)
+{
+    CommandResult result;
+
+    // Escape single quotes for shell
+    std::string escaped = text;
+    size_t pos = 0;
+    while ((pos = escaped.find("'", pos)) != std::string::npos) {
+        escaped.replace(pos, 1, "'\\''");
+        pos += 4;
+    }
+
+    if (isWayland()) {
+        result = executeCommand("ydotool type '" + escaped + "'", 10000);
+        if (result.exitCode != 0) {
+            result = executeCommand("wtype '" + escaped + "'", 10000);
+        }
+    } else {
+        result = executeCommand("xdotool type '" + escaped + "'", 10000);
+    }
+
+    return result.exitCode == 0;
+}
+
+// Get display server type
+std::string getDisplayServer()
+{
+    if (isWayland()) {
+        const char* compositor = getenv("XDG_CURRENT_DESKTOP");
+        if (compositor) {
+            return std::string("Wayland/") + compositor;
+        }
+        return "Wayland";
+    }
+    return "X11";
+}
+
+} // namespace gui
+
+// ============================================================================
+// Dependency Management - Runtime detection and installation
+// ============================================================================
+
+namespace deps {
+
+// Check if a command exists
+static bool commandExists(const std::string& cmd)
+{
+    CommandResult result = executeCommand("command -v " + cmd + " 2>/dev/null", 5000);
+    return result.exitCode == 0 && !result.stdoutData.empty();
+}
+
+// Detect package manager
+enum class PackageManager {
+    APT,      // Debian, Ubuntu, Mint
+    DNF,      // Fedora, RHEL 8+
+    YUM,      // CentOS, RHEL 7
+    PACMAN,   // Arch, Manjaro
+    ZYPPER,   // openSUSE
+    APK,      // Alpine
+    UNKNOWN
+};
+
+static PackageManager detectPackageManager()
+{
+    if (commandExists("apt")) return PackageManager::APT;
+    if (commandExists("dnf")) return PackageManager::DNF;
+    if (commandExists("yum")) return PackageManager::YUM;
+    if (commandExists("pacman")) return PackageManager::PACMAN;
+    if (commandExists("zypper")) return PackageManager::ZYPPER;
+    if (commandExists("apk")) return PackageManager::APK;
+    return PackageManager::UNKNOWN;
+}
+
+static std::string packageManagerName(PackageManager pm)
+{
+    switch (pm) {
+        case PackageManager::APT: return "apt";
+        case PackageManager::DNF: return "dnf";
+        case PackageManager::YUM: return "yum";
+        case PackageManager::PACMAN: return "pacman";
+        case PackageManager::ZYPPER: return "zypper";
+        case PackageManager::APK: return "apk";
+        default: return "unknown";
+    }
+}
+
+// Detect desktop environment
+static std::string detectDesktopEnvironment()
+{
+    const char* xdg = getenv("XDG_CURRENT_DESKTOP");
+    if (xdg) return xdg;
+
+    const char* desktop = getenv("DESKTOP_SESSION");
+    if (desktop) return desktop;
+
+    // Try to detect from running processes
+    if (executeCommand("pgrep -x gnome-shell", 3000).exitCode == 0) return "GNOME";
+    if (executeCommand("pgrep -x plasmashell", 3000).exitCode == 0) return "KDE";
+    if (executeCommand("pgrep -x sway", 3000).exitCode == 0) return "sway";
+
+    return "unknown";
+}
+
+DependencyStatus checkDependencies()
+{
+    DependencyStatus status;
+    bool isWayland = getenv("WAYLAND_DISPLAY") != nullptr;
+    std::string de = detectDesktopEnvironment();
+    PackageManager pm = detectPackageManager();
+
+    std::vector<std::string> missing;
+
+    // Check ImageMagick (required for all)
+    status.imageMagick = commandExists("convert") && commandExists("identify");
+    if (!status.imageMagick) {
+        switch (pm) {
+            case PackageManager::APT:
+            case PackageManager::DNF:
+            case PackageManager::YUM:
+                missing.push_back("ImageMagick");
+                break;
+            case PackageManager::PACMAN:
+            case PackageManager::APK:
+                missing.push_back("imagemagick");
+                break;
+            default:
+                missing.push_back("imagemagick");
+        }
+    }
+
+    // Check screenshot tool
+    if (isWayland) {
+        if (de.find("GNOME") != std::string::npos) {
+            status.screenshotTool = commandExists("gnome-screenshot");
+            status.screenshotToolName = "gnome-screenshot";
+            if (!status.screenshotTool) missing.push_back("gnome-screenshot");
+        } else if (de.find("KDE") != std::string::npos) {
+            status.screenshotTool = commandExists("spectacle");
+            status.screenshotToolName = "spectacle";
+            if (!status.screenshotTool) missing.push_back("spectacle");
+        } else {
+            // wlroots-based (Sway, Hyprland, etc.)
+            status.screenshotTool = commandExists("grim");
+            status.screenshotToolName = "grim";
+            if (!status.screenshotTool) missing.push_back("grim");
+        }
+    } else {
+        // X11
+        status.screenshotTool = commandExists("scrot") || commandExists("import");
+        status.screenshotToolName = commandExists("scrot") ? "scrot" : "import";
+        if (!status.screenshotTool) missing.push_back("scrot");
+    }
+
+    // Check input tool
+    if (isWayland) {
+        status.inputTool = commandExists("ydotool");
+        status.inputToolName = "ydotool";
+        if (!status.inputTool) missing.push_back("ydotool");
+    } else {
+        status.inputTool = commandExists("xdotool");
+        status.inputToolName = "xdotool";
+        if (!status.inputTool) missing.push_back("xdotool");
+    }
+
+    // Build missing packages string and install command
+    if (!missing.empty()) {
+        status.missingPackages = "";
+        for (size_t i = 0; i < missing.size(); i++) {
+            if (i > 0) status.missingPackages += ", ";
+            status.missingPackages += missing[i];
+        }
+
+        // Build install command
+        std::string pkgList = "";
+        for (const auto& pkg : missing) {
+            pkgList += " " + pkg;
+        }
+
+        switch (pm) {
+            case PackageManager::APT:
+                status.installCommand = "sudo apt install -y" + pkgList;
+                break;
+            case PackageManager::DNF:
+                status.installCommand = "sudo dnf install -y" + pkgList;
+                break;
+            case PackageManager::YUM:
+                status.installCommand = "sudo yum install -y" + pkgList;
+                break;
+            case PackageManager::PACMAN:
+                status.installCommand = "sudo pacman -S --noconfirm" + pkgList;
+                break;
+            case PackageManager::ZYPPER:
+                status.installCommand = "sudo zypper install -y" + pkgList;
+                break;
+            case PackageManager::APK:
+                status.installCommand = "sudo apk add" + pkgList;
+                break;
+            default:
+                status.installCommand = "# Install:" + pkgList;
+        }
+
+        // Add ydotool daemon setup for Wayland
+        if (isWayland && !status.inputTool) {
+            status.installCommand += " && sudo systemctl enable --now ydotool";
+        }
+    }
+
+    status.displayServer = isWayland ? "Wayland/" + de : "X11";
+    status.packageManager = packageManagerName(pm);
+
+    return status;
+}
+
+bool installDependencies(bool interactive)
+{
+    DependencyStatus status = checkDependencies();
+
+    if (status.missingPackages.empty()) {
+        return true;  // Nothing to install
+    }
+
+    if (!isRunningAsRoot()) {
+        // Can't install without root
+        return false;
+    }
+
+    // Run install command
+    CommandResult result = executeCommand(status.installCommand, 120000);  // 2 minute timeout
+
+    return result.exitCode == 0;
+}
+
+std::string getInstallScript()
+{
+    DependencyStatus status = checkDependencies();
+    bool isWayland = getenv("WAYLAND_DISPLAY") != nullptr;
+
+    std::string script = "#!/bin/bash\n";
+    script += "# ScreenControl Grid Tools Dependency Installer\n";
+    script += "# Display: " + status.displayServer + "\n";
+    script += "# Package Manager: " + status.packageManager + "\n\n";
+
+    if (status.missingPackages.empty()) {
+        script += "echo 'All dependencies are already installed!'\n";
+        script += "exit 0\n";
+    } else {
+        script += "echo 'Installing: " + status.missingPackages + "'\n";
+        script += status.installCommand + "\n";
+
+        if (isWayland) {
+            script += "\n# Verify ydotool daemon is running\n";
+            script += "if command -v ydotoold &> /dev/null; then\n";
+            script += "    if ! pgrep -x ydotoold > /dev/null; then\n";
+            script += "        echo 'Starting ydotool daemon...'\n";
+            script += "        sudo systemctl start ydotool || sudo ydotoold &\n";
+            script += "    fi\n";
+            script += "fi\n";
+        }
+
+        script += "\necho 'Installation complete!'\n";
+    }
+
+    return script;
+}
+
+} // namespace deps
+
 } // namespace platform
