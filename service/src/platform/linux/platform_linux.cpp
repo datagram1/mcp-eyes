@@ -1136,8 +1136,9 @@ bool clickAt(int x, int y, bool rightButton)
     return result.exitCode == 0;
 }
 
-// Click at grid cell
-bool clickGrid(const std::string& cell, int col, int row, int cols, int rows, bool rightButton)
+// Click at grid cell with optional offset
+bool clickGrid(const std::string& cell, int col, int row, int cols, int rows, bool rightButton,
+               int offsetX, int offsetY)
 {
     int targetCol = -1, targetRow = -1;
 
@@ -1162,13 +1163,194 @@ bool clickGrid(const std::string& cell, int col, int row, int cols, int rows, bo
     int screenWidth, screenHeight;
     getScreenSize(screenWidth, screenHeight);
 
-    // Calculate click position (center of cell)
+    // Calculate click position (center of cell) + offset
     float cellWidth = (float)screenWidth / cols;
     float cellHeight = (float)screenHeight / rows;
-    int clickX = (int)((targetCol + 0.5f) * cellWidth);
-    int clickY = (int)((targetRow + 0.5f) * cellHeight);
+    int clickX = (int)((targetCol + 0.5f) * cellWidth) + offsetX;
+    int clickY = (int)((targetRow + 0.5f) * cellHeight) + offsetY;
 
     return clickAt(clickX, clickY, rightButton);
+}
+
+// Get window geometry by title (partial match)
+static bool getWindowGeometry(const std::string& identifier, int& x, int& y, int& width, int& height)
+{
+    if (identifier.empty()) {
+        return false;
+    }
+
+    CommandResult result;
+
+    if (isWayland()) {
+        // Wayland: Limited window info available, try swaymsg or similar
+        result = executeCommand(
+            "swaymsg -t get_tree 2>/dev/null | grep -A 10 '\"name\": \".*" + identifier + ".*\"' | "
+            "grep -oP '\"rect\":\\s*\\{[^}]+\\}' | head -1", 5000);
+
+        if (result.exitCode == 0 && !result.stdoutData.empty()) {
+            // Parse JSON-like output: "rect": {"x":100,"y":200,"width":800,"height":600}
+            if (sscanf(result.stdoutData.c_str(),
+                       "\"rect\": {\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d}",
+                       &x, &y, &width, &height) == 4) {
+                return true;
+            }
+        }
+    } else {
+        // X11: Use xdotool to find window
+        result = executeCommand(
+            "xdotool search --name '" + identifier + "' 2>/dev/null | head -1", 5000);
+
+        if (result.exitCode == 0 && !result.stdoutData.empty()) {
+            std::string windowId = result.stdoutData;
+            windowId.erase(windowId.find_last_not_of(" \n\r\t") + 1);
+
+            // Get window geometry
+            result = executeCommand(
+                "xdotool getwindowgeometry --shell " + windowId + " 2>/dev/null", 5000);
+
+            if (result.exitCode == 0) {
+                // Parse shell output: X=100\nY=200\nWIDTH=800\nHEIGHT=600
+                std::string output = result.stdoutData;
+                int parsedX = 0, parsedY = 0, parsedW = 0, parsedH = 0;
+
+                size_t pos;
+                if ((pos = output.find("X=")) != std::string::npos) {
+                    parsedX = atoi(output.c_str() + pos + 2);
+                }
+                if ((pos = output.find("Y=")) != std::string::npos) {
+                    parsedY = atoi(output.c_str() + pos + 2);
+                }
+                if ((pos = output.find("WIDTH=")) != std::string::npos) {
+                    parsedW = atoi(output.c_str() + pos + 6);
+                }
+                if ((pos = output.find("HEIGHT=")) != std::string::npos) {
+                    parsedH = atoi(output.c_str() + pos + 7);
+                }
+
+                if (parsedW > 0 && parsedH > 0) {
+                    x = parsedX;
+                    y = parsedY;
+                    width = parsedW;
+                    height = parsedH;
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+// Focus window by title
+static bool focusWindow(const std::string& identifier)
+{
+    if (identifier.empty()) {
+        return false;
+    }
+
+    CommandResult result;
+
+    if (isWayland()) {
+        // Wayland: Try swaymsg
+        result = executeCommand(
+            "swaymsg '[title=\".*" + identifier + ".*\"] focus' 2>/dev/null", 5000);
+    } else {
+        // X11: Use xdotool
+        result = executeCommand(
+            "xdotool search --name '" + identifier + "' windowactivate 2>/dev/null", 5000);
+    }
+
+    return result.exitCode == 0;
+}
+
+// Click at coordinates relative to a window
+bool clickRelative(const std::string& identifier, int relX, int relY, bool rightButton, bool focus)
+{
+    int winX, winY, winWidth, winHeight;
+
+    if (!getWindowGeometry(identifier, winX, winY, winWidth, winHeight)) {
+        return false;
+    }
+
+    // Focus window if requested
+    if (focus) {
+        focusWindow(identifier);
+        usleep(100000); // 100ms delay for focus
+    }
+
+    // Calculate absolute coordinates
+    int absX = winX + relX;
+    int absY = winY + relY;
+
+    return clickAt(absX, absY, rightButton);
+}
+
+// Run OCR on image using tesseract
+std::string runOCR(const std::string& imagePath)
+{
+    // Check if tesseract is available
+    CommandResult checkResult = executeCommand("command -v tesseract 2>/dev/null", 3000);
+    if (checkResult.exitCode != 0) {
+        return ""; // Tesseract not installed
+    }
+
+    // Run tesseract OCR
+    std::string outputBase = "/tmp/ocr_" + std::to_string(time(nullptr));
+    CommandResult result = executeCommand(
+        "tesseract \"" + imagePath + "\" \"" + outputBase + "\" -l eng --psm 11 2>/dev/null", 30000);
+
+    if (result.exitCode != 0) {
+        return "";
+    }
+
+    // Read OCR output
+    std::string outputPath = outputBase + ".txt";
+    std::ifstream file(outputPath);
+    if (!file) {
+        return "";
+    }
+
+    std::string ocrText((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+    file.close();
+
+    // Clean up temp file
+    unlink(outputPath.c_str());
+
+    return ocrText;
+}
+
+// Take screenshot with grid overlay and OCR
+std::string screenshotWithGridAndOCR(int cols, int rows, std::string& errorMsg,
+                                      std::string& ocrText)
+{
+    cols = std::max(5, std::min(cols, 40));
+    rows = std::max(5, std::min(rows, 30));
+
+    // Take screenshot
+    std::string tempPath = "/tmp/screenshot_" + std::to_string(time(nullptr)) + ".png";
+    std::string screenshotPath = takeScreenshot(tempPath);
+
+    if (screenshotPath.empty()) {
+        errorMsg = "Failed to take screenshot. Ensure grim/scrot/gnome-screenshot is installed.";
+        return "";
+    }
+
+    // Run OCR on the original screenshot (before grid overlay)
+    ocrText = runOCR(screenshotPath);
+
+    // Add grid overlay
+    std::string gridPath = "/tmp/screenshot_grid_" + std::to_string(time(nullptr)) + ".png";
+    if (!addGridOverlay(screenshotPath, gridPath, cols, rows)) {
+        errorMsg = "Failed to add grid overlay. Ensure ImageMagick is installed.";
+        unlink(screenshotPath.c_str());
+        return "";
+    }
+
+    // Clean up temp file
+    unlink(screenshotPath.c_str());
+
+    return gridPath;
 }
 
 // Type text

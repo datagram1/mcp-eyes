@@ -243,6 +243,7 @@ namespace ScreenControlTray
                     "/screenshot_grid" => HandleScreenshotGrid(body),
                     "/click" => HandleClick(body),
                     "/click_grid" => HandleClickGrid(body),
+                    "/click_relative" => HandleClickRelative(body),
                     "/doubleClick" => HandleDoubleClick(body),
                     "/rightClick" => HandleRightClick(body),
                     "/typeText" => HandleTypeText(body),
@@ -425,6 +426,8 @@ namespace ScreenControlTray
                 int cols = options.TryGetProperty("columns", out var colsVal) ? colsVal.GetInt32() : 20;
                 int rows = options.TryGetProperty("rows", out var rowsVal) ? rowsVal.GetInt32() : 15;
                 string button = options.TryGetProperty("button", out var btnVal) ? btnVal.GetString() ?? "left" : "left";
+                int offsetX = options.TryGetProperty("offset_x", out var oxVal) ? oxVal.GetInt32() : 0;
+                int offsetY = options.TryGetProperty("offset_y", out var oyVal) ? oyVal.GetInt32() : 0;
 
                 // Parse cell reference (e.g., "E7")
                 int col = -1, rowNum = -1;
@@ -457,11 +460,11 @@ namespace ScreenControlTray
                 int screenWidth = SystemInformation.VirtualScreen.Width;
                 int screenHeight = SystemInformation.VirtualScreen.Height;
 
-                // Calculate click position (center of cell)
+                // Calculate click position (center of cell) + offset
                 float cellWidth = (float)screenWidth / cols;
                 float cellHeight = (float)screenHeight / rows;
-                int clickX = screenLeft + (int)((col + 0.5f) * cellWidth);
-                int clickY = screenTop + (int)((rowNum + 0.5f) * cellHeight);
+                int clickX = screenLeft + (int)((col + 0.5f) * cellWidth) + offsetX;
+                int clickY = screenTop + (int)((rowNum + 0.5f) * cellHeight) + offsetY;
 
                 // Perform click
                 SetCursorPos(clickX, clickY);
@@ -485,6 +488,7 @@ namespace ScreenControlTray
                     success = true,
                     cell = $"{(char)('A' + col)}{rowNum + 1}",
                     clickedAt = new { x = clickX, y = clickY },
+                    offset = new { x = offsetX, y = offsetY },
                     gridInfo = new
                     {
                         column = col + 1,
@@ -492,6 +496,96 @@ namespace ScreenControlTray
                         cellWidth,
                         cellHeight
                     }
+                }), "application/json");
+            }
+            catch (Exception ex)
+            {
+                return (JsonResponse(new { success = false, error = ex.Message }), "application/json");
+            }
+        }
+
+        private (byte[], string) HandleClickRelative(string body)
+        {
+            try
+            {
+                var options = JsonSerializer.Deserialize<JsonElement>(body);
+                int x = options.TryGetProperty("x", out var xVal) ? xVal.GetInt32() : 0;
+                int y = options.TryGetProperty("y", out var yVal) ? yVal.GetInt32() : 0;
+                string identifier = options.TryGetProperty("identifier", out var idVal) ? idVal.GetString() ?? "" : "";
+                string button = options.TryGetProperty("button", out var btnVal) ? btnVal.GetString() ?? "left" : "left";
+                bool focus = !options.TryGetProperty("focus", out var focusVal) || focusVal.GetBoolean();
+
+                // Find window by identifier (title)
+                IntPtr targetWindow = IntPtr.Zero;
+                RECT windowRect = default;
+                string matchedTitle = "";
+
+                if (!string.IsNullOrEmpty(identifier))
+                {
+                    EnumWindows((hWnd, lParam) =>
+                    {
+                        if (!IsWindowVisible(hWnd)) return true;
+
+                        var sb = new StringBuilder(256);
+                        GetWindowText(hWnd, sb, 256);
+                        string title = sb.ToString();
+
+                        if (string.IsNullOrWhiteSpace(title)) return true;
+
+                        // Case-insensitive partial match
+                        if (title.Contains(identifier, StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetWindow = hWnd;
+                            matchedTitle = title;
+                            GetWindowRect(hWnd, out windowRect);
+                            return false; // Stop enumeration
+                        }
+
+                        return true;
+                    }, IntPtr.Zero);
+                }
+
+                if (targetWindow == IntPtr.Zero)
+                {
+                    return (JsonResponse(new { success = false, error = $"Window not found: {identifier}" }), "application/json");
+                }
+
+                // Focus the window if requested
+                if (focus)
+                {
+                    SetForegroundWindow(targetWindow);
+                    Thread.Sleep(100);
+                }
+
+                // Calculate absolute coordinates
+                int absoluteX = windowRect.Left + x;
+                int absoluteY = windowRect.Top + y;
+
+                // Move cursor and click
+                SetCursorPos(absoluteX, absoluteY);
+                Thread.Sleep(10);
+
+                if (button == "right")
+                {
+                    mouse_event(MOUSEEVENTF_RIGHTDOWN, absoluteX, absoluteY, 0, 0);
+                    Thread.Sleep(10);
+                    mouse_event(MOUSEEVENTF_RIGHTUP, absoluteX, absoluteY, 0, 0);
+                }
+                else
+                {
+                    mouse_event(MOUSEEVENTF_LEFTDOWN, absoluteX, absoluteY, 0, 0);
+                    Thread.Sleep(10);
+                    mouse_event(MOUSEEVENTF_LEFTUP, absoluteX, absoluteY, 0, 0);
+                }
+
+                return (JsonResponse(new
+                {
+                    success = true,
+                    relativeCoords = new { x, y },
+                    absoluteCoords = new { x = absoluteX, y = absoluteY },
+                    windowBounds = new { x = windowRect.Left, y = windowRect.Top, width = windowRect.Right - windowRect.Left, height = windowRect.Bottom - windowRect.Top },
+                    focusPerformed = focus,
+                    identifier = matchedTitle
                 }), "application/json");
             }
             catch (Exception ex)
