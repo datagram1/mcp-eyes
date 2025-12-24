@@ -118,6 +118,7 @@ build_service() {
         src/tools/filesystem_tools.cpp
         src/tools/shell_tools.cpp
         src/tools/system_tools.cpp
+        src/screen/screen_stream.cpp
     )
 
     local platform_files=()

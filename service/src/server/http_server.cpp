@@ -245,8 +245,10 @@ void HttpServer::setupGuiRoutes()
             int cols = params.value("columns", 20);
             int rows = params.value("rows", 15);
             std::string button = params.value("button", "left");
+            int offsetX = params.value("offset_x", 0);
+            int offsetY = params.value("offset_y", 0);
 
-            bool success = platform::gui::clickGrid(cell, col, row, cols, rows, button == "right");
+            bool success = platform::gui::clickGrid(cell, col, row, cols, rows, button == "right", offsetX, offsetY);
 
             json response = {
                 {"success", success},
@@ -261,6 +263,37 @@ void HttpServer::setupGuiRoutes()
 #else
         // Windows/macOS: Proxy to GUI app
         auto result = proxyGuiRequest("/click_grid", req.body);
+        res.set_content(result, "application/json");
+#endif
+    });
+
+    // Click at coordinates relative to a window
+    m_server->Post("/click_relative", [this](const httplib::Request& req, httplib::Response& res) {
+#if PLATFORM_LINUX
+        try {
+            json params = req.body.empty() ? json::object() : json::parse(req.body);
+            std::string identifier = params.value("identifier", "");
+            int x = params.value("x", 0);
+            int y = params.value("y", 0);
+            std::string button = params.value("button", "left");
+            bool focus = params.value("focus", true);
+
+            bool success = platform::gui::clickRelative(identifier, x, y, button == "right", focus);
+
+            json response = {
+                {"success", success},
+                {"identifier", identifier},
+                {"x", x},
+                {"y", y}
+            };
+            res.set_content(response.dump(), "application/json");
+        } catch (const std::exception& e) {
+            json response = {{"success", false}, {"error", e.what()}};
+            res.set_content(response.dump(), "application/json");
+        }
+#else
+        // Windows/macOS: Proxy to GUI app
+        auto result = proxyGuiRequest("/click_relative", req.body);
         res.set_content(result, "application/json");
 #endif
     });

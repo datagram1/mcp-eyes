@@ -209,8 +209,12 @@ namespace gui {
     // Returns path to saved image, or empty string on failure
     std::string screenshotWithGrid(int cols, int rows, std::string& errorMsg);
 
-    // Click at grid cell (e.g., "E7" or col=5, row=7)
-    bool clickGrid(const std::string& cell, int col, int row, int cols, int rows, bool rightButton = false);
+    // Click at grid cell (e.g., "E7" or col=5, row=7) with optional offset
+    bool clickGrid(const std::string& cell, int col, int row, int cols, int rows, bool rightButton = false,
+                   int offsetX = 0, int offsetY = 0);
+
+    // Click at coordinates relative to a window
+    bool clickRelative(const std::string& identifier, int relX, int relY, bool rightButton = false, bool focus = true);
 
     // Click at absolute screen coordinates
     bool clickAt(int x, int y, bool rightButton = false);
