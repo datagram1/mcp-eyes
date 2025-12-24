@@ -114,7 +114,7 @@ app.prepare().then(() => {
     const localIPs = getLocalIPs();
     console.log(`
 ╔═══════════════════════════════════════════════════════════════════╗
-║               ScreenControl Server v1.5.0                         ║
+║               ScreenControl Server v1.6.0                         ║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║  Portal:      http://localhost:${port}                               ║
 ║  Agent WS:    ws://localhost:${port}/ws                              ║

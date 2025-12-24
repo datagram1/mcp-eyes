@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Get client IP
-  const headersList = headers();
+  const headersList = await headers();
   const remoteAddress =
     headersList.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     headersList.get('x-real-ip') ||

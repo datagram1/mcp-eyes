@@ -364,6 +364,21 @@ export default function AgentDetailPage({ params }: PageProps) {
       <div className="bg-slate-800 rounded-lg p-4">
         <h3 className="text-white font-medium mb-3">Actions</h3>
         <div className="flex flex-wrap gap-3">
+          {/* Connect Button - only for ONLINE + ACTIVE agents */}
+          {agent.status === 'ONLINE' && agent.state === 'ACTIVE' && (
+            <Link
+              href={`/dashboard/viewer/${agent.id}`}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            >
+              <span>Connect to Screen</span>
+            </Link>
+          )}
+
+          {/* Separator if connect is shown */}
+          {agent.status === 'ONLINE' && agent.state === 'ACTIVE' && (
+            <div className="w-px h-8 bg-slate-600 mx-2"></div>
+          )}
+
           {agent.state === 'PENDING' && (
             <button
               onClick={() => handleStateChange('ACTIVE')}

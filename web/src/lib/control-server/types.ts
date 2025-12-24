@@ -113,7 +113,8 @@ export interface PendingRequest {
 
 // Messages FROM agent TO control server
 export interface AgentMessage {
-  type: 'register' | 'response' | 'pong' | 'error' | 'heartbeat' | 'state_change' | 'tools_changed';
+  type: 'register' | 'response' | 'pong' | 'error' | 'heartbeat' | 'state_change' | 'tools_changed'
+      | 'stream_started' | 'stream_stopped' | 'stream_frame' | 'stream_cursor' | 'stream_error';
   id?: string;
 
   // Registration data

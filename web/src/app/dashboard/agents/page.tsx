@@ -375,6 +375,17 @@ export default function AgentsPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex justify-end space-x-2">
+                      {/* Connect button for online + active agents */}
+                      {agent.status === 'ONLINE' && agent.state === 'ACTIVE' && (
+                        <Link
+                          href={`/dashboard/viewer/${agent.id}`}
+                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                          title="Connect to screen"
+                        >
+                          Connect
+                        </Link>
+                      )}
+
                       {/* Activate button for PENDING agents */}
                       {agent.state === 'PENDING' && (
                         <button
