@@ -408,6 +408,38 @@ curl http://localhost:3459/screenshot
 
 ## Recent Changes
 
+### v1.6 (December 2024)
+
+- **Grid-Based Click Tools**: New visual interaction system for native apps and blocked websites
+  - `screenshot_grid` - Takes screenshot with grid overlay (A-T columns, 1-15 rows) + OCR text detection
+  - `click_grid` - Click by grid cell, element index, or text match with optional offset
+  - `click_relative` - Click at pixel coordinates relative to window (auto-converts to absolute)
+  - Window coordinate tracking - remembers window position from screenshot for accurate clicks
+  - Multi-window support via `window_title` parameter for apps like Firefox with DevTools
+
+- **Multi-Monitor Improvements**: Reliable clicking on secondary monitors
+  - Always warp cursor before clicking for consistent behavior
+  - Auto-focus window before click operations
+  - Support for negative X coordinates (monitors to the left)
+  - Case-insensitive app name matching for `focusApplication`
+
+- **Comprehensive Tool Descriptions**: LLM-friendly documentation in tool schemas
+  - Decision trees for choosing between similar tools
+  - "WHEN TO USE" guidance for every tool
+  - Categorized tools by function (screenshot, click, browser, filesystem, etc.)
+
+- **iOS Simulator Support**: Tested workflow for controlling iOS apps
+  - Toggle hardware keyboard (Cmd+K) to show software keyboard
+  - Tap individual keys using `click_relative` with pixel coordinates
+  - Works with any iOS app in Simulator
+
+- **VNC-Style Screen Streaming**: Real-time screen viewing (control server)
+  - Low-latency MJPEG streaming from agents to web dashboard
+  - Configurable quality and frame rate
+  - Multi-display support
+
+See [docs/grid-tools.md](docs/grid-tools.md) for detailed grid tool documentation.
+
 ### v1.5 (December 2024)
 
 - **Rescue Boot USB System**: Alpine Linux-based bootable rescue environment
