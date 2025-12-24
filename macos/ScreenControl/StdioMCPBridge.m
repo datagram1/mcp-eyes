@@ -1303,77 +1303,152 @@ static NSString *const kServerVersion = @"1.0.0";
 
 - (NSString *)getToolDescription:(NSString *)toolName {
     NSDictionary *descriptions = @{
-        // Desktop tools (token-safe: screenshots save to file by default)
-        @"screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
-        @"desktop_screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
-        @"screenshot_app": @"Take a screenshot of a specific application window. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
-        @"screenshot_grid": @"Take a screenshot with labeled grid overlay (A-T columns, 1-15 rows) + OCR element detection. Returns detected text mapped to grid cells. FALLBACK when browser_* tools fail - some sites block script injection. Use screenshot_grid + click_grid for direct mouse control. Response includes 'elements' array with {text, cell, column, row, centerX, centerY} for each detected element. NEW: Use window_title='text' to target a specific window when an app has multiple windows (e.g., window_title='Developer Tools' for Firefox DevTools).",
-        @"click": @"Click at normalized (0-1) coordinates relative to current app. Rarely used - prefer click_relative or click_grid instead.",
-        @"click_relative": @"Click at PIXEL coordinates relative to a window. WHEN TO USE: (1) You have pixel coords from screenshot_grid elements (centerX/centerY), (2) You visually identified a position in a screenshot, (3) OCR missed an element but you can estimate its position. Handles window offset automatically - no manual math. Example: click_relative(identifier='Simulator', x=365, y=890). Auto-focuses window (focus=true default). CHOOSE THIS OVER click_grid when: element wasn't detected by OCR, or you need sub-cell precision.",
-        @"click_grid": @"Click at a grid cell (e.g., 'E7') or detected element. WHEN TO USE: (1) OCR detected the element - use element_text='Button Text', (2) You can identify the grid cell from screenshot_grid overlay. BEST FOR: Text elements, buttons, links that OCR can read. Use element=INDEX or element_text='TEXT' for precise element center clicks. Use offset_x/offset_y to click relative to detected text (e.g., offset_y=60 for button below text). Auto-focuses window (focus=true default). CHOOSE THIS OVER click_relative when: OCR detected your target element.",
-        @"click_absolute": @"Click at absolute screen coordinates. WHEN TO USE: You already calculated or know the exact screen position. No window offset handling - coordinates must include window position. Rarely needed - prefer click_relative or click_grid.",
-        @"doubleClick": @"Double-click at coordinates",
-        @"clickElement": @"Click a UI element by index",
-        @"moveMouse": @"Move mouse to coordinates",
-        @"getMousePosition": @"Get current mouse position",
-        @"scroll": @"Scroll with delta values",
-        @"scrollMouse": @"Scroll up or down",
-        @"drag": @"Drag from one point to another",
-        @"getClickableElements": @"Get list of clickable UI elements",
-        @"getUIElements": @"Get all UI elements",
-        @"typeText": @"Type text using keyboard",
-        @"pressKey": @"Press a specific key",
-        @"analyzeWithOCR": @"Analyze screen with OCR",
-        @"listApplications": @"List running applications",
-        @"focusApplication": @"Focus an application",
-        @"launchApplication": @"Launch an application",
-        @"closeApp": @"Close an application",
-        @"currentApp": @"Get current focused application",
-        @"checkPermissions": @"Check accessibility permissions",
-        @"wait": @"Wait for specified milliseconds",
-        @"system_info": @"Get system information (OS, CPU, memory, hostname)",
-        @"window_list": @"List all open windows on the desktop",
-        @"clipboard_read": @"Read content from clipboard",
-        @"clipboard_write": @"Write content to clipboard",
+        // =====================================================================
+        // SCREENSHOT TOOLS - Understanding what's on screen
+        // Decision: browser_screenshot for web pages, screenshot_grid for clicking,
+        //           screenshot/screenshot_app for quick visual reference
+        // =====================================================================
+        @"screenshot": @"Take a full desktop screenshot. WHEN TO USE: Quick visual check of entire screen, multi-monitor debugging, seeing overall state. Returns file path (use Read tool to view). NOT FOR CLICKING - use screenshot_grid instead which provides coordinates.",
+        @"desktop_screenshot": @"Alias for screenshot. Take a full desktop screenshot for visual reference.",
+        @"screenshot_app": @"Screenshot a specific app window. WHEN TO USE: Focus on one app without desktop clutter, capture app state for documentation. Specify identifier='AppName' or bundle ID. Returns file path. NOT FOR CLICKING - use screenshot_grid with identifier instead.",
+        @"screenshot_grid": @"PRIMARY TOOL for clicking anything on screen. Takes screenshot with grid overlay (A-T columns, 1-15 rows) + OCR text detection. WORKFLOW: (1) Call screenshot_grid, (2) View image to see grid, (3) Use click_grid or click_relative to click. Returns 'elements' array with {text, centerX, centerY, cell} for detected text. USE FOR: Native apps (Simulator, Mail, Finder), websites when browser extension fails, any UI interaction. Multi-monitor safe. Use identifier='AppName' for specific app, window_title='text' for specific window.",
 
-        // Browser tools (token-safe: screenshots save to file, elements summarized by default)
-        // NOTE: Some sites block script injection - use screenshot_grid + click_grid as fallback
-        @"browser_navigate": @"Navigate browser to a URL",
-        @"browser_screenshot": @"Take a browser screenshot. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
-        @"browser_getVisibleText": @"Get visible text from a tab (use 'url' parameter to target background tab without switching). If fails, use screenshot_grid with OCR instead.",
-        @"browser_searchVisibleText": @"Search for text in a tab. If site blocks scripts, use screenshot_grid with OCR instead.",
-        @"browser_clickElement": @"Click an element in the browser. If fails (some sites block scripts), use screenshot_grid + click_grid for direct mouse control.",
-        @"browser_fillElement": @"Fill a form field. If fails, use click_grid to focus field then typeText.",
-        @"browser_getTabs": @"Get list of open tabs",
-        @"browser_getActiveTab": @"Get the active tab",
-        @"browser_focusTab": @"Focus a specific tab",
-        @"browser_createTab": @"Create a new tab",
-        @"browser_closeTab": @"Close a tab",
-        @"browser_go_back": @"Navigate back",
-        @"browser_go_forward": @"Navigate forward",
-        @"browser_get_visible_html": @"Get page HTML",
-        @"browser_executeScript": @"Execute JavaScript",
-        @"browser_listConnected": @"List connected browsers",
-        @"browser_getInteractiveElements": @"Get interactive elements. Returns summary with counts and key elements. If you need a specific element not in summary, use verbose:true (WARNING: high token count ~10k+)",
-        @"browser_getUIElements": @"Get UI elements. Returns summary with counts and key elements. If you need a specific element not in summary, use verbose:true (WARNING: high token count ~10k+)",
-        @"browser_listInteractiveElements": @"List interactive elements. Returns summary with counts and key elements. If you need a specific element not in summary, use verbose:true (WARNING: high token count ~10k+)",
+        // =====================================================================
+        // CLICK TOOLS - Interacting with UI elements
+        // Decision tree:
+        //   1. Web page + browser extension working → browser_clickElement
+        //   2. Native app OR browser extension blocked:
+        //      a. OCR detected text → click_grid with element_text
+        //      b. Icon/image (no text) → click_relative with pixel coords
+        //      c. Know grid cell from overlay → click_grid with cell
+        // =====================================================================
+        @"click_grid": @"Click using screenshot_grid reference. PREFERRED when OCR detected your target. USAGE: (1) element_text='Submit' - clicks detected text center, (2) cell='E7' - clicks grid cell center, (3) element=0 - clicks by index. Add offset_x/offset_y to adjust (e.g., offset_y=50 to click button below text). Auto-focuses window. BEST FOR: Buttons, links, menu items with readable text. Example: click_grid(element_text='Deploy Schema Changes')",
+        @"click_relative": @"Click at pixel coordinates within a window. PREFERRED when OCR missed your target (icons, images, small UI). Takes x,y in pixels relative to window top-left - automatically adds window offset. USAGE: click_relative(identifier='Simulator', x=91, y=880). Get coords from screenshot_grid elements (centerX/centerY) or visual estimation. Auto-focuses window. BEST FOR: Tab bar icons, toolbar buttons, images, anything OCR can't read.",
+        @"click_absolute": @"Click at absolute screen coordinates. RARELY NEEDED - prefer click_grid or click_relative. Use only when you've manually calculated screen position including window offset. Does not auto-focus window. For multi-monitor: negative X values are valid (secondary monitors to the left).",
+        @"click": @"LEGACY - avoid. Click at normalized 0-1 coordinates. Use click_relative for pixel coords or click_grid for element-based clicking.",
+        @"doubleClick": @"Double-click at coordinates. WHEN TO USE: Opening files in Finder, selecting words in text editors, activating items that need double-click. Coordinates are absolute screen position.",
+        @"clickElement": @"Click accessibility UI element by index. WHEN TO USE: After getUIElements returns indexed elements. Works with native macOS accessibility API. Less reliable than screenshot_grid approach for most use cases.",
 
-        // Filesystem tools
-        @"fs_list": @"List directory contents",
-        @"fs_read": @"Read a file",
-        @"fs_read_range": @"Read specific lines from a file",
-        @"fs_write": @"Write to a file",
-        @"fs_delete": @"Delete a file or directory",
-        @"fs_move": @"Move/rename a file",
-        @"fs_search": @"Search for files by pattern",
-        @"fs_grep": @"Search file contents",
-        @"fs_patch": @"Apply patches to a file",
+        // =====================================================================
+        // MOUSE & SCROLL TOOLS
+        // =====================================================================
+        @"moveMouse": @"Move mouse cursor without clicking. WHEN TO USE: Hover effects, tooltips, preparing for drag operations, visual feedback that mouse is in position.",
+        @"getMousePosition": @"Get current mouse cursor position. WHEN TO USE: Debugging click issues, understanding coordinate systems, verifying mouse moved to expected location.",
+        @"scroll": @"Scroll at specific location. WHEN TO USE: Scrolling within a specific area (not whole page), precise scroll control. Use deltaY negative=down, positive=up. Optionally specify x,y position to scroll at.",
+        @"scrollMouse": @"Simple scroll up/down. WHEN TO USE: Basic page scrolling, list navigation. direction='up' or 'down', amount=number of scroll units (default 3). Easier than scroll for simple cases.",
+        @"drag": @"Drag from one point to another. WHEN TO USE: Moving files, slider controls, resizing windows, drag-and-drop operations. Specify startX,startY,endX,endY as absolute coordinates.",
 
-        // Shell tools
-        @"shell_exec": @"Execute a shell command",
-        @"shell_start_session": @"Start an interactive shell session",
-        @"shell_send_input": @"Send input to a shell session",
-        @"shell_stop_session": @"Stop a shell session"
+        // =====================================================================
+        // KEYBOARD TOOLS
+        // =====================================================================
+        @"typeText": @"Type text using keyboard. WHEN TO USE: Filling form fields (after clicking to focus), entering search queries, typing in any text input. Works in any app. For special keys use pressKey instead. Pairs well with click_grid to focus field first.",
+        @"pressKey": @"Press a specific key. WHEN TO USE: Enter to submit, Tab to move focus, Escape to cancel, arrow keys for navigation, keyboard shortcuts. Supports: enter, tab, escape, space, delete, backspace, up, down, left, right, home, end, pageup, pagedown, f1-f12, plus modifiers.",
+
+        // =====================================================================
+        // APPLICATION MANAGEMENT
+        // Decision: Need to interact with app? Focus it first. App not running? Launch it.
+        // =====================================================================
+        @"listApplications": @"List all running applications with bundle IDs and window bounds. WHEN TO USE: Finding correct app identifier for other commands, seeing what's running, getting window positions for coordinate calculations.",
+        @"focusApplication": @"Bring an application to front. WHEN TO USE: Before interacting with an app, switching between apps, ensuring clicks go to right window. Handles multi-monitor and Spaces. Use bundle ID (com.apple.mail) or app name (Mail).",
+        @"launchApplication": @"Launch an application (or focus if already running). WHEN TO USE: Starting apps that aren't running, ensuring app is available for interaction. Use bundle ID or app name. Will focus if already running.",
+        @"closeApp": @"Close an application. WHEN TO USE: Cleaning up after task completion, closing apps blocking interaction, force quitting stuck apps (use force=true).",
+        @"currentApp": @"Get currently focused application info. WHEN TO USE: Debugging which app has focus, verifying focusApplication worked, understanding current state.",
+
+        // =====================================================================
+        // WINDOW & UI INSPECTION
+        // =====================================================================
+        @"window_list": @"List all open windows on desktop. WHEN TO USE: Finding window IDs, understanding multi-window apps, seeing window positions across monitors. More detailed than listApplications for window-specific info.",
+        @"getClickableElements": @"Get clickable UI elements via accessibility API. WHEN TO USE: Exploring native app UI structure, finding buttons/links programmatically. Returns indexed elements for clickElement. Less reliable than screenshot_grid for actual clicking.",
+        @"getUIElements": @"Get all UI elements via accessibility API. WHEN TO USE: Deep UI inspection, understanding app structure, accessibility testing. Can be verbose - prefer screenshot_grid for interaction.",
+        @"analyzeWithOCR": @"Run OCR on screen region. WHEN TO USE: Reading text from images, extracting text from non-standard UI, when browser_getVisibleText fails. screenshot_grid already includes OCR - use this for custom regions.",
+
+        // =====================================================================
+        // SYSTEM UTILITIES
+        // =====================================================================
+        @"checkPermissions": @"Check if accessibility permissions are granted. WHEN TO USE: Debugging why clicks don't work, initial setup verification, troubleshooting interaction failures.",
+        @"wait": @"Pause execution for milliseconds. WHEN TO USE: Waiting for animations, page loads, UI transitions, giving time for actions to complete. Use after clicks that trigger loading, navigation, or animations.",
+        @"system_info": @"Get system information (OS version, CPU, memory, hostname). WHEN TO USE: Understanding environment, debugging platform-specific issues, logging system state.",
+        @"clipboard_read": @"Read text from system clipboard. WHEN TO USE: Getting copied text, verifying copy operations worked, transferring data between apps via clipboard.",
+        @"clipboard_write": @"Write text to system clipboard. WHEN TO USE: Preparing text for paste operations, sharing data between apps, setting up for Cmd+V paste.",
+
+        // =====================================================================
+        // BROWSER TOOLS - For web interaction
+        // Decision: browser_* tools are FASTEST when extension is connected.
+        //           If they fail (site blocks scripts), fall back to screenshot_grid + click_grid
+        // =====================================================================
+        @"browser_navigate": @"Navigate browser to URL. WHEN TO USE: Opening web pages, changing sites, starting web workflows. Faster than clicking address bar + typing.",
+        @"browser_screenshot": @"Screenshot browser viewport. WHEN TO USE: Visual verification of page state, capturing page appearance. Returns file path. For clicking, prefer screenshot_grid which adds coordinates.",
+        @"browser_getVisibleText": @"Get all visible text from page. WHEN TO USE: Reading page content, finding text to search for, understanding page structure. If blocked, use screenshot_grid OCR instead. Use url= to target background tab.",
+        @"browser_searchVisibleText": @"Search for specific text in page. WHEN TO USE: Checking if text exists, finding elements by text content. Returns boolean. If blocked, use screenshot_grid OCR instead.",
+        @"browser_clickElement": @"Click element by selector. PRIMARY browser clicking method when extension works. WHEN TO USE: Clicking buttons, links, form elements by CSS selector or text. If fails with 'blocked' error, fall back to screenshot_grid + click_grid.",
+        @"browser_fillElement": @"Fill form field by selector. PRIMARY form filling method. WHEN TO USE: Text inputs, textareas, any typeable field. If fails, use click_grid to focus + typeText.",
+        @"browser_getTabs": @"List all open browser tabs. WHEN TO USE: Finding tab to work with, understanding browser state, getting tab IDs for other commands.",
+        @"browser_getActiveTab": @"Get currently active tab info. WHEN TO USE: Verifying correct tab is focused, getting current URL/title.",
+        @"browser_focusTab": @"Switch to specific tab. WHEN TO USE: Working with multiple tabs, switching context, bringing tab to front. Use tabId from browser_getTabs.",
+        @"browser_createTab": @"Open new tab. WHEN TO USE: Opening new pages without losing current tab, parallel browsing workflows.",
+        @"browser_closeTab": @"Close a tab. WHEN TO USE: Cleaning up, closing popups, finishing with a page.",
+        @"browser_go_back": @"Navigate back in history. WHEN TO USE: Returning to previous page, undoing navigation.",
+        @"browser_go_forward": @"Navigate forward in history. WHEN TO USE: After going back, returning to where you were.",
+        @"browser_get_visible_html": @"Get page HTML source. WHEN TO USE: Inspecting page structure, debugging selectors, understanding DOM.",
+        @"browser_executeScript": @"Run JavaScript in page. WHEN TO USE: Custom interactions, reading page state, complex operations not covered by other tools. Use carefully - can break page.",
+        @"browser_listConnected": @"Check which browsers have extension connected. WHEN TO USE: Verifying browser extension is working, debugging connection issues, choosing which browser to control.",
+        @"browser_getInteractiveElements": @"Get clickable/fillable elements. WHEN TO USE: Finding elements to interact with, understanding page structure, getting selectors. Returns summary by default - use verbose=true for full list (WARNING: high tokens).",
+        @"browser_getUIElements": @"Get UI elements from page. WHEN TO USE: Similar to getInteractiveElements. Returns summary by default.",
+        @"browser_listInteractiveElements": @"List interactive elements. WHEN TO USE: Alias for getInteractiveElements.",
+
+        // Additional browser tools with concise descriptions
+        @"browser_findTabByUrl": @"Find tab by URL pattern. WHEN TO USE: Locating specific tab without knowing tabId.",
+        @"browser_waitForSelector": @"Wait for element to appear. WHEN TO USE: After actions that load content, before interacting with dynamic elements.",
+        @"browser_waitForPageLoad": @"Wait for page to finish loading. WHEN TO USE: After navigation, ensuring page is ready for interaction.",
+        @"browser_isElementVisible": @"Check if element is visible. WHEN TO USE: Conditional logic based on element visibility.",
+        @"browser_selectOption": @"Select dropdown option. WHEN TO USE: Dropdown menus, select elements. Use value or text to specify option.",
+        @"browser_hover": @"Hover over element. WHEN TO USE: Triggering hover menus, tooltips, hover states.",
+        @"browser_drag": @"Drag element to position. WHEN TO USE: Drag-and-drop in web apps, sortable lists, sliders.",
+        @"browser_press_key": @"Press keyboard key in browser. WHEN TO USE: Keyboard navigation in web app, shortcuts, key-triggered actions.",
+        @"browser_upload_file": @"Upload file via file input. WHEN TO USE: File upload forms, attaching documents.",
+        @"browser_save_as_pdf": @"Save page as PDF. WHEN TO USE: Capturing page for records, generating reports.",
+        @"browser_getConsoleLogs": @"Get browser console logs. WHEN TO USE: Debugging, checking for errors, monitoring page behavior.",
+        @"browser_getNetworkRequests": @"Get network requests. WHEN TO USE: Debugging API calls, monitoring page traffic.",
+        @"browser_getLocalStorage": @"Read localStorage. WHEN TO USE: Inspecting stored data, debugging state.",
+        @"browser_getCookies": @"Get page cookies. WHEN TO USE: Session debugging, authentication state.",
+        @"browser_clickByText": @"Click element by text content. WHEN TO USE: When you know button/link text but not selector.",
+        @"browser_clickMultiple": @"Click multiple elements matching selector. WHEN TO USE: Batch operations like checking multiple checkboxes.",
+        @"browser_getFormData": @"Get current form values. WHEN TO USE: Reading filled form state, verifying input.",
+        @"browser_getFormStructure": @"Analyze form structure. WHEN TO USE: Understanding form fields before filling.",
+        @"browser_answerQuestions": @"Fill form intelligently. WHEN TO USE: Complex forms where you provide answers and it finds matching fields.",
+        @"browser_getDropdownOptions": @"Get options from dropdown. WHEN TO USE: Before selecting, to see available options.",
+        @"browser_openDropdownNative": @"Open dropdown via native click. WHEN TO USE: Dropdowns that don't respond to selectOption.",
+        @"browser_getPageInfo": @"Get page title, URL, etc. WHEN TO USE: Quick page identification.",
+        @"browser_inspectCurrentPage": @"Deep page inspection. WHEN TO USE: Comprehensive page analysis.",
+        @"browser_getPageContext": @"Get page context for AI understanding. WHEN TO USE: When you need structured page summary.",
+        @"browser_setWatchMode": @"Enable/disable page change monitoring. WHEN TO USE: Watching for dynamic updates.",
+        @"browser_setDefaultBrowser": @"Set which browser to use by default. WHEN TO USE: Configuring preferred browser for commands.",
+        @"browser_fillFormField": @"Fill specific form field. WHEN TO USE: Targeted field filling.",
+        @"browser_fillWithFallback": @"Fill with fallback methods. WHEN TO USE: When standard fill fails.",
+        @"browser_fillFormNative": @"Fill using native input events. WHEN TO USE: Fields that reject programmatic input.",
+        @"browser_clickElementWithDebug": @"Click with detailed debug output. WHEN TO USE: Debugging why clicks fail.",
+        @"browser_findElementWithDebug": @"Find element with debug info. WHEN TO USE: Understanding why selectors don't match.",
+
+        // =====================================================================
+        // FILESYSTEM TOOLS
+        // =====================================================================
+        @"fs_list": @"List directory contents. WHEN TO USE: Exploring file structure, finding files.",
+        @"fs_read": @"Read file contents. WHEN TO USE: Reading text files, configs, logs.",
+        @"fs_read_range": @"Read specific lines from file. WHEN TO USE: Large files, targeted reading.",
+        @"fs_write": @"Write content to file. WHEN TO USE: Creating/updating files.",
+        @"fs_delete": @"Delete file or directory. WHEN TO USE: Cleanup, removing files. Use recursive=true for directories.",
+        @"fs_move": @"Move or rename file. WHEN TO USE: Organizing files, renaming.",
+        @"fs_search": @"Search for files by pattern. WHEN TO USE: Finding files by name pattern (glob).",
+        @"fs_grep": @"Search file contents. WHEN TO USE: Finding text within files.",
+        @"fs_patch": @"Apply patch operations. WHEN TO USE: Programmatic file modifications.",
+
+        // =====================================================================
+        // SHELL TOOLS
+        // =====================================================================
+        @"shell_exec": @"Execute shell command and get output. WHEN TO USE: Running scripts, system commands, one-off operations.",
+        @"shell_start_session": @"Start interactive shell session. WHEN TO USE: Long-running processes, interactive commands that need input.",
+        @"shell_send_input": @"Send input to running shell session. WHEN TO USE: Providing input to interactive process.",
+        @"shell_stop_session": @"Stop shell session. WHEN TO USE: Ending interactive session, killing process."
     };
 
     return descriptions[toolName] ?: [NSString stringWithFormat:@"Execute %@ tool", toolName];
