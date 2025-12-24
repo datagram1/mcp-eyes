@@ -450,6 +450,63 @@ static NSString *const kServerVersion = @"1.0.0";
             BOOL success = [self.mcpServer clickAbsoluteX:x.floatValue y:y.floatValue rightButton:[button isEqualToString:@"right"]];
             return @{@"success": @(success)};
         }
+        if ([toolName isEqualToString:@"click_relative"]) {
+            // Click at pixel coordinates relative to a window
+            NSNumber *x = arguments[@"x"];
+            NSNumber *y = arguments[@"y"];
+            if (!x || !y) return @{@"error": @"x and y are required"};
+            NSString *identifier = arguments[@"identifier"];
+            NSString *button = arguments[@"button"] ?: @"left";
+            BOOL shouldFocus = arguments[@"focus"] ? [arguments[@"focus"] boolValue] : YES;
+
+            // Get window bounds
+            CGFloat offsetX = 0;
+            CGFloat offsetY = 0;
+            NSDictionary *windowBounds = nil;
+
+            if (identifier) {
+                CGWindowID windowID = [self.mcpServer getWindowIDForApp:identifier];
+                if (windowID != kCGNullWindowID) {
+                    windowBounds = [self.mcpServer getWindowBounds:windowID];
+                    if (windowBounds) {
+                        offsetX = [windowBounds[@"x"] floatValue];
+                        offsetY = [windowBounds[@"y"] floatValue];
+                    }
+                }
+            } else if (self.currentAppBounds) {
+                windowBounds = self.currentAppBounds;
+                offsetX = [self.currentAppBounds[@"x"] floatValue];
+                offsetY = [self.currentAppBounds[@"y"] floatValue];
+                identifier = self.currentAppBundleId;
+            }
+
+            if (!windowBounds) {
+                return @{@"error": @"No window bounds available. Either specify 'identifier' or call screenshot_grid first."};
+            }
+
+            // Calculate absolute coordinates
+            CGFloat absX = offsetX + x.floatValue;
+            CGFloat absY = offsetY + y.floatValue;
+
+            // Focus the window before clicking
+            BOOL focusPerformed = NO;
+            if (shouldFocus && identifier) {
+                focusPerformed = [self.mcpServer focusApplication:identifier];
+                usleep(100000); // 100ms delay after focus
+            }
+
+            // Perform click
+            BOOL success = [self.mcpServer clickAbsoluteX:absX y:absY rightButton:[button isEqualToString:@"right"]];
+
+            return @{
+                @"success": @(success),
+                @"relativeCoords": @{@"x": x, @"y": y},
+                @"absoluteCoords": @{@"x": @(absX), @"y": @(absY)},
+                @"windowBounds": windowBounds,
+                @"focusPerformed": @(focusPerformed),
+                @"identifier": identifier ?: @"none"
+            };
+        }
         if ([toolName isEqualToString:@"click_grid"]) {
             // Click using grid coordinates from screenshot_grid OR element index/text
             NSString *cellRef = arguments[@"cell"];
@@ -1172,7 +1229,7 @@ static NSString *const kServerVersion = @"1.0.0";
         @"gui": @[
             @"listApplications", @"focusApplication", @"launchApplication",
             @"screenshot", @"screenshot_app", @"screenshot_grid", @"click", @"click_absolute",
-            @"click_grid", @"doubleClick", @"clickElement", @"moveMouse", @"scroll",
+            @"click_relative", @"click_grid", @"doubleClick", @"clickElement", @"moveMouse", @"scroll",
             @"scrollMouse", @"drag", @"getClickableElements", @"getUIElements",
             @"getMousePosition", @"typeText", @"pressKey", @"analyzeWithOCR",
             @"checkPermissions", @"closeApp", @"wait",
@@ -1251,7 +1308,8 @@ static NSString *const kServerVersion = @"1.0.0";
         @"desktop_screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"screenshot_app": @"Take a screenshot of a specific application window. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"screenshot_grid": @"Take a screenshot with labeled grid overlay (A-T columns, 1-15 rows) + OCR element detection. Returns detected text mapped to grid cells. FALLBACK when browser_* tools fail - some sites block script injection. Use screenshot_grid + click_grid for direct mouse control. Response includes 'elements' array with {text, cell, column, row, centerX, centerY} for each detected element. NEW: Use window_title='text' to target a specific window when an app has multiple windows (e.g., window_title='Developer Tools' for Firefox DevTools).",
-        @"click": @"Click at coordinates relative to current app",
+        @"click": @"Click at normalized (0-1) coordinates relative to current app. Use click_relative for pixel coordinates.",
+        @"click_relative": @"Click at PIXEL coordinates relative to a window. Use this after screenshot_grid to click at specific pixel positions. Example: click_relative(identifier='Simulator', x=365, y=890). Auto-focuses window before clicking (focus=true by default). Returns both relative and absolute coordinates used.",
         @"click_grid": @"Click at a grid cell position (e.g., cell='E7'). FALLBACK when browser_clickElement fails - provides direct mouse control. Use after screenshot_grid to click by grid reference. Pass same 'identifier' as screenshot_grid for accurate window targeting. Use element=INDEX (0-based) or element_text='TEXT' for PRECISE clicking at detected element center instead of grid cell center. Use offset_x/offset_y to click relative to element (e.g., offset_y=60 to click 60px below detected text to hit a button that OCR missed). Use window_title to target specific windows in multi-window apps. Auto-focuses window before clicking (focus=true by default) - critical for multi-monitor setups and background windows. Set focus=false to skip focus.",
         @"click_absolute": @"Click at absolute screen coordinates",
         @"doubleClick": @"Double-click at coordinates",
@@ -1381,6 +1439,13 @@ static NSString *const kServerVersion = @"1.0.0";
         properties[@"columns"] = @{@"type": @"number", @"description": @"Number of grid columns (default: 20, range: 5-40)"};
         properties[@"rows"] = @{@"type": @"number", @"description": @"Number of grid rows (default: 15, range: 5-30)"};
         properties[@"return_base64"] = @{@"type": @"boolean", @"description": @"Return base64 instead of file path (default: false)"};
+    }
+    else if ([toolName isEqualToString:@"click_relative"]) {
+        properties[@"x"] = @{@"type": @"number", @"description": @"X coordinate in pixels relative to window (required)"};
+        properties[@"y"] = @{@"type": @"number", @"description": @"Y coordinate in pixels relative to window (required)"};
+        properties[@"identifier"] = @{@"type": @"string", @"description": @"App bundle ID or name (optional, uses current app from screenshot_grid if not specified)"};
+        properties[@"button"] = @{@"type": @"string", @"enum": @[@"left", @"right"], @"description": @"Mouse button (default: left)"};
+        properties[@"focus"] = @{@"type": @"boolean", @"description": @"Auto-focus the target window before clicking (default: true)"};
     }
     else if ([toolName isEqualToString:@"click_grid"]) {
         properties[@"cell"] = @{@"type": @"string", @"description": @"Grid cell reference (e.g., 'E7', 'A1', 'T15')"};
