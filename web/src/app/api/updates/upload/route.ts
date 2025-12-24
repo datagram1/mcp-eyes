@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes timeout for large uploads
 
 // Builds storage directory (configurable via env)
-const BUILDS_DIR = process.env.BUILDS_DIR || '/var/www/screencontrol/builds';
+const BUILDS_DIR = process.env.BUILDS_DIR || '/var/www/html/screencontrol/builds';
 
 // Internal network prefixes
 const INTERNAL_NETWORKS = ['192.168.10.', '192.168.11.', '127.0.0.1', '::1'];

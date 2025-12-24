@@ -513,6 +513,197 @@ static VMEnvironment gDetectedVMEnvironment = VMEnvironmentUnknown;
             }
             return [self storeScreenshotAndReturnURL:imageData];
         }
+        else if ([path isEqualToString:@"/screenshot_grid"]) {
+            // Screenshot with coordinate grid overlay
+            // Params: identifier (optional), columns (default 20), rows (default 15), return_base64
+            NSString *appIdentifier = params[@"identifier"];
+            NSInteger cols = params[@"columns"] ? [params[@"columns"] integerValue] : kDefaultGridColumns;
+            NSInteger rows = params[@"rows"] ? [params[@"rows"] integerValue] : kDefaultGridRows;
+
+            // Clamp grid size to reasonable values
+            cols = MAX(5, MIN(cols, 40));
+            rows = MAX(5, MIN(rows, 30));
+
+            NSData *imageData = nil;
+            CGFloat imageWidth = 0;
+            CGFloat imageHeight = 0;
+
+            if (appIdentifier) {
+                // Screenshot specific app
+                CGWindowID windowID = [self getWindowIDForApp:appIdentifier];
+                if (windowID != kCGNullWindowID) {
+                    imageData = [self takeScreenshotOfWindow:windowID];
+                    // Get window bounds for coordinate mapping
+                    NSDictionary *bounds = [self getWindowBounds:windowID];
+                    if (bounds) {
+                        imageWidth = [bounds[@"width"] floatValue];
+                        imageHeight = [bounds[@"height"] floatValue];
+                    }
+                }
+            } else if (self.currentAppBundleId) {
+                // Screenshot focused app
+                CGWindowID windowID = [self getWindowIDForCurrentApp];
+                if (windowID != kCGNullWindowID) {
+                    imageData = [self takeScreenshotOfWindow:windowID];
+                    if (self.currentAppBounds) {
+                        imageWidth = [self.currentAppBounds[@"width"] floatValue];
+                        imageHeight = [self.currentAppBounds[@"height"] floatValue];
+                    }
+                }
+            } else {
+                // Full screen screenshot
+                imageData = [self takeScreenshot];
+                // Use main screen size
+                NSScreen *mainScreen = [NSScreen mainScreen];
+                imageWidth = mainScreen.frame.size.width;
+                imageHeight = mainScreen.frame.size.height;
+            }
+
+            if (!imageData) {
+                return @{@"error": @"Failed to take screenshot"};
+            }
+
+            // Get actual image dimensions if we don't have bounds
+            if (imageWidth == 0 || imageHeight == 0) {
+                NSImage *img = [[NSImage alloc] initWithData:imageData];
+                if (img) {
+                    imageWidth = img.size.width;
+                    imageHeight = img.size.height;
+                }
+            }
+
+            // Run OCR on original image (before grid overlay) to detect text elements
+            BOOL skipOCR = [params[@"skip_ocr"] boolValue];
+            NSArray *detectedElements = @[];
+            if (!skipOCR) {
+                detectedElements = [self performOCRAndMapToGrid:imageData columns:cols rows:rows];
+            }
+
+            // Add grid overlay
+            NSData *gridImageData = [self addGridOverlayToImageData:imageData columns:cols rows:rows];
+            if (!gridImageData) {
+                return @{@"error": @"Failed to add grid overlay"};
+            }
+
+            // Build response
+            NSMutableDictionary *response = [NSMutableDictionary dictionary];
+            response[@"columns"] = @(cols);
+            response[@"rows"] = @(rows);
+            response[@"imageWidth"] = @(imageWidth);
+            response[@"imageHeight"] = @(imageHeight);
+            response[@"cellWidth"] = @(imageWidth / cols);
+            response[@"cellHeight"] = @(imageHeight / rows);
+
+            // Add detected elements with grid positions
+            if (detectedElements.count > 0) {
+                response[@"elements"] = detectedElements;
+                response[@"element_count"] = @(detectedElements.count);
+                response[@"usage"] = @"Elements detected with grid positions. Use click_grid(cell='XX') to click.";
+            } else {
+                response[@"elements"] = @[];
+                response[@"element_count"] = @0;
+                response[@"usage"] = @"No text detected. View image and use click_grid with cell reference like 'E7'";
+            }
+
+            BOOL returnBase64 = [params[@"return_base64"] boolValue];
+            if (returnBase64) {
+                response[@"image"] = [gridImageData base64EncodedStringWithOptions:0];
+                response[@"format"] = @"png";
+            } else {
+                NSDictionary *urlResult = [self storeScreenshotAndReturnURL:gridImageData];
+                [response addEntriesFromDictionary:urlResult];
+            }
+
+            return response;
+        }
+        else if ([path isEqualToString:@"/click_grid"]) {
+            // Click using grid coordinates
+            // Params: cell (e.g., "E7"), column (1-N), row (1-N), columns (grid size), rows (grid size)
+            NSString *cellRef = params[@"cell"];
+            NSNumber *column = params[@"column"];
+            NSNumber *row = params[@"row"];
+            NSInteger cols = params[@"columns"] ? [params[@"columns"] integerValue] : kDefaultGridColumns;
+            NSInteger rows = params[@"rows"] ? [params[@"rows"] integerValue] : kDefaultGridRows;
+            NSString *button = params[@"button"] ?: @"left";
+
+            if (!cellRef && (!column || !row)) {
+                return @{@"error": @"Either 'cell' (e.g., 'E7') or both 'column' and 'row' are required"};
+            }
+
+            // Get target dimensions
+            CGFloat targetWidth = 0;
+            CGFloat targetHeight = 0;
+            CGFloat offsetX = 0;
+            CGFloat offsetY = 0;
+
+            if (self.currentAppBounds) {
+                // Clicking within focused app
+                targetWidth = [self.currentAppBounds[@"width"] floatValue];
+                targetHeight = [self.currentAppBounds[@"height"] floatValue];
+                offsetX = [self.currentAppBounds[@"x"] floatValue];
+                offsetY = [self.currentAppBounds[@"y"] floatValue];
+            } else {
+                // Full screen
+                NSScreen *mainScreen = [NSScreen mainScreen];
+                targetWidth = mainScreen.frame.size.width;
+                targetHeight = mainScreen.frame.size.height;
+            }
+
+            // Convert grid reference to pixel coordinates
+            NSDictionary *coords = [self gridCoordinatesToPixels:cellRef
+                                                         column:column
+                                                            row:row
+                                                          width:targetWidth
+                                                         height:targetHeight
+                                                        columns:cols
+                                                           rows:rows];
+
+            if (coords[@"error"]) {
+                return coords;
+            }
+
+            // Calculate absolute screen position
+            CGFloat clickX = offsetX + [coords[@"pixelX"] floatValue];
+            CGFloat clickY = offsetY + [coords[@"pixelY"] floatValue];
+
+            // Perform the click using absolute coordinates
+            CGPoint point = CGPointMake(clickX, clickY);
+
+            if ([MCPServer shouldUseWarpForMouseControl]) {
+                CGWarpMouseCursorPosition(point);
+                usleep(10000);
+            }
+
+            BOOL rightButton = [button isEqualToString:@"right"];
+            CGEventRef mouseDown, mouseUp;
+            if (rightButton) {
+                mouseDown = CGEventCreateMouseEvent(NULL, kCGEventRightMouseDown, point, kCGMouseButtonRight);
+                mouseUp = CGEventCreateMouseEvent(NULL, kCGEventRightMouseUp, point, kCGMouseButtonRight);
+            } else {
+                mouseDown = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, point, kCGMouseButtonLeft);
+                mouseUp = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseUp, point, kCGMouseButtonLeft);
+            }
+
+            BOOL success = (mouseDown && mouseUp);
+            if (success) {
+                CGEventPost(kCGHIDEventTap, mouseDown);
+                usleep(50000);
+                CGEventPost(kCGHIDEventTap, mouseUp);
+            }
+
+            if (mouseDown) CFRelease(mouseDown);
+            if (mouseUp) CFRelease(mouseUp);
+
+            return @{
+                @"success": @(success),
+                @"cell": cellRef ?: [NSString stringWithFormat:@"%c%ld", (char)('A' + [column integerValue] - 1), (long)[row integerValue]],
+                @"clickedAt": @{
+                    @"x": @(clickX),
+                    @"y": @(clickY)
+                },
+                @"gridInfo": coords
+            };
+        }
         else if ([path isEqualToString:@"/click"]) {
             NSNumber *x = params[@"x"];
             NSNumber *y = params[@"y"];
@@ -999,7 +1190,7 @@ static VMEnvironment gDetectedVMEnvironment = VMEnvironmentUnknown;
 
     for (NSRunningApplication *app in runningApps) {
         if ([app.bundleIdentifier isEqualToString:identifier] ||
-            [app.localizedName isEqualToString:identifier]) {
+            [app.localizedName caseInsensitiveCompare:identifier] == NSOrderedSame) {
 
             // Unhide the app first if hidden
             if (app.isHidden) {
@@ -1201,6 +1392,250 @@ static VMEnvironment gDetectedVMEnvironment = VMEnvironmentUnknown;
     return pngData;
 }
 
+#pragma mark - Grid Overlay System
+
+// Default grid size (columns x rows)
+static const NSInteger kDefaultGridColumns = 20;
+static const NSInteger kDefaultGridRows = 15;
+
+- (NSData *)addGridOverlayToImageData:(NSData *)imageData columns:(NSInteger)cols rows:(NSInteger)rows {
+    if (!imageData) return nil;
+
+    // Create image from data
+    NSImage *image = [[NSImage alloc] initWithData:imageData];
+    if (!image) return nil;
+
+    NSSize imageSize = image.size;
+
+    // Create a new image to draw on
+    NSImage *gridImage = [[NSImage alloc] initWithSize:imageSize];
+    [gridImage lockFocus];
+
+    // Draw original image
+    [image drawAtPoint:NSZeroPoint fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
+
+    // Calculate cell dimensions
+    CGFloat cellWidth = imageSize.width / cols;
+    CGFloat cellHeight = imageSize.height / rows;
+
+    // Set up drawing attributes for grid lines
+    [[NSColor colorWithRed:1.0 green:0.0 blue:0.0 alpha:0.4] setStroke];
+    NSBezierPath *gridPath = [NSBezierPath bezierPath];
+    [gridPath setLineWidth:1.0];
+
+    // Draw vertical lines
+    for (NSInteger col = 0; col <= cols; col++) {
+        CGFloat x = col * cellWidth;
+        [gridPath moveToPoint:NSMakePoint(x, 0)];
+        [gridPath lineToPoint:NSMakePoint(x, imageSize.height)];
+    }
+
+    // Draw horizontal lines
+    for (NSInteger row = 0; row <= rows; row++) {
+        CGFloat y = row * cellHeight;
+        [gridPath moveToPoint:NSMakePoint(0, y)];
+        [gridPath lineToPoint:NSMakePoint(imageSize.width, y)];
+    }
+
+    [gridPath stroke];
+
+    // Draw labels
+    NSDictionary *labelAttrs = @{
+        NSFontAttributeName: [NSFont boldSystemFontOfSize:MAX(10, MIN(cellWidth, cellHeight) / 4)],
+        NSForegroundColorAttributeName: [NSColor colorWithRed:1.0 green:1.0 blue:0.0 alpha:0.9],
+        NSBackgroundColorAttributeName: [NSColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:0.6]
+    };
+
+    // Draw column labels (A-T or numbers for larger grids) at top
+    for (NSInteger col = 0; col < cols; col++) {
+        NSString *colLabel;
+        if (cols <= 26) {
+            colLabel = [NSString stringWithFormat:@"%c", (char)('A' + col)];
+        } else {
+            colLabel = [NSString stringWithFormat:@"%ld", (long)(col + 1)];
+        }
+
+        CGFloat x = col * cellWidth + cellWidth / 2 - 6;
+        // Note: NSImage coordinates are flipped (origin at bottom-left)
+        CGFloat y = imageSize.height - cellHeight / 2 - 8;  // Top row
+
+        NSRect labelRect = NSMakeRect(x - 2, y - 2, 16, 16);
+        [[NSColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:0.7] setFill];
+        NSRectFill(labelRect);
+        [colLabel drawAtPoint:NSMakePoint(x, y) withAttributes:labelAttrs];
+    }
+
+    // Draw row labels (1-N) on left side
+    for (NSInteger row = 0; row < rows; row++) {
+        NSString *rowLabel = [NSString stringWithFormat:@"%ld", (long)(row + 1)];
+
+        CGFloat x = 4;
+        // Rows are numbered top-to-bottom, but NSImage Y is bottom-to-top
+        CGFloat y = imageSize.height - (row + 1) * cellHeight + cellHeight / 2 - 8;
+
+        NSRect labelRect = NSMakeRect(x - 2, y - 2, rowLabel.length > 1 ? 20 : 14, 16);
+        [[NSColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:0.7] setFill];
+        NSRectFill(labelRect);
+        [rowLabel drawAtPoint:NSMakePoint(x, y) withAttributes:labelAttrs];
+    }
+
+    [gridImage unlockFocus];
+
+    // Convert back to PNG data
+    NSBitmapImageRep *rep = [NSBitmapImageRep imageRepWithData:[gridImage TIFFRepresentation]];
+    return [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+}
+
+- (NSDictionary *)gridCoordinatesToPixels:(NSString *)gridRef
+                                   column:(NSNumber *)colNum
+                                      row:(NSNumber *)rowNum
+                                    width:(CGFloat)width
+                                   height:(CGFloat)height
+                                  columns:(NSInteger)cols
+                                     rows:(NSInteger)rows {
+    NSInteger col = -1;
+    NSInteger row = -1;
+
+    // Parse grid reference (e.g., "E7", "A1", "T15")
+    if (gridRef && gridRef.length >= 2) {
+        NSString *upperRef = [gridRef uppercaseString];
+        unichar colChar = [upperRef characterAtIndex:0];
+
+        if (colChar >= 'A' && colChar <= 'Z') {
+            col = colChar - 'A';
+            row = [[upperRef substringFromIndex:1] integerValue] - 1;  // Convert to 0-indexed
+        }
+    }
+
+    // Override with explicit column/row if provided
+    if (colNum) col = [colNum integerValue] - 1;  // Convert to 0-indexed
+    if (rowNum) row = [rowNum integerValue] - 1;  // Convert to 0-indexed
+
+    if (col < 0 || col >= cols || row < 0 || row >= rows) {
+        return @{@"error": [NSString stringWithFormat:@"Invalid grid reference. Column must be A-%c or 1-%ld, row must be 1-%ld",
+                           (char)('A' + cols - 1), (long)cols, (long)rows]};
+    }
+
+    // Calculate pixel coordinates (center of the cell)
+    CGFloat cellWidth = width / cols;
+    CGFloat cellHeight = height / rows;
+
+    CGFloat pixelX = (col + 0.5) * cellWidth;
+    CGFloat pixelY = (row + 0.5) * cellHeight;
+
+    // Also return normalized coordinates (0-1)
+    CGFloat normalizedX = pixelX / width;
+    CGFloat normalizedY = pixelY / height;
+
+    return @{
+        @"column": @(col + 1),
+        @"row": @(row + 1),
+        @"pixelX": @(pixelX),
+        @"pixelY": @(pixelY),
+        @"normalizedX": @(normalizedX),
+        @"normalizedY": @(normalizedY),
+        @"cellWidth": @(cellWidth),
+        @"cellHeight": @(cellHeight)
+    };
+}
+
+- (NSArray *)performOCRAndMapToGrid:(NSData *)imageData
+                            columns:(NSInteger)cols
+                               rows:(NSInteger)rows {
+    if (!imageData) return @[];
+
+    // Create CGImage from PNG data
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)imageData, NULL);
+    if (!source) return @[];
+
+    CGImageRef cgImage = CGImageSourceCreateImageAtIndex(source, 0, NULL);
+    CFRelease(source);
+    if (!cgImage) return @[];
+
+    CGFloat imageWidth = CGImageGetWidth(cgImage);
+    CGFloat imageHeight = CGImageGetHeight(cgImage);
+    CGFloat cellWidth = imageWidth / cols;
+    CGFloat cellHeight = imageHeight / rows;
+
+    __block NSMutableArray *mappedResults = [NSMutableArray array];
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+
+    VNRecognizeTextRequest *request = [[VNRecognizeTextRequest alloc] initWithCompletionHandler:^(VNRequest *request, NSError *error) {
+        if (!error) {
+            for (VNRecognizedTextObservation *observation in request.results) {
+                VNRecognizedText *topCandidate = [[observation topCandidates:1] firstObject];
+                if (topCandidate && topCandidate.confidence > 0.3) {
+                    CGRect boundingBox = observation.boundingBox;
+
+                    // Convert normalized coords (origin bottom-left) to pixels (origin top-left)
+                    CGFloat x = boundingBox.origin.x * imageWidth;
+                    CGFloat y = (1 - boundingBox.origin.y - boundingBox.size.height) * imageHeight;
+                    CGFloat width = boundingBox.size.width * imageWidth;
+                    CGFloat height = boundingBox.size.height * imageHeight;
+
+                    // Calculate center point
+                    CGFloat centerX = x + width / 2;
+                    CGFloat centerY = y + height / 2;
+
+                    // Map to grid cell
+                    NSInteger col = (NSInteger)(centerX / cellWidth);
+                    NSInteger row = (NSInteger)(centerY / cellHeight);
+
+                    // Clamp to valid range
+                    col = MAX(0, MIN(col, cols - 1));
+                    row = MAX(0, MIN(row, rows - 1));
+
+                    // Create cell reference (e.g., "E7")
+                    NSString *cellRef;
+                    if (cols <= 26) {
+                        cellRef = [NSString stringWithFormat:@"%c%ld", (char)('A' + col), (long)(row + 1)];
+                    } else {
+                        cellRef = [NSString stringWithFormat:@"%ld,%ld", (long)(col + 1), (long)(row + 1)];
+                    }
+
+                    [mappedResults addObject:@{
+                        @"text": topCandidate.string,
+                        @"cell": cellRef,
+                        @"column": @(col + 1),
+                        @"row": @(row + 1),
+                        @"confidence": @(topCandidate.confidence),
+                        @"centerX": @(centerX),
+                        @"centerY": @(centerY),
+                        @"bounds": @{
+                            @"x": @((NSInteger)x),
+                            @"y": @((NSInteger)y),
+                            @"width": @((NSInteger)width),
+                            @"height": @((NSInteger)height)
+                        }
+                    }];
+                }
+            }
+        }
+        dispatch_semaphore_signal(semaphore);
+    }];
+
+    request.recognitionLevel = VNRequestTextRecognitionLevelFast;  // Fast for responsiveness
+    request.usesLanguageCorrection = NO;  // Faster without language correction
+
+    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:cgImage options:@{}];
+    [handler performRequests:@[request] error:nil];
+
+    dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
+    CGImageRelease(cgImage);
+
+    // Sort by row then column for easier reading
+    [mappedResults sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+        NSInteger rowA = [a[@"row"] integerValue];
+        NSInteger rowB = [b[@"row"] integerValue];
+        if (rowA != rowB) return rowA < rowB ? NSOrderedAscending : NSOrderedDescending;
+        NSInteger colA = [a[@"column"] integerValue];
+        NSInteger colB = [b[@"column"] integerValue];
+        return colA < colB ? NSOrderedAscending : NSOrderedDescending;
+    }];
+
+    return mappedResults;
+}
+
 - (CGWindowID)getWindowIDForCurrentApp {
     if (!self.currentAppBundleId) return kCGNullWindowID;
     return [self getWindowIDForApp:self.currentAppBundleId];
@@ -1251,6 +1686,91 @@ static VMEnvironment gDetectedVMEnvironment = VMEnvironmentUnknown;
     
     CFRelease(windowList);
     return windowID;
+}
+
+- (CGWindowID)getWindowIDForApp:(NSString *)identifier withTitle:(NSString *)titleSubstring {
+    // Find the app by bundle ID or name
+    NSRunningApplication *app = nil;
+    for (NSRunningApplication *runningApp in [[NSWorkspace sharedWorkspace] runningApplications]) {
+        if ([runningApp.bundleIdentifier isEqualToString:identifier] ||
+            [runningApp.localizedName caseInsensitiveCompare:identifier] == NSOrderedSame) {
+            app = runningApp;
+            break;
+        }
+    }
+
+    if (!app) return kCGNullWindowID;
+
+    // Get window list and find a window matching the title
+    CFArrayRef windowList = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID
+    );
+
+    if (!windowList) return kCGNullWindowID;
+
+    CGWindowID windowID = kCGNullWindowID;
+    NSNumber *targetPID = @(app.processIdentifier);
+    NSString *lowerTitle = [titleSubstring lowercaseString];
+
+    // Find window matching title substring (case-insensitive)
+    for (NSDictionary *window in (__bridge NSArray *)windowList) {
+        NSNumber *ownerPID = window[(__bridge NSString *)kCGWindowOwnerPID];
+        if ([ownerPID isEqual:targetPID]) {
+            NSString *windowName = window[(__bridge NSString *)kCGWindowName];
+            NSNumber *windowIDNum = window[(__bridge NSString *)kCGWindowNumber];
+
+            if (windowIDNum && windowName) {
+                NSString *lowerWindowName = [windowName lowercaseString];
+                if ([lowerWindowName containsString:lowerTitle]) {
+                    windowID = windowIDNum.unsignedIntValue;
+                    NSLog(@"[MCPServer] Found window matching title '%@': '%@' (ID: %u)",
+                          titleSubstring, windowName, windowID);
+                    break;
+                }
+            }
+        }
+    }
+
+    CFRelease(windowList);
+
+    if (windowID == kCGNullWindowID) {
+        NSLog(@"[MCPServer] No window found matching title '%@' for app '%@'", titleSubstring, identifier);
+    }
+
+    return windowID;
+}
+
+- (NSDictionary *)getWindowBounds:(CGWindowID)windowID {
+    if (windowID == kCGNullWindowID) return nil;
+
+    CFArrayRef windowList = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionIncludingWindow,
+        windowID
+    );
+
+    if (!windowList) return nil;
+
+    NSDictionary *result = nil;
+
+    for (NSDictionary *window in (__bridge NSArray *)windowList) {
+        NSNumber *windowIDNum = window[(__bridge NSString *)kCGWindowNumber];
+        if (windowIDNum && windowIDNum.unsignedIntValue == windowID) {
+            NSDictionary *bounds = window[(__bridge NSString *)kCGWindowBounds];
+            if (bounds) {
+                result = @{
+                    @"x": bounds[@"X"] ?: @0,
+                    @"y": bounds[@"Y"] ?: @0,
+                    @"width": bounds[@"Width"] ?: @0,
+                    @"height": bounds[@"Height"] ?: @0
+                };
+            }
+            break;
+        }
+    }
+
+    CFRelease(windowList);
+    return result;
 }
 
 - (NSData *)takeScreenshotOfWindow:(CGWindowID)windowID {
@@ -1968,11 +2488,13 @@ static VMEnvironment gDetectedVMEnvironment = VMEnvironmentUnknown;
     // Click at absolute screen coordinates (in pixels)
     CGPoint clickPoint = CGPointMake(x, y);
 
-    // In VM environments, warp cursor first for reliable click positioning
-    if ([MCPServer shouldUseWarpForMouseControl]) {
-        CGWarpMouseCursorPosition(clickPoint);
-        usleep(10000); // Brief delay after warp
-    }
+    // Always warp cursor to target position first for reliable clicking
+    // This is critical for:
+    // 1. Multi-monitor setups (especially with negative X coordinates on secondary monitors)
+    // 2. Windows that aren't currently under the mouse cursor
+    // 3. VM environments
+    CGWarpMouseCursorPosition(clickPoint);
+    usleep(50000); // 50ms delay after warp to ensure cursor position is updated
 
     CGEventRef mouseDown;
     CGEventRef mouseUp;

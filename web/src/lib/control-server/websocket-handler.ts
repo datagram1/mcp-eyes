@@ -4,13 +4,14 @@
  * Handles incoming WebSocket connections from agents.
  */
 
-import { WebSocket } from 'ws';
+import { WebSocket, RawData } from 'ws';
 import { IncomingMessage } from 'http';
-import { AgentMessage, ConnectedAgent } from './types';
+import { AgentMessage, ConnectedAgent, StreamAgentResponse } from './types';
 import { NetworkUtils } from './network';
 import { LocalAgentRegistry } from './agent-registry';
 import { checkLicenseStatus } from './db-service';
 import { checkUpdateAvailable } from './update-service';
+import { streamSessionManager } from './stream-session-manager';
 
 /**
  * Handle a new agent WebSocket connection
@@ -191,6 +192,21 @@ export function handleAgentConnection(
           }
           break;
 
+        // Streaming messages from agent
+        case 'stream_started':
+        case 'stream_stopped':
+        case 'stream_frame':
+        case 'stream_cursor':
+        case 'stream_error':
+          if (agent) {
+            const streamMsg = msg as unknown as StreamAgentResponse;
+            // Relay to stream session manager
+            // Note: For stream_frame, binary data follows the JSON message
+            // This will be handled in a separate binary message handler
+            streamSessionManager.handleAgentFrame(agent.id, streamMsg);
+          }
+          break;
+
         default:
           console.warn(`[WS] Unknown message type: ${msg.type}`);
       }
@@ -202,6 +218,8 @@ export function handleAgentConnection(
   // Handle disconnect
   socket.on('close', async (code, reason) => {
     if (agent) {
+      // End any active streaming sessions for this agent
+      streamSessionManager.handleAgentDisconnect(agent.id);
       await registry.unregister(agent.id);
     }
     console.log(`[WS] Connection closed: ${code} ${reason.toString()}`);

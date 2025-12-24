@@ -39,7 +39,23 @@
 - (NSData *)takeScreenshot;
 - (NSData *)takeScreenshotOfWindow:(CGWindowID)windowID;
 - (CGWindowID)getWindowIDForApp:(NSString *)identifier;
+- (CGWindowID)getWindowIDForApp:(NSString *)identifier withTitle:(NSString *)titleSubstring;
 - (CGWindowID)getWindowIDForCurrentApp;
+- (NSDictionary *)getWindowBounds:(CGWindowID)windowID;
+
+// Grid overlay for visual coordinate-based clicking
+- (NSData *)addGridOverlayToImageData:(NSData *)imageData columns:(NSInteger)cols rows:(NSInteger)rows;
+- (NSDictionary *)gridCoordinatesToPixels:(NSString *)gridRef
+                                   column:(NSNumber *)colNum
+                                      row:(NSNumber *)rowNum
+                                    width:(CGFloat)width
+                                   height:(CGFloat)height
+                                  columns:(NSInteger)cols
+                                     rows:(NSInteger)rows;
+- (NSArray *)performOCRAndMapToGrid:(NSData *)imageData
+                            columns:(NSInteger)cols
+                               rows:(NSInteger)rows;
+
 - (BOOL)clickAtX:(CGFloat)x y:(CGFloat)y rightButton:(BOOL)rightButton;
 - (BOOL)clickAbsoluteX:(CGFloat)x y:(CGFloat)y rightButton:(BOOL)rightButton;
 - (BOOL)doubleClickAtX:(CGFloat)x y:(CGFloat)y;

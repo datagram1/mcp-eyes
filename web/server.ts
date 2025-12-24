@@ -10,7 +10,9 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleAgentConnection } from './src/lib/control-server/websocket-handler';
+import { handleStreamConnection } from './src/lib/control-server/stream-websocket-handler';
 import { agentRegistry } from './src/lib/control-server/agent-registry';
+import { streamSessionManager } from './src/lib/control-server/stream-session-manager';
 import os from 'os';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -44,24 +46,33 @@ app.prepare().then(() => {
   });
 
   // WebSocket server for agent connections
-  const wss = new WebSocketServer({ noServer: true });
+  const wssAgents = new WebSocketServer({ noServer: true });
+
+  // WebSocket server for stream viewers
+  const wssStream = new WebSocketServer({ noServer: true });
 
   // Handle upgrade requests
   server.on('upgrade', (req, socket, head) => {
     const { pathname } = parse(req.url || '');
 
     if (pathname === '/ws') {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
+      // Agent connections
+      wssAgents.handleUpgrade(req, socket, head, (ws) => {
+        wssAgents.emit('connection', ws, req);
+      });
+    } else if (pathname === '/ws/stream') {
+      // Viewer stream connections
+      wssStream.handleUpgrade(req, socket, head, (ws) => {
+        wssStream.emit('connection', ws, req);
       });
     } else {
-      // Reject non-/ws WebSocket connections
+      // Reject unknown WebSocket paths
       socket.destroy();
     }
   });
 
-  // Handle WebSocket connections
-  wss.on('connection', (ws: WebSocket, req) => {
+  // Handle agent WebSocket connections
+  wssAgents.on('connection', (ws: WebSocket, req) => {
     // Enable TCP keepalive to help maintain NAT entries
     // @ts-ignore - accessing underlying socket
     const socket = (ws as any)._socket;
@@ -69,6 +80,11 @@ app.prepare().then(() => {
       socket.setKeepAlive(true, 10000); // 10 second keepalive interval
     }
     handleAgentConnection(ws, req, agentRegistry);
+  });
+
+  // Handle viewer stream WebSocket connections
+  wssStream.on('connection', (ws: WebSocket, req) => {
+    handleStreamConnection(ws, req);
   });
 
   // Heartbeat interval for connected agents - sends both:
@@ -91,16 +107,18 @@ app.prepare().then(() => {
   server.on('close', () => {
     clearInterval(heartbeatInterval);
     agentRegistry.cleanup();
+    streamSessionManager.cleanup();
   });
 
   server.listen(port, hostname, () => {
     const localIPs = getLocalIPs();
     console.log(`
 ╔═══════════════════════════════════════════════════════════════════╗
-║               ScreenControl Server v1.0.0                         ║
+║               ScreenControl Server v1.5.0                         ║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║  Portal:      http://localhost:${port}                               ║
-║  WebSocket:   ws://localhost:${port}/ws                              ║
+║  Agent WS:    ws://localhost:${port}/ws                              ║
+║  Stream WS:   ws://localhost:${port}/ws/stream                       ║
 ║  API:         http://localhost:${port}/api                           ║
 ║  Environment: ${dev ? 'development' : 'production'}                                          ║
 ╠═══════════════════════════════════════════════════════════════════╣

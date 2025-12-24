@@ -201,3 +201,131 @@ export interface IAgentRegistry {
   // Cleanup
   cleanup(): void;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Streaming Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface StreamSession {
+  id: string;                    // Session ID
+  agentId: string;               // Database agent ID
+  viewerSocket: WebSocket;       // Viewer's WebSocket connection
+  viewerAddress: string;         // Viewer's IP
+  userId?: string;               // Authenticated user ID
+  displayId: number;             // Which display to stream
+  quality: number;               // Stream quality (0-100)
+  maxFps: number;                // Max FPS
+  createdAt: Date;
+  lastActivity: Date;
+
+  // Statistics
+  framesRelayed: number;
+  bytesRelayed: number;
+  inputEventsRelayed: number;
+}
+
+// Messages FROM viewer TO control server
+export interface ViewerMessage {
+  type: 'stream_start' | 'stream_stop' | 'input' | 'ping' | 'quality_change' | 'refresh';
+  sessionToken?: string;         // Auth token from /api/stream/connect
+  agentId?: string;              // Target agent
+
+  // Stream config (for stream_start)
+  displayId?: number;
+  quality?: number;
+  maxFps?: number;
+
+  // Input events (for input)
+  inputType?: 'mouse' | 'keyboard';
+  x?: number;
+  y?: number;
+  button?: number;               // Mouse button
+  buttons?: number;              // Button state
+  deltaX?: number;               // Scroll
+  deltaY?: number;
+  keyCode?: number;
+  key?: string;
+  modifiers?: number;            // Shift=1, Ctrl=2, Alt=4, Meta=8
+  isKeyDown?: boolean;
+}
+
+// Messages FROM control server TO viewer
+export interface StreamServerMessage {
+  type: 'stream_started' | 'stream_stopped' | 'frame' | 'cursor' | 'error' | 'stats' | 'pong';
+  sessionId?: string;
+
+  // Error info
+  error?: string;
+  code?: string;
+
+  // Frame data (binary follows this JSON header for 'frame' type)
+  sequence?: number;
+  timestamp?: number;
+  numRects?: number;
+  frameSize?: number;            // Size of binary data that follows
+
+  // Cursor update
+  cursorX?: number;
+  cursorY?: number;
+  cursorShape?: string;          // Base64 encoded cursor image
+  cursorHotspotX?: number;
+  cursorHotspotY?: number;
+
+  // Stats
+  fps?: number;
+  latency?: number;
+  bandwidth?: number;
+}
+
+// Messages TO agent for streaming
+export interface StreamAgentMessage {
+  type: 'stream_start' | 'stream_stop' | 'stream_input';
+  id: string;                    // Request ID for correlation
+  sessionId: string;             // Stream session ID
+
+  // Stream config
+  displayId?: number;
+  quality?: number;
+  maxFps?: number;
+
+  // Input event
+  inputType?: 'mouse' | 'keyboard';
+  x?: number;
+  y?: number;
+  button?: number;
+  buttons?: number;
+  deltaX?: number;
+  deltaY?: number;
+  keyCode?: number;
+  key?: string;
+  modifiers?: number;
+  isKeyDown?: boolean;
+}
+
+// Messages FROM agent for streaming
+export interface StreamAgentResponse {
+  type: 'stream_started' | 'stream_stopped' | 'stream_frame' | 'stream_cursor' | 'stream_error';
+  id?: string;                   // Correlation ID
+  sessionId: string;
+
+  // For stream_started
+  width?: number;
+  height?: number;
+
+  // For stream_frame (binary data follows)
+  sequence?: number;
+  timestamp?: number;
+  numRects?: number;
+  frameSize?: number;
+
+  // For stream_cursor
+  cursorX?: number;
+  cursorY?: number;
+  cursorVisible?: boolean;
+  cursorShape?: string;          // Base64 encoded
+  cursorHotspotX?: number;
+  cursorHotspotY?: number;
+
+  // For stream_error
+  error?: string;
+}

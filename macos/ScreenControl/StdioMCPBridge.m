@@ -33,7 +33,11 @@ static NSString *const kServerVersion = @"1.0.0";
 
 // Current app tracking (for screenshot_app)
 @property (nonatomic, strong) NSString *currentAppBundleId;
+@property (nonatomic, strong) NSString *currentWindowTitle;  // For multi-window apps (e.g., "Developer Tools")
 @property (nonatomic, strong) NSDictionary *currentAppBounds;
+
+// Store detected elements from last screenshot_grid for click_grid precision
+@property (nonatomic, strong) NSArray *lastDetectedElements;
 @end
 
 @implementation StdioMCPBridge
@@ -309,6 +313,7 @@ static NSString *const kServerVersion = @"1.0.0";
         if ([toolName isEqualToString:@"screenshot_grid"]) {
             // Take screenshot with grid overlay for visual coordinate reference
             NSString *appIdentifier = arguments[@"identifier"];
+            NSString *windowTitle = arguments[@"window_title"];  // NEW: Match window by title substring
             NSInteger cols = arguments[@"columns"] ? [arguments[@"columns"] integerValue] : 20;
             NSInteger rows = arguments[@"rows"] ? [arguments[@"rows"] integerValue] : 15;
 
@@ -323,7 +328,15 @@ static NSString *const kServerVersion = @"1.0.0";
             NSDictionary *windowBounds = nil;
 
             if (appIdentifier) {
-                CGWindowID windowID = [self.mcpServer getWindowIDForApp:appIdentifier];
+                CGWindowID windowID;
+                // Use title matching if window_title is provided
+                if (windowTitle) {
+                    windowID = [self.mcpServer getWindowIDForApp:appIdentifier withTitle:windowTitle];
+                    [self logError:[NSString stringWithFormat:@"screenshot_grid: Looking for '%@' window with title containing '%@'",
+                                    appIdentifier, windowTitle]];
+                } else {
+                    windowID = [self.mcpServer getWindowIDForApp:appIdentifier];
+                }
                 if (windowID != kCGNullWindowID) {
                     imageData = [self.mcpServer takeScreenshotOfWindow:windowID];
                     windowBounds = [self.mcpServer getWindowBounds:windowID];
@@ -333,6 +346,7 @@ static NSString *const kServerVersion = @"1.0.0";
                         // Store bounds for subsequent click_grid calls
                         self.currentAppBounds = windowBounds;
                         self.currentAppBundleId = appIdentifier;
+                        self.currentWindowTitle = windowTitle;  // Store for click_grid
                     }
                 }
             } else if (self.currentAppBundleId) {
@@ -367,6 +381,8 @@ static NSString *const kServerVersion = @"1.0.0";
             NSArray *detectedElements = @[];
             if (!skipOCR) {
                 detectedElements = [self.mcpServer performOCRAndMapToGrid:imageData columns:cols rows:rows];
+                // Store for click_grid element matching
+                self.lastDetectedElements = detectedElements;
             }
 
             // Add grid overlay
@@ -397,7 +413,7 @@ static NSString *const kServerVersion = @"1.0.0";
             if (detectedElements.count > 0) {
                 response[@"elements"] = detectedElements;
                 response[@"element_count"] = @(detectedElements.count);
-                response[@"usage"] = @"Elements detected with grid positions. Use click_grid(cell='XX') to click.";
+                response[@"usage"] = @"Elements detected with positions. Use click_grid(element=INDEX) for precise clicking at element center, or click_grid(element_text='TEXT') to click by text match, or click_grid(cell='XX') for cell center.";
             } else {
                 response[@"elements"] = @[];
                 response[@"element_count"] = @0;
@@ -435,17 +451,62 @@ static NSString *const kServerVersion = @"1.0.0";
             return @{@"success": @(success)};
         }
         if ([toolName isEqualToString:@"click_grid"]) {
-            // Click using grid coordinates from screenshot_grid
+            // Click using grid coordinates from screenshot_grid OR element index/text
             NSString *cellRef = arguments[@"cell"];
             NSNumber *column = arguments[@"column"];
             NSNumber *row = arguments[@"row"];
+            NSNumber *elementIndex = arguments[@"element"];  // 0-based index into detected elements
+            NSString *elementText = arguments[@"element_text"];  // Text to search for (case-insensitive)
             NSInteger cols = arguments[@"columns"] ? [arguments[@"columns"] integerValue] : 20;
             NSInteger rows = arguments[@"rows"] ? [arguments[@"rows"] integerValue] : 15;
             NSString *button = arguments[@"button"] ?: @"left";
             NSString *identifier = arguments[@"identifier"];
 
-            if (!cellRef && (!column || !row)) {
-                return @{@"error": @"Either 'cell' (e.g., 'E7') or both 'column' and 'row' are required"};
+            // Focus parameter: if true (default), focus the window before clicking
+            // This is critical for multi-monitor setups and background windows
+            BOOL shouldFocus = arguments[@"focus"] ? [arguments[@"focus"] boolValue] : YES;
+
+            // Offset parameters for fine-tuning click position (e.g., click 60px below detected text to hit a button)
+            CGFloat clickOffsetX = arguments[@"offset_x"] ? [arguments[@"offset_x"] floatValue] : 0;
+            CGFloat clickOffsetY = arguments[@"offset_y"] ? [arguments[@"offset_y"] floatValue] : 0;
+
+            // Check for element-based clicking first
+            NSDictionary *matchedElement = nil;
+            if (elementIndex != nil && self.lastDetectedElements.count > 0) {
+                NSInteger idx = [elementIndex integerValue];
+                if (idx >= 0 && idx < (NSInteger)self.lastDetectedElements.count) {
+                    matchedElement = self.lastDetectedElements[idx];
+                } else {
+                    return @{@"error": [NSString stringWithFormat:@"Element index %ld out of range (0-%ld available)",
+                                       (long)idx, (long)self.lastDetectedElements.count - 1]};
+                }
+            } else if (elementText && self.lastDetectedElements.count > 0) {
+                NSString *searchText = [elementText lowercaseString];
+                for (NSDictionary *elem in self.lastDetectedElements) {
+                    NSString *text = [elem[@"text"] lowercaseString];
+                    if ([text containsString:searchText]) {
+                        matchedElement = elem;
+                        break;
+                    }
+                }
+                if (!matchedElement) {
+                    // Try exact match
+                    for (NSDictionary *elem in self.lastDetectedElements) {
+                        if ([[elem[@"text"] lowercaseString] isEqualToString:searchText]) {
+                            matchedElement = elem;
+                            break;
+                        }
+                    }
+                }
+                if (!matchedElement) {
+                    return @{@"error": [NSString stringWithFormat:@"No element found matching text '%@'. Available: %@",
+                                       elementText, [[self.lastDetectedElements valueForKey:@"text"] componentsJoinedByString:@", "]]};
+                }
+            }
+
+            // If no element found and no cell/column/row specified, error
+            if (!matchedElement && !cellRef && (!column || !row)) {
+                return @{@"error": @"Either 'cell' (e.g., 'E7'), both 'column' and 'row', 'element' (index), or 'element_text' are required"};
             }
 
             // Get target dimensions and offset
@@ -454,10 +515,18 @@ static NSString *const kServerVersion = @"1.0.0";
             CGFloat offsetX = 0;
             CGFloat offsetY = 0;
             NSDictionary *usedBounds = nil;
+            NSString *windowTitle = arguments[@"window_title"];
 
             // If identifier provided, look up window bounds freshly
             if (identifier) {
-                CGWindowID windowID = [self.mcpServer getWindowIDForApp:identifier];
+                CGWindowID windowID;
+                // Use title matching if window_title is provided, or use stored title from screenshot_grid
+                NSString *titleToUse = windowTitle ?: self.currentWindowTitle;
+                if (titleToUse) {
+                    windowID = [self.mcpServer getWindowIDForApp:identifier withTitle:titleToUse];
+                } else {
+                    windowID = [self.mcpServer getWindowIDForApp:identifier];
+                }
                 if (windowID != kCGNullWindowID) {
                     NSDictionary *bounds = [self.mcpServer getWindowBounds:windowID];
                     if (bounds) {
@@ -469,6 +538,7 @@ static NSString *const kServerVersion = @"1.0.0";
                         // Update stored bounds
                         self.currentAppBounds = bounds;
                         self.currentAppBundleId = identifier;
+                        if (windowTitle) self.currentWindowTitle = windowTitle;
                     }
                 }
             }
@@ -490,29 +560,64 @@ static NSString *const kServerVersion = @"1.0.0";
                 usedBounds = @{@"x": @0, @"y": @0, @"width": @(targetWidth), @"height": @(targetHeight), @"source": @"fullscreen"};
             }
 
-            // Convert grid reference to pixel coordinates
-            NSDictionary *coords = [self.mcpServer gridCoordinatesToPixels:cellRef
-                                                                   column:column
-                                                                      row:row
-                                                                    width:targetWidth
-                                                                   height:targetHeight
-                                                                  columns:cols
-                                                                     rows:rows];
+            CGFloat clickX, clickY;
+            NSMutableDictionary *result = [NSMutableDictionary dictionary];
 
-            if (coords[@"error"]) return coords;
+            if (matchedElement) {
+                // Use exact element center for precise clicking
+                CGFloat elemCenterX = [matchedElement[@"centerX"] floatValue];
+                CGFloat elemCenterY = [matchedElement[@"centerY"] floatValue];
+                clickX = offsetX + elemCenterX;
+                clickY = offsetY + elemCenterY;
+                result[@"matchedElement"] = @{
+                    @"text": matchedElement[@"text"],
+                    @"cell": matchedElement[@"cell"],
+                    @"centerX": @(elemCenterX),
+                    @"centerY": @(elemCenterY)
+                };
+                result[@"clickMode"] = @"element_precise";
+            } else {
+                // Fall back to grid cell center
+                NSDictionary *coords = [self.mcpServer gridCoordinatesToPixels:cellRef
+                                                                       column:column
+                                                                          row:row
+                                                                        width:targetWidth
+                                                                       height:targetHeight
+                                                                      columns:cols
+                                                                         rows:rows];
 
-            // Calculate absolute screen position
-            CGFloat clickX = offsetX + [coords[@"pixelX"] floatValue];
-            CGFloat clickY = offsetY + [coords[@"pixelY"] floatValue];
+                if (coords[@"error"]) return coords;
 
-            // Perform click using absolute coordinates
+                clickX = offsetX + [coords[@"pixelX"] floatValue];
+                clickY = offsetY + [coords[@"pixelY"] floatValue];
+                result[@"cell"] = cellRef ?: [NSString stringWithFormat:@"%c%ld", (char)('A' + [column integerValue] - 1), (long)[row integerValue]];
+                result[@"gridInfo"] = coords;
+                result[@"clickMode"] = @"grid_cell_center";
+            }
+
+            // Apply user-specified offset (for clicking relative to detected element or cell)
+            clickX += clickOffsetX;
+            clickY += clickOffsetY;
+            if (clickOffsetX != 0 || clickOffsetY != 0) {
+                result[@"appliedOffset"] = @{@"x": @(clickOffsetX), @"y": @(clickOffsetY)};
+            }
+
+            // Focus the window before clicking (critical for multi-monitor and background windows)
+            BOOL focusPerformed = NO;
+            NSString *focusTarget = identifier ?: self.currentAppBundleId;
+            if (shouldFocus && focusTarget) {
+                focusPerformed = [self.mcpServer focusApplication:focusTarget];
+                // Brief additional delay after focus to ensure window is frontmost
+                usleep(100000); // 100ms
+            }
+            result[@"focusPerformed"] = @(focusPerformed);
+            result[@"focusTarget"] = focusTarget ?: @"none";
+
+            // Perform click using absolute coordinates with warp for reliability
             BOOL success = [self.mcpServer clickAbsoluteX:clickX y:clickY rightButton:[button isEqualToString:@"right"]];
 
-            NSMutableDictionary *result = [NSMutableDictionary dictionary];
             result[@"success"] = @(success);
-            result[@"cell"] = cellRef ?: [NSString stringWithFormat:@"%c%ld", (char)('A' + [column integerValue] - 1), (long)[row integerValue]];
             result[@"clickedAt"] = @{@"x": @(clickX), @"y": @(clickY)};
-            result[@"gridInfo"] = coords;
             if (usedBounds) {
                 result[@"windowBounds"] = usedBounds;
             }
@@ -989,8 +1094,13 @@ static NSString *const kServerVersion = @"1.0.0";
     // has browsers connected, even if this instance couldn't bind to port 3458.
 
     // First check our local WebSocket server
-    if (self.browserWebSocketServer && self.browserWebSocketServer.isRunning &&
-        self.browserWebSocketServer.connectedBrowsers.count > 0) {
+    BOOL wsExists = self.browserWebSocketServer != nil;
+    BOOL wsRunning = self.browserWebSocketServer.isRunning;
+    NSUInteger browserCount = [self.browserWebSocketServer connectedBrowserCount];  // Thread-safe accessor
+    [self logError:[NSString stringWithFormat:@"Browser bridge check: wsExists=%d, wsRunning=%d, browserCount=%lu",
+                    wsExists, wsRunning, (unsigned long)browserCount]];
+
+    if (wsExists && wsRunning && browserCount > 0) {
         [self logError:@"Browser bridge: using local WebSocket server (port 3458)"];
         return YES;
     }
@@ -1140,9 +1250,9 @@ static NSString *const kServerVersion = @"1.0.0";
         @"screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"desktop_screenshot": @"Take a screenshot of the entire desktop. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
         @"screenshot_app": @"Take a screenshot of a specific application window. Returns file path - use Read tool to view the image. For inline base64 use return_base64:true (WARNING: ~25k tokens)",
-        @"screenshot_grid": @"Take a screenshot with labeled grid overlay (A-T columns, 1-15 rows) + OCR element detection. Returns detected text mapped to grid cells. FALLBACK when browser_* tools fail - some sites block script injection. Use screenshot_grid + click_grid for direct mouse control. Response includes 'elements' array with {text, cell, column, row} for each detected element.",
+        @"screenshot_grid": @"Take a screenshot with labeled grid overlay (A-T columns, 1-15 rows) + OCR element detection. Returns detected text mapped to grid cells. FALLBACK when browser_* tools fail - some sites block script injection. Use screenshot_grid + click_grid for direct mouse control. Response includes 'elements' array with {text, cell, column, row, centerX, centerY} for each detected element. NEW: Use window_title='text' to target a specific window when an app has multiple windows (e.g., window_title='Developer Tools' for Firefox DevTools).",
         @"click": @"Click at coordinates relative to current app",
-        @"click_grid": @"Click at a grid cell position (e.g., cell='E7'). FALLBACK when browser_clickElement fails - provides direct mouse control. Use after screenshot_grid to click by grid reference. Pass same 'identifier' as screenshot_grid for accurate window targeting.",
+        @"click_grid": @"Click at a grid cell position (e.g., cell='E7'). FALLBACK when browser_clickElement fails - provides direct mouse control. Use after screenshot_grid to click by grid reference. Pass same 'identifier' as screenshot_grid for accurate window targeting. Use element=INDEX (0-based) or element_text='TEXT' for PRECISE clicking at detected element center instead of grid cell center. Use offset_x/offset_y to click relative to element (e.g., offset_y=60 to click 60px below detected text to hit a button that OCR missed). Use window_title to target specific windows in multi-window apps. Auto-focuses window before clicking (focus=true by default) - critical for multi-monitor setups and background windows. Set focus=false to skip focus.",
         @"click_absolute": @"Click at absolute screen coordinates",
         @"doubleClick": @"Double-click at coordinates",
         @"clickElement": @"Click a UI element by index",
@@ -1267,6 +1377,7 @@ static NSString *const kServerVersion = @"1.0.0";
     }
     else if ([toolName isEqualToString:@"screenshot_grid"]) {
         properties[@"identifier"] = @{@"type": @"string", @"description": @"App bundle ID or name (optional, uses focused app or full screen)"};
+        properties[@"window_title"] = @{@"type": @"string", @"description": @"Window title substring to match (for multi-window apps like Firefox with DevTools). Case-insensitive."};
         properties[@"columns"] = @{@"type": @"number", @"description": @"Number of grid columns (default: 20, range: 5-40)"};
         properties[@"rows"] = @{@"type": @"number", @"description": @"Number of grid rows (default: 15, range: 5-30)"};
         properties[@"return_base64"] = @{@"type": @"boolean", @"description": @"Return base64 instead of file path (default: false)"};
@@ -1275,10 +1386,16 @@ static NSString *const kServerVersion = @"1.0.0";
         properties[@"cell"] = @{@"type": @"string", @"description": @"Grid cell reference (e.g., 'E7', 'A1', 'T15')"};
         properties[@"column"] = @{@"type": @"number", @"description": @"Column number (1-20), alternative to cell reference"};
         properties[@"row"] = @{@"type": @"number", @"description": @"Row number (1-15), alternative to cell reference"};
+        properties[@"element"] = @{@"type": @"number", @"description": @"Element index (0-based) from screenshot_grid elements array - clicks at exact element center for precise positioning"};
+        properties[@"element_text"] = @{@"type": @"string", @"description": @"Text to search for in detected elements (case-insensitive) - clicks at exact element center"};
+        properties[@"offset_x"] = @{@"type": @"number", @"description": @"Horizontal offset in pixels to add after calculating position (positive=right, negative=left)"};
+        properties[@"offset_y"] = @{@"type": @"number", @"description": @"Vertical offset in pixels to add after calculating position (positive=down, negative=up). Use to click below detected text to hit buttons OCR missed."};
         properties[@"columns"] = @{@"type": @"number", @"description": @"Grid columns used in screenshot_grid (default: 20)"};
         properties[@"rows"] = @{@"type": @"number", @"description": @"Grid rows used in screenshot_grid (default: 15)"};
         properties[@"button"] = @{@"type": @"string", @"enum": @[@"left", @"right"], @"description": @"Mouse button (default: left)"};
         properties[@"identifier"] = @{@"type": @"string", @"description": @"App bundle ID or name to click in (optional, uses window from last screenshot_grid)"};
+        properties[@"window_title"] = @{@"type": @"string", @"description": @"Window title substring to match (optional, uses stored title from screenshot_grid)"};
+        properties[@"focus"] = @{@"type": @"boolean", @"description": @"Auto-focus the target window before clicking (default: true). Critical for multi-monitor setups and background windows. Set to false to skip focus."};
     }
     else if ([toolName isEqualToString:@"wait"]) {
         properties[@"milliseconds"] = @{@"type": @"number", @"description": @"Time to wait in milliseconds"};
@@ -1723,7 +1840,7 @@ static NSString *const kServerVersion = @"1.0.0";
         @"method": @"notifications/tools/list_changed"
     };
 
-    NSUInteger browserCount = self.browserWebSocketServer.connectedBrowsers.count;
+    NSUInteger browserCount = [self.browserWebSocketServer connectedBrowserCount];  // Thread-safe accessor
     NSArray *tools = [self getAvailableTools];
     [self logError:[NSString stringWithFormat:@"Sending tools/list_changed notification (browsers: %lu, tools: %lu)",
                     (unsigned long)browserCount, (unsigned long)tools.count]];

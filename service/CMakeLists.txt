@@ -27,6 +27,7 @@ set(COMMON_SOURCES
     src/tools/shell_tools.cpp
     src/tools/system_tools.cpp
     src/update/update_manager.cpp
+    src/screen/screen_stream.cpp
 )
 
 # Platform-specific sources (OpenSSL on macOS/Linux, native APIs on Windows)
@@ -66,6 +67,12 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/libs
 )
 
+# libscreencontrol (for screen capture/streaming on macOS)
+set(LIBSCREENCONTROL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../libscreencontrol")
+if(EXISTS "${LIBSCREENCONTROL_DIR}/include")
+    include_directories(${LIBSCREENCONTROL_DIR}/include)
+endif()
+
 # Create executable
 add_executable(ScreenControlService ${COMMON_SOURCES} ${PLATFORM_SOURCES})
 
@@ -85,6 +92,20 @@ if(PLATFORM_MACOS)
     # libcurl (for update downloads)
     find_package(CURL REQUIRED)
 
+    # Link libscreencontrol if available
+    set(LIBSCREENCONTROL_LIB "${LIBSCREENCONTROL_DIR}/build/lib/libscreencontrol.a")
+    if(EXISTS "${LIBSCREENCONTROL_LIB}")
+        message(STATUS "Found libscreencontrol: ${LIBSCREENCONTROL_LIB}")
+        find_library(SCREENCAPTUREKIT_FRAMEWORK ScreenCaptureKit)
+        find_library(COREMEDIA_FRAMEWORK CoreMedia)
+        find_library(COREVIDEO_FRAMEWORK CoreVideo)
+        find_library(QUARTZCORE_FRAMEWORK QuartzCore)
+        find_library(CARBON_FRAMEWORK Carbon)
+    else()
+        message(STATUS "libscreencontrol not found - screen streaming will be disabled")
+        set(LIBSCREENCONTROL_LIB "")
+    endif()
+
     target_link_libraries(ScreenControlService
         ${COCOA_FRAMEWORK}
         ${IOKIT_FRAMEWORK}
@@ -97,6 +118,47 @@ if(PLATFORM_MACOS)
         CURL::libcurl
         pthread
     )
+
+    # Add libscreencontrol and its dependencies if available
+    if(LIBSCREENCONTROL_LIB)
+        target_link_libraries(ScreenControlService
+            ${LIBSCREENCONTROL_LIB}
+            ${SCREENCAPTUREKIT_FRAMEWORK}
+            ${COREMEDIA_FRAMEWORK}
+            ${COREVIDEO_FRAMEWORK}
+            ${QUARTZCORE_FRAMEWORK}
+            ${CARBON_FRAMEWORK}
+        )
+        # Find zstd and jpeg for libscreencontrol
+        find_package(PkgConfig)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(ZSTD libzstd)
+            if(ZSTD_FOUND)
+                target_include_directories(ScreenControlService PRIVATE ${ZSTD_INCLUDE_DIRS})
+                target_link_directories(ScreenControlService PRIVATE ${ZSTD_LIBRARY_DIRS})
+                target_link_libraries(ScreenControlService ${ZSTD_LIBRARIES})
+            else()
+                # Fallback: try homebrew paths directly
+                if(EXISTS "/opt/homebrew/opt/zstd/lib/libzstd.a")
+                    target_link_libraries(ScreenControlService "/opt/homebrew/opt/zstd/lib/libzstd.a")
+                endif()
+            endif()
+        else()
+            # Fallback without pkg-config
+            if(EXISTS "/opt/homebrew/opt/zstd/lib/libzstd.a")
+                target_link_libraries(ScreenControlService "/opt/homebrew/opt/zstd/lib/libzstd.a")
+            endif()
+        endif()
+        find_package(JPEG)
+        if(JPEG_FOUND)
+            target_link_libraries(ScreenControlService ${JPEG_LIBRARIES})
+        else()
+            # Fallback for JPEG
+            if(EXISTS "/opt/homebrew/opt/jpeg/lib/libjpeg.a")
+                target_link_libraries(ScreenControlService "/opt/homebrew/opt/jpeg/lib/libjpeg.a")
+            endif()
+        endif()
+    endif()
 
     target_compile_definitions(ScreenControlService PRIVATE
         PLATFORM_MACOS=1

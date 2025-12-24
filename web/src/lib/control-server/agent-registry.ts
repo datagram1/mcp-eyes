@@ -583,6 +583,14 @@ class LocalAgentRegistry implements IAgentRegistry {
   }
 
   /**
+   * Get an agent by database ID
+   */
+  getAgentByDbId(dbId: string): ConnectedAgent | undefined {
+    const connectionId = this.agentsByDbId.get(dbId);
+    return connectionId ? this.agents.get(connectionId) : undefined;
+  }
+
+  /**
    * Get an agent by machine ID
    */
   getAgentByMachineId(machineId: string): ConnectedAgent | undefined {

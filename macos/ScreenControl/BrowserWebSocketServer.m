@@ -494,7 +494,10 @@ static const int WS_OPCODE_PONG = 0xA;
             [connection.receiveBuffer setLength:0];
         }
 
-        [self.connectedBrowsers addObject:connection.browserId];
+        @synchronized (self.connectedBrowsers) {
+            [self.connectedBrowsers addObject:connection.browserId];
+            NSLog(@"[WebSocketServer] Added browser %@ to connectedBrowsers (now %lu)", connection.browserId, (unsigned long)self.connectedBrowsers.count);
+        }
 
         // Process any remaining data as WebSocket frames
         if (connection.receiveBuffer.length > 0) {
@@ -892,7 +895,10 @@ static const int WS_OPCODE_PONG = 0xA;
         [self.connections removeObjectForKey:connection.browserId];
     }
 
-    [self.connectedBrowsers removeObject:connection.browserId];
+    @synchronized (self.connectedBrowsers) {
+        [self.connectedBrowsers removeObject:connection.browserId];
+        NSLog(@"[WebSocketServer] Removed browser %@ from connectedBrowsers (now %lu)", connection.browserId, (unsigned long)self.connectedBrowsers.count);
+    }
 
     if (connection.readSource) {
         dispatch_source_cancel(connection.readSource);
@@ -910,6 +916,12 @@ static const int WS_OPCODE_PONG = 0xA;
         dispatch_async(dispatch_get_main_queue(), ^{
             [self.delegate browserWebSocketServer:self browserDidDisconnect:browserId];
         });
+    }
+}
+
+- (NSUInteger)connectedBrowserCount {
+    @synchronized (self.connectedBrowsers) {
+        return self.connectedBrowsers.count;
     }
 }
 

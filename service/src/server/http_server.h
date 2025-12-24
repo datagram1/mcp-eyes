@@ -48,6 +48,7 @@ private:
     void setupCredentialProviderRoutes();
     void setupControlServerRoutes();
     void setupToolRoute();
+    void setupScreenStreamingRoutes();
 
     // Proxy GUI requests to tray app if callback is set
     std::string proxyGuiRequest(const std::string& endpoint, const std::string& body);

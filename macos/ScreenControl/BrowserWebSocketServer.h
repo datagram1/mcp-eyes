@@ -38,4 +38,7 @@
 // Detect system default browser
 + (NSString *)detectSystemDefaultBrowser;
 
+// Thread-safe accessor for connected browser count
+- (NSUInteger)connectedBrowserCount;
+
 @end

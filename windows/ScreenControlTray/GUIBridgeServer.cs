@@ -240,7 +240,9 @@ namespace ScreenControlTray
                 (byte[] responseData, string contentType) = path switch
                 {
                     "/screenshot" => HandleScreenshot(body),
+                    "/screenshot_grid" => HandleScreenshotGrid(body),
                     "/click" => HandleClick(body),
+                    "/click_grid" => HandleClickGrid(body),
                     "/doubleClick" => HandleDoubleClick(body),
                     "/rightClick" => HandleRightClick(body),
                     "/typeText" => HandleTypeText(body),
@@ -306,6 +308,191 @@ namespace ScreenControlTray
 
                 // Return image directly
                 return (ms.ToArray(), "image/jpeg");
+            }
+            catch (Exception ex)
+            {
+                return (JsonResponse(new { success = false, error = ex.Message }), "application/json");
+            }
+        }
+
+        private (byte[], string) HandleScreenshotGrid(string body)
+        {
+            try
+            {
+                var options = JsonSerializer.Deserialize<JsonElement>(body);
+                int cols = options.TryGetProperty("columns", out var colVal) ? colVal.GetInt32() : 20;
+                int rows = options.TryGetProperty("rows", out var rowVal) ? rowVal.GetInt32() : 15;
+
+                // Clamp to reasonable values
+                cols = Math.Max(5, Math.Min(cols, 40));
+                rows = Math.Max(5, Math.Min(rows, 30));
+
+                // Get virtual screen bounds
+                int left = SystemInformation.VirtualScreen.Left;
+                int top = SystemInformation.VirtualScreen.Top;
+                int width = SystemInformation.VirtualScreen.Width;
+                int height = SystemInformation.VirtualScreen.Height;
+
+                using var bitmap = new Bitmap(width, height);
+                using var graphics = Graphics.FromImage(bitmap);
+
+                // Capture screen
+                graphics.CopyFromScreen(left, top, 0, 0, new Size(width, height));
+
+                // Draw grid overlay
+                float cellWidth = (float)width / cols;
+                float cellHeight = (float)height / rows;
+
+                using var pen = new Pen(Color.FromArgb(180, 255, 0, 0), 2);
+                using var font = new Font("Arial", 12, FontStyle.Bold);
+                using var brush = new SolidBrush(Color.FromArgb(200, 255, 0, 0));
+                using var bgBrush = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
+
+                // Draw vertical lines and column labels (A-Z)
+                for (int i = 0; i <= cols; i++)
+                {
+                    float x = i * cellWidth;
+                    graphics.DrawLine(pen, x, 0, x, height);
+
+                    if (i < cols)
+                    {
+                        string label = ((char)('A' + i)).ToString();
+                        var labelSize = graphics.MeasureString(label, font);
+                        float labelX = x + (cellWidth - labelSize.Width) / 2;
+
+                        // Draw label background
+                        graphics.FillRectangle(bgBrush, labelX - 2, 2, labelSize.Width + 4, labelSize.Height);
+                        graphics.DrawString(label, font, brush, labelX, 2);
+                    }
+                }
+
+                // Draw horizontal lines and row labels (1-N)
+                for (int i = 0; i <= rows; i++)
+                {
+                    float y = i * cellHeight;
+                    graphics.DrawLine(pen, 0, y, width, y);
+
+                    if (i < rows)
+                    {
+                        string label = (i + 1).ToString();
+                        var labelSize = graphics.MeasureString(label, font);
+                        float labelY = y + (cellHeight - labelSize.Height) / 2;
+
+                        // Draw label background
+                        graphics.FillRectangle(bgBrush, 2, labelY - 2, labelSize.Width + 4, labelSize.Height + 4);
+                        graphics.DrawString(label, font, brush, 4, labelY);
+                    }
+                }
+
+                // Convert to PNG (better for grid lines)
+                using var ms = new MemoryStream();
+                bitmap.Save(ms, ImageFormat.Png);
+                var imageData = ms.ToArray();
+
+                // Build response with grid info
+                var response = new
+                {
+                    success = true,
+                    columns = cols,
+                    rows = rows,
+                    imageWidth = width,
+                    imageHeight = height,
+                    cellWidth = cellWidth,
+                    cellHeight = cellHeight,
+                    screenLeft = left,
+                    screenTop = top,
+                    image = Convert.ToBase64String(imageData),
+                    format = "png",
+                    usage = "Use click_grid with cell='E7' or column/row numbers to click"
+                };
+
+                return (JsonResponse(response), "application/json");
+            }
+            catch (Exception ex)
+            {
+                return (JsonResponse(new { success = false, error = ex.Message }), "application/json");
+            }
+        }
+
+        private (byte[], string) HandleClickGrid(string body)
+        {
+            try
+            {
+                var options = JsonSerializer.Deserialize<JsonElement>(body);
+                string cell = options.TryGetProperty("cell", out var cellVal) ? cellVal.GetString() ?? "" : "";
+                int? column = options.TryGetProperty("column", out var colVal) ? colVal.GetInt32() : null;
+                int? row = options.TryGetProperty("row", out var rowVal) ? rowVal.GetInt32() : null;
+                int cols = options.TryGetProperty("columns", out var colsVal) ? colsVal.GetInt32() : 20;
+                int rows = options.TryGetProperty("rows", out var rowsVal) ? rowsVal.GetInt32() : 15;
+                string button = options.TryGetProperty("button", out var btnVal) ? btnVal.GetString() ?? "left" : "left";
+
+                // Parse cell reference (e.g., "E7")
+                int col = -1, rowNum = -1;
+
+                if (!string.IsNullOrEmpty(cell) && cell.Length >= 2)
+                {
+                    char colChar = char.ToUpper(cell[0]);
+                    if (colChar >= 'A' && colChar <= 'Z')
+                    {
+                        col = colChar - 'A';
+                        if (int.TryParse(cell.Substring(1), out int parsedRow))
+                        {
+                            rowNum = parsedRow - 1; // Convert to 0-indexed
+                        }
+                    }
+                }
+
+                // Override with explicit column/row
+                if (column.HasValue) col = column.Value - 1;
+                if (row.HasValue) rowNum = row.Value - 1;
+
+                if (col < 0 || col >= cols || rowNum < 0 || rowNum >= rows)
+                {
+                    return (JsonResponse(new { success = false, error = $"Invalid grid reference. Column must be A-{(char)('A' + cols - 1)} or 1-{cols}, row must be 1-{rows}" }), "application/json");
+                }
+
+                // Get screen dimensions
+                int screenLeft = SystemInformation.VirtualScreen.Left;
+                int screenTop = SystemInformation.VirtualScreen.Top;
+                int screenWidth = SystemInformation.VirtualScreen.Width;
+                int screenHeight = SystemInformation.VirtualScreen.Height;
+
+                // Calculate click position (center of cell)
+                float cellWidth = (float)screenWidth / cols;
+                float cellHeight = (float)screenHeight / rows;
+                int clickX = screenLeft + (int)((col + 0.5f) * cellWidth);
+                int clickY = screenTop + (int)((rowNum + 0.5f) * cellHeight);
+
+                // Perform click
+                SetCursorPos(clickX, clickY);
+                Thread.Sleep(10);
+
+                if (button == "right")
+                {
+                    mouse_event(MOUSEEVENTF_RIGHTDOWN, clickX, clickY, 0, 0);
+                    Thread.Sleep(10);
+                    mouse_event(MOUSEEVENTF_RIGHTUP, clickX, clickY, 0, 0);
+                }
+                else
+                {
+                    mouse_event(MOUSEEVENTF_LEFTDOWN, clickX, clickY, 0, 0);
+                    Thread.Sleep(10);
+                    mouse_event(MOUSEEVENTF_LEFTUP, clickX, clickY, 0, 0);
+                }
+
+                return (JsonResponse(new
+                {
+                    success = true,
+                    cell = $"{(char)('A' + col)}{rowNum + 1}",
+                    clickedAt = new { x = clickX, y = clickY },
+                    gridInfo = new
+                    {
+                        column = col + 1,
+                        row = rowNum + 1,
+                        cellWidth,
+                        cellHeight
+                    }
+                }), "application/json");
             }
             catch (Exception ex)
             {

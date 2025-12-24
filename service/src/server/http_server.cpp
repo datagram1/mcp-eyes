@@ -14,6 +14,7 @@
 #include "../tools/system_tools.h"
 #include "../control_server/websocket_client.h"
 #include "../control_server/command_dispatcher.h"
+#include "../screen/screen_stream.h"
 #include "platform.h"
 #include <fstream>
 
@@ -77,6 +78,7 @@ void HttpServer::setupRoutes()
     setupCredentialProviderRoutes();
     setupControlServerRoutes();
     setupToolRoute();
+    setupScreenStreamingRoutes();
 
     Logger::info("HTTP routes configured");
 }
@@ -1134,6 +1136,215 @@ void HttpServer::setupToolRoute()
             res.set_content(json{{"error", e.what()}}.dump(), "application/json");
         }
     });
+}
+
+void HttpServer::setupScreenStreamingRoutes()
+{
+    // Check if screen streaming is available
+    m_server->Get("/screen/available", [](const httplib::Request&, httplib::Response& res) {
+        auto& stream = ScreenStream::getInstance();
+        json response = {
+            {"available", stream.isAvailable()},
+            {"hasPermission", stream.hasPermission()}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Request screen capture permission
+    m_server->Post("/screen/permission", [](const httplib::Request&, httplib::Response& res) {
+        auto& stream = ScreenStream::getInstance();
+        stream.requestPermission();
+        json response = {
+            {"success", true},
+            {"hasPermission", stream.hasPermission()}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Get list of displays
+    m_server->Get("/screen/displays", [](const httplib::Request&, httplib::Response& res) {
+        auto& stream = ScreenStream::getInstance();
+        auto displays = stream.getDisplays();
+
+        json displayList = json::array();
+        for (const auto& d : displays) {
+            displayList.push_back({
+                {"id", d.id},
+                {"name", d.name},
+                {"width", d.width},
+                {"height", d.height},
+                {"x", d.x},
+                {"y", d.y},
+                {"scale", d.scale},
+                {"isPrimary", d.isPrimary},
+                {"isBuiltin", d.isBuiltin}
+            });
+        }
+
+        json response = {
+            {"success", true},
+            {"displays", displayList}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // Start screen streaming
+    m_server->Post("/screen/stream/start", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto& stream = ScreenStream::getInstance();
+
+            if (!stream.isAvailable()) {
+                res.set_content(json{{"success", false}, {"error", "Screen streaming not available"}}.dump(), "application/json");
+                return;
+            }
+
+            if (!stream.hasPermission()) {
+                res.set_content(json{{"success", false}, {"error", "Screen capture permission not granted"}}.dump(), "application/json");
+                return;
+            }
+
+            StreamConfig config;
+            if (!req.body.empty()) {
+                auto body = json::parse(req.body);
+                config.maxFps = body.value("fps", 30);
+                config.quality = body.value("quality", 80);
+                config.useZstd = body.value("useZstd", true);
+                config.useJpeg = body.value("useJpeg", true);
+                config.captureCursor = body.value("captureCursor", true);
+                config.displayId = body.value("displayId", 0);
+            }
+
+            // For HTTP polling, we'll store frames in a buffer
+            // Real-time streaming would use WebSocket
+            std::string streamId = stream.startStream(config, [](const EncodedFrameData& frame) {
+                // Frame callback - would send via WebSocket
+                // For now, frames are discarded (HTTP polling would use different approach)
+                (void)frame;
+            });
+
+            if (streamId.empty()) {
+                res.set_content(json{{"success", false}, {"error", "Failed to start stream"}}.dump(), "application/json");
+                return;
+            }
+
+            json response = {
+                {"success", true},
+                {"streamId", streamId},
+                {"config", {
+                    {"fps", config.maxFps},
+                    {"quality", config.quality},
+                    {"useZstd", config.useZstd},
+                    {"useJpeg", config.useJpeg}
+                }}
+            };
+            res.set_content(response.dump(), "application/json");
+        }
+        catch (const std::exception& e) {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Stop screen streaming
+    m_server->Post("/screen/stream/stop", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto& stream = ScreenStream::getInstance();
+            std::string streamId;
+
+            if (!req.body.empty()) {
+                auto body = json::parse(req.body);
+                streamId = body.value("streamId", "");
+            }
+
+            if (streamId.empty()) {
+                stream.stopAllStreams();
+            } else {
+                stream.stopStream(streamId);
+            }
+
+            json response = {
+                {"success", true},
+                {"streamId", streamId}
+            };
+            res.set_content(response.dump(), "application/json");
+        }
+        catch (const std::exception& e) {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Get stream statistics
+    m_server->Get("/screen/stream/stats", [](const httplib::Request& req, httplib::Response& res) {
+        auto& stream = ScreenStream::getInstance();
+        std::string streamId = req.get_param_value("streamId");
+
+        ScreenStream::StreamStats stats;
+        if (stream.getStreamStats(streamId, stats)) {
+            json response = {
+                {"success", true},
+                {"streamId", streamId},
+                {"stats", {
+                    {"framesEncoded", stats.framesEncoded},
+                    {"bytesEncoded", stats.bytesEncoded},
+                    {"compressionRatio", stats.compressionRatio},
+                    {"avgEncodeTimeUs", stats.avgEncodeTimeUs},
+                    {"currentFps", stats.currentFps}
+                }}
+            };
+            res.set_content(response.dump(), "application/json");
+        } else {
+            res.set_content(json{{"success", false}, {"error", "Stream not found"}}.dump(), "application/json");
+        }
+    });
+
+    // Request full frame refresh
+    m_server->Post("/screen/stream/refresh", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            auto& stream = ScreenStream::getInstance();
+            auto body = json::parse(req.body);
+            std::string streamId = body.value("streamId", "");
+
+            stream.requestRefresh(streamId);
+
+            json response = {{"success", true}};
+            res.set_content(response.dump(), "application/json");
+        }
+        catch (const std::exception& e) {
+            res.set_content(json{{"success", false}, {"error", e.what()}}.dump(), "application/json");
+        }
+    });
+
+    // Take single screenshot using libscreencontrol
+    m_server->Get("/screen/capture", [](const httplib::Request& req, httplib::Response& res) {
+        auto& stream = ScreenStream::getInstance();
+
+        if (!stream.isAvailable()) {
+            res.set_content(json{{"success", false}, {"error", "Screen capture not available"}}.dump(), "application/json");
+            return;
+        }
+
+        if (!stream.hasPermission()) {
+            res.set_content(json{{"success", false}, {"error", "Permission not granted"}}.dump(), "application/json");
+            return;
+        }
+
+        uint32_t displayId = 0;
+        uint8_t quality = 80;
+        if (req.has_param("displayId"))
+            displayId = std::stoul(req.get_param_value("displayId"));
+        if (req.has_param("quality"))
+            quality = std::stoi(req.get_param_value("quality"));
+
+        std::vector<uint8_t> imageData;
+        if (stream.captureScreenshot(displayId, quality, imageData)) {
+            // Return raw image data
+            res.set_content(reinterpret_cast<const char*>(imageData.data()),
+                           imageData.size(), "image/raw");
+        } else {
+            res.set_content(json{{"success", false}, {"error", "Capture failed"}}.dump(), "application/json");
+        }
+    });
+
+    Logger::info("Screen streaming routes configured");
 }
 
 } // namespace ScreenControl
