@@ -241,35 +241,16 @@ class LocalAgentRegistry implements IAgentRegistry {
     const connectionId = uuidv4();
 
     // Check for existing connection from same machine
+    // IMPORTANT: Always accept new connections and close old ones.
+    // Through Apache proxy, connections can die silently (no TCP RST), so the agent
+    // may reconnect before the server detects the old connection is dead.
+    // Rejecting duplicates causes connection loops in this scenario.
     const existingConnectionId = this.agentsByMachineId.get(msg.machineId);
     if (existingConnectionId) {
       const existingAgent = this.agents.get(existingConnectionId);
       if (existingAgent) {
-        // WebSocket readyState: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
         const socketIsOpen = existingAgent.socket.readyState === 1;
-
-        // Check if we've received a ping recently - this is more reliable than readyState
-        // because connections through Apache proxy can appear "open" when actually dead
-        const lastPingTime = Number(existingAgent.lastPing) || Number(existingAgent.connectedAt) || 0;
-        const timeSinceLastPing = Date.now() - lastPingTime;
-        const hasRecentPing = timeSinceLastPing < 60000; // 60 seconds - agents ping every ~30s
-
-        // Only consider the connection truly alive if socket is open AND we've had recent activity
-        const connectionTrulyAlive = socketIsOpen && hasRecentPing;
-
-        if (connectionTrulyAlive && timeSinceLastPing < 3000) {
-          // Connection is definitely active (just pinged), reject the duplicate
-          console.log(`[Registry] Rejecting duplicate connection for machine ${msg.machineId} (last ping ${timeSinceLastPing}ms ago)`);
-          socket.send(JSON.stringify({
-            type: 'error',
-            error: 'Duplicate connection rejected - existing connection is still active'
-          }));
-          socket.close(4002, 'Duplicate connection rejected');
-          return null;
-        }
-
-        // Either socket is closed, or no recent ping - accept new connection and close old
-        console.log(`[Registry] Replacing connection for machine ${msg.machineId} (socket open: ${socketIsOpen}, last ping: ${timeSinceLastPing}ms ago)`);
+        console.log(`[Registry] Replacing existing connection for machine ${msg.machineId} (old socket open: ${socketIsOpen})`);
         if (socketIsOpen) {
           try {
             existingAgent.socket.close(1000, 'New connection from same machine');
