@@ -455,7 +455,7 @@ void WebSocketClient::sendRegistration()
     message["arch"] = "x86";
 #endif
 
-    message["agentVersion"] = "1.2.0";
+    message["agentVersion"] = "2.0.0";
 
     if (!m_config.endpointUuid.empty())
     {

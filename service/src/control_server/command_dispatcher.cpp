@@ -12,6 +12,7 @@
 #include "../tools/filesystem_tools.h"
 #include "../tools/shell_tools.h"
 #include "../tools/system_tools.h"
+#include "../libs/httplib.h"
 #include <thread>
 #include <chrono>
 
@@ -28,9 +29,12 @@ namespace ScreenControl
 const std::vector<std::string> CommandDispatcher::GUI_METHODS = {
     "screenshot",
     "screenshot_app",
+    "screenshot_grid",
     "desktop_screenshot",
     "click",
     "click_absolute",
+    "click_relative",
+    "click_grid",
     "mouse_click",
     "doubleClick",
     "clickElement",
@@ -59,7 +63,61 @@ const std::vector<std::string> CommandDispatcher::GUI_METHODS = {
     "window_list",
     "window_focus",
     "window_move",
-    "window_resize"
+    "window_resize",
+    "checkPermissions",
+    "wait",
+    // Browser methods (proxied to GUI app which handles browser bridge)
+    "browser_listConnected",
+    "browser_setDefaultBrowser",
+    "browser_getTabs",
+    "browser_getActiveTab",
+    "browser_focusTab",
+    "browser_createTab",
+    "browser_closeTab",
+    "browser_getPageInfo",
+    "browser_inspectCurrentPage",
+    "browser_getInteractiveElements",
+    "browser_getPageContext",
+    "browser_clickElement",
+    "browser_fillElement",
+    "browser_fillFormField",
+    "browser_fillWithFallback",
+    "browser_fillFormNative",
+    "browser_scrollTo",
+    "browser_executeScript",
+    "browser_getFormData",
+    "browser_setWatchMode",
+    "browser_getVisibleText",
+    "browser_searchVisibleText",
+    "browser_getUIElements",
+    "browser_waitForSelector",
+    "browser_waitForPageLoad",
+    "browser_selectOption",
+    "browser_isElementVisible",
+    "browser_getConsoleLogs",
+    "browser_getNetworkRequests",
+    "browser_getLocalStorage",
+    "browser_getCookies",
+    "browser_clickByText",
+    "browser_clickMultiple",
+    "browser_getFormStructure",
+    "browser_answerQuestions",
+    "browser_getDropdownOptions",
+    "browser_openDropdownNative",
+    "browser_listInteractiveElements",
+    "browser_clickElementWithDebug",
+    "browser_findElementWithDebug",
+    "browser_findTabByUrl",
+    "browser_navigate",
+    "browser_screenshot",
+    "browser_go_back",
+    "browser_go_forward",
+    "browser_get_visible_html",
+    "browser_hover",
+    "browser_drag",
+    "browser_press_key",
+    "browser_upload_file",
+    "browser_save_as_pdf"
 };
 
 CommandDispatcher::CommandDispatcher()
@@ -513,7 +571,7 @@ json CommandDispatcher::handleMachineInfo()
 #endif
 
     // Add service info
-    info["serviceVersion"] = "1.2.0";
+    info["serviceVersion"] = "2.0.0";
 #if PLATFORM_MACOS || PLATFORM_LINUX
     info["serviceRunningAsRoot"] = (geteuid() == 0);
 #else
@@ -521,6 +579,32 @@ json CommandDispatcher::handleMachineInfo()
 #endif
 
     return info;
+}
+
+// Helper function to check if browser bridge is available
+// Checks port 3457 (GUI app) which handles browser extension connections
+static bool checkBrowserBridgeAvailable()
+{
+    try {
+        httplib::Client cli("127.0.0.1", 3457);
+        cli.set_connection_timeout(1);  // 1 second timeout
+        cli.set_read_timeout(1);
+
+        // Send a getTabs command to check if browser bridge is responsive
+        json body = {{"action", "getTabs"}, {"payload", json::object()}};
+        auto res = cli.Post("/command", body.dump(), "application/json");
+
+        if (res && res->status == 200) {
+            // GUI app browser bridge is running
+            Logger::info("Browser bridge available on port 3457");
+            return true;
+        }
+    } catch (const std::exception& e) {
+        Logger::debug("Browser bridge check failed: " + std::string(e.what()));
+    }
+
+    Logger::info("Browser bridge not available");
+    return false;
 }
 
 json CommandDispatcher::handleToolsList()
@@ -547,90 +631,146 @@ json CommandDispatcher::handleToolsList()
     // Common property for optional agentId
     json agentIdProp = {{"type", "string"}, {"description", "Target agent ID (optional)"}};
 
-    // ============ DESKTOP/GUI TOOLS ============
-    addTool("desktop_screenshot", "Take a screenshot of the entire desktop",
-        {{"format", {{"type", "string"}, {"enum", {"png", "jpeg"}}}},
-         {"quality", {{"type", "number"}, {"description", "JPEG quality (0-100)"}}},
-         {"agentId", agentIdProp}});
+    // ============ GUI TOOLS (matching macOS app names) ============
+    // Application management
+    addTool("listApplications", "List running applications",
+        {{"agentId", agentIdProp}});
 
-    addTool("mouse_click", "Click at specific screen coordinates",
+    addTool("focusApplication", "Focus an application",
+        {{"identifier", {{"type", "string"}, {"description", "App bundle ID or name"}}},
+         {"agentId", agentIdProp}},
+        {"identifier"});
+
+    addTool("launchApplication", "Launch an application",
+        {{"identifier", {{"type", "string"}, {"description", "App bundle ID or name"}}},
+         {"agentId", agentIdProp}},
+        {"identifier"});
+
+    addTool("closeApp", "Close an application",
+        {{"identifier", {{"type", "string"}, {"description", "App bundle ID or name"}}},
+         {"force", {{"type", "boolean"}, {"description", "Force quit the app"}}},
+         {"agentId", agentIdProp}},
+        {"identifier"});
+
+    // Screenshots (temporarily skip for Claude web - can't display images)
+    // addTool("screenshot", "Take a screenshot of the entire desktop", ...);
+    // addTool("screenshot_app", "Take a screenshot of a specific application window", ...);
+    // addTool("screenshot_grid", "Take a screenshot with labeled grid overlay", ...);
+
+    // Mouse/click tools
+    addTool("click", "Click at coordinates relative to current app",
         {{"x", {{"type", "number"}, {"description", "X coordinate"}}},
          {"y", {{"type", "number"}, {"description", "Y coordinate"}}},
-         {"button", {{"type", "string"}, {"enum", {"left", "right", "middle"}}}},
-         {"clickCount", {{"type", "number"}, {"description", "1 for single, 2 for double"}}},
+         {"button", {{"type", "string"}, {"enum", {"left", "right"}}, {"description", "Mouse button"}}},
          {"agentId", agentIdProp}},
         {"x", "y"});
 
-    addTool("mouse_move", "Move mouse to specific screen coordinates",
-        {{"x", {{"type", "number"}}},
-         {"y", {{"type", "number"}}},
+    addTool("click_absolute", "Click at absolute screen coordinates",
+        {{"x", {{"type", "number"}, {"description", "X coordinate"}}},
+         {"y", {{"type", "number"}, {"description", "Y coordinate"}}},
+         {"button", {{"type", "string"}, {"enum", {"left", "right"}}, {"description", "Mouse button"}}},
          {"agentId", agentIdProp}},
         {"x", "y"});
 
-    addTool("mouse_drag", "Drag mouse from one position to another",
-        {{"x1", {{"type", "number"}, {"description", "Start X"}}},
-         {"y1", {{"type", "number"}, {"description", "Start Y"}}},
-         {"x2", {{"type", "number"}, {"description", "End X"}}},
-         {"y2", {{"type", "number"}, {"description", "End Y"}}},
+    addTool("click_relative", "Click at coordinates relative to active window",
+        {{"x", {{"type", "number"}, {"description", "X coordinate"}}},
+         {"y", {{"type", "number"}, {"description", "Y coordinate"}}},
+         {"button", {{"type", "string"}, {"enum", {"left", "right"}}, {"description", "Mouse button"}}},
          {"agentId", agentIdProp}},
-        {"x1", "y1", "x2", "y2"});
+        {"x", "y"});
 
-    addTool("mouse_scroll", "Scroll the mouse wheel",
-        {{"deltaX", {{"type", "number"}, {"description", "Horizontal scroll amount"}}},
-         {"deltaY", {{"type", "number"}, {"description", "Vertical scroll amount"}}},
+    addTool("click_grid", "Click at a grid cell position (e.g., cell='E7')",
+        {{"cell", {{"type", "string"}, {"description", "Grid cell reference (e.g., 'E7', 'A1', 'T15')"}}},
+         {"column", {{"type", "number"}, {"description", "Column number (1-20), alternative to cell"}}},
+         {"row", {{"type", "number"}, {"description", "Row number (1-15), alternative to cell"}}},
+         {"button", {{"type", "string"}, {"enum", {"left", "right"}}, {"description", "Mouse button"}}},
+         {"identifier", {{"type", "string"}, {"description", "App bundle ID or name"}}},
+         {"element", {{"type", "number"}, {"description", "Element index from screenshot_grid"}}},
+         {"element_text", {{"type", "string"}, {"description", "Text to search for in detected elements"}}},
+         {"offset_x", {{"type", "number"}, {"description", "Horizontal offset in pixels"}}},
+         {"offset_y", {{"type", "number"}, {"description", "Vertical offset in pixels"}}},
          {"agentId", agentIdProp}});
 
-    addTool("keyboard_type", "Type text using the keyboard",
+    addTool("doubleClick", "Double-click at coordinates",
+        {{"x", {{"type", "number"}, {"description", "X coordinate"}}},
+         {"y", {{"type", "number"}, {"description", "Y coordinate"}}},
+         {"agentId", agentIdProp}},
+        {"x", "y"});
+
+    addTool("clickElement", "Click a UI element by index",
+        {{"elementIndex", {{"type", "number"}, {"description", "Index of element to click"}}},
+         {"agentId", agentIdProp}},
+        {"elementIndex"});
+
+    addTool("moveMouse", "Move mouse to coordinates",
+        {{"x", {{"type", "number"}, {"description", "X coordinate"}}},
+         {"y", {{"type", "number"}, {"description", "Y coordinate"}}},
+         {"agentId", agentIdProp}},
+        {"x", "y"});
+
+    addTool("scroll", "Scroll with delta values",
+        {{"deltaX", {{"type", "number"}, {"description", "Horizontal scroll amount"}}},
+         {"deltaY", {{"type", "number"}, {"description", "Vertical scroll amount"}}},
+         {"x", {{"type", "number"}, {"description", "X coordinate (optional)"}}},
+         {"y", {{"type", "number"}, {"description", "Y coordinate (optional)"}}},
+         {"agentId", agentIdProp}});
+
+    addTool("scrollMouse", "Scroll up or down",
+        {{"direction", {{"type", "string"}, {"enum", {"up", "down"}}, {"description", "Scroll direction"}}},
+         {"amount", {{"type", "number"}, {"description", "Scroll amount (default: 3)"}}},
+         {"agentId", agentIdProp}},
+        {"direction"});
+
+    addTool("drag", "Drag from one point to another",
+        {{"startX", {{"type", "number"}}},
+         {"startY", {{"type", "number"}}},
+         {"endX", {{"type", "number"}}},
+         {"endY", {{"type", "number"}}},
+         {"agentId", agentIdProp}},
+        {"startX", "startY", "endX", "endY"});
+
+    // UI element inspection
+    addTool("getClickableElements", "Get list of clickable UI elements",
+        {{"agentId", agentIdProp}});
+
+    addTool("getUIElements", "Get all UI elements",
+        {{"agentId", agentIdProp}});
+
+    addTool("getMousePosition", "Get current mouse position",
+        {{"agentId", agentIdProp}});
+
+    // Keyboard tools
+    addTool("typeText", "Type text using keyboard",
         {{"text", {{"type", "string"}, {"description", "Text to type"}}},
          {"agentId", agentIdProp}},
         {"text"});
 
-    addTool("keyboard_press", "Press a specific key",
-        {{"key", {{"type", "string"}, {"description", "Key to press (e.g., enter, tab, escape)"}}},
+    addTool("pressKey", "Press a specific key",
+        {{"key", {{"type", "string"}, {"description", "Key to press (e.g., 'enter', 'tab', 'escape')"}}},
          {"agentId", agentIdProp}},
         {"key"});
 
-    addTool("keyboard_shortcut", "Execute a keyboard shortcut",
-        {{"shortcut", {{"type", "string"}, {"description", "Shortcut to execute (e.g., ctrl+c, cmd+v)"}}},
-         {"agentId", agentIdProp}},
-        {"shortcut"});
-
-    // ============ WINDOW/APP TOOLS ============
-    addTool("window_list", "List all open windows",
+    // System tools
+    addTool("checkPermissions", "Check accessibility permissions",
         {{"agentId", agentIdProp}});
-
-    addTool("window_focus", "Focus a specific window",
-        {{"windowId", {{"type", "string"}, {"description", "Window identifier"}}},
-         {"title", {{"type", "string"}, {"description", "Window title (partial match)"}}},
-         {"agentId", agentIdProp}});
-
-    addTool("app_launch", "Launch an application",
-        {{"identifier", {{"type", "string"}, {"description", "App name or bundle ID"}}},
-         {"agentId", agentIdProp}},
-        {"identifier"});
-
-    addTool("app_quit", "Quit an application",
-        {{"identifier", {{"type", "string"}, {"description", "App name or bundle ID"}}},
-         {"force", {{"type", "boolean"}, {"description", "Force quit"}}},
-         {"agentId", agentIdProp}},
-        {"identifier"});
-
-    // ============ SYSTEM TOOLS ============
-    addTool("system_info", "Get system information (OS, CPU, memory, etc.)",
-        {{"agentId", agentIdProp}});
-
-    addTool("clipboard_read", "Read text from clipboard",
-        {{"agentId", agentIdProp}});
-
-    addTool("clipboard_write", "Write text to clipboard",
-        {{"text", {{"type", "string"}, {"description", "Text to write to clipboard"}}},
-         {"agentId", agentIdProp}},
-        {"text"});
 
     addTool("wait", "Wait for specified milliseconds",
         {{"milliseconds", {{"type", "number"}, {"description", "Time to wait in milliseconds"}}},
+         {"agentId", agentIdProp}});
+
+    addTool("system_info", "Get system information (OS, CPU, memory, hostname)",
+        {{"agentId", agentIdProp}});
+
+    addTool("window_list", "List all open windows on the desktop",
+        {{"agentId", agentIdProp}});
+
+    addTool("clipboard_read", "Read content from clipboard",
+        {{"agentId", agentIdProp}});
+
+    addTool("clipboard_write", "Write content to clipboard",
+        {{"text", {{"type", "string"}, {"description", "Text to copy to clipboard"}}},
          {"agentId", agentIdProp}},
-        {"milliseconds"});
+        {"text"});
 
     // ============ MACHINE CONTROL TOOLS (Windows only) ============
 #if PLATFORM_WINDOWS
@@ -735,6 +875,191 @@ json CommandDispatcher::handleToolsList()
          {"signal", {{"type", "string"}, {"description", "Signal to send (TERM, KILL)"}}},
          {"agentId", agentIdProp}},
         {"session_id"});
+
+    // ============ BROWSER TOOLS (only when browser extension is connected) ============
+    bool browserAvailable = checkBrowserBridgeAvailable();
+    if (browserAvailable) {
+        Logger::info("Adding browser tools (browser bridge available)");
+
+        // Common browser property
+        json browserProp = {{"type", "string"}, {"description", "Target browser (chrome, firefox, safari, edge)"}};
+        json tabIdProp = {{"type", "number"}, {"description", "Tab ID"}};
+        json urlProp = {{"type", "string"}, {"description", "URL of tab to target"}};
+        json selectorProp = {{"type", "string"}, {"description", "CSS selector"}};
+
+        addTool("browser_listConnected", "List connected browsers",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_setDefaultBrowser", "Set the default browser for browser operations",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getTabs", "Get list of open tabs",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getActiveTab", "Get the active tab",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_focusTab", "Focus a specific tab",
+            {{"browser", browserProp}, {"tabId", tabIdProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_createTab", "Create a new tab",
+            {{"browser", browserProp}, {"url", urlProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_closeTab", "Close a tab",
+            {{"browser", browserProp}, {"tabId", tabIdProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getPageInfo", "Get page information",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_inspectCurrentPage", "Inspect the current page",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getInteractiveElements", "Get interactive elements on the page",
+            {{"browser", browserProp}, {"url", urlProp}, {"tabId", tabIdProp},
+             {"verbose", {{"type", "boolean"}, {"description", "Return full element details"}}},
+             {"agentId", agentIdProp}});
+
+        addTool("browser_getPageContext", "Get page context",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_clickElement", "Click an element in the browser",
+            {{"browser", browserProp}, {"selector", selectorProp}, {"url", urlProp},
+             {"tabId", tabIdProp}, {"text", {{"type", "string"}, {"description", "Text content to find"}}},
+             {"agentId", agentIdProp}});
+
+        addTool("browser_fillElement", "Fill a form field",
+            {{"browser", browserProp}, {"selector", selectorProp}, {"url", urlProp},
+             {"tabId", tabIdProp}, {"value", {{"type", "string"}, {"description", "Value to fill"}}},
+             {"agentId", agentIdProp}},
+            {"selector", "value"});
+
+        addTool("browser_fillFormField", "Fill a form field",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_fillWithFallback", "Fill with fallback",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_fillFormNative", "Fill form using native input",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_scrollTo", "Scroll to position",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_executeScript", "Execute JavaScript in the browser",
+            {{"browser", browserProp}, {"script", {{"type", "string"}, {"description", "JavaScript to execute"}}},
+             {"agentId", agentIdProp}});
+
+        addTool("browser_getFormData", "Get form data",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_setWatchMode", "Set watch mode",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getVisibleText", "Get visible text from a tab",
+            {{"browser", browserProp}, {"url", urlProp}, {"tabId", tabIdProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_searchVisibleText", "Search for text in a tab",
+            {{"browser", browserProp}, {"query", {{"type", "string"}, {"description", "Text to search for"}}},
+             {"url", urlProp}, {"tabId", tabIdProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getUIElements", "Get UI elements",
+            {{"browser", browserProp}, {"url", urlProp}, {"tabId", tabIdProp},
+             {"verbose", {{"type", "boolean"}, {"description", "Return full element details"}}},
+             {"agentId", agentIdProp}});
+
+        addTool("browser_waitForSelector", "Wait for a selector to appear",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_waitForPageLoad", "Wait for page to load",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_selectOption", "Select an option from dropdown",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_isElementVisible", "Check if element is visible",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getConsoleLogs", "Get console logs",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getNetworkRequests", "Get network requests",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getLocalStorage", "Get local storage",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getCookies", "Get cookies",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_clickByText", "Click element by text",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_clickMultiple", "Click multiple elements",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getFormStructure", "Get form structure",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_answerQuestions", "Answer questions on forms",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_getDropdownOptions", "Get dropdown options",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_openDropdownNative", "Open dropdown using native controls",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_listInteractiveElements", "List interactive elements",
+            {{"browser", browserProp}, {"url", urlProp}, {"tabId", tabIdProp},
+             {"verbose", {{"type", "boolean"}, {"description", "Return full element details"}}},
+             {"agentId", agentIdProp}});
+
+        addTool("browser_clickElementWithDebug", "Click element with debug info",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_findElementWithDebug", "Find element with debug info",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_findTabByUrl", "Find tab by URL",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_navigate", "Navigate browser to a URL",
+            {{"browser", browserProp}, {"url", {{"type", "string"}, {"description", "URL to navigate to"}}},
+             {"agentId", agentIdProp}},
+            {"url"});
+
+        addTool("browser_screenshot", "Take a browser screenshot",
+            {{"browser", browserProp},
+             {"format", {{"type", "string"}, {"enum", {"png", "jpeg"}}}},
+             {"return_base64", {{"type", "boolean"}, {"description", "Return base64 instead of file path"}}},
+             {"agentId", agentIdProp}});
+
+        addTool("browser_go_back", "Navigate back",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_go_forward", "Navigate forward",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_get_visible_html", "Get page HTML",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_hover", "Hover over element",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_drag", "Drag element",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_press_key", "Press key in browser",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_upload_file", "Upload file",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+
+        addTool("browser_save_as_pdf", "Save page as PDF",
+            {{"browser", browserProp}, {"agentId", agentIdProp}});
+    } else {
+        Logger::info("Skipping browser tools (browser bridge not available)");
+    }
 
     Logger::info("Returning " + std::to_string(tools.size()) + " tools");
     return {{"tools", tools}};

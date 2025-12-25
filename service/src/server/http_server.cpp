@@ -94,7 +94,7 @@ void HttpServer::setupHealthRoutes()
     m_server->Get("/status", [](const httplib::Request&, httplib::Response& res) {
         json response = {
             {"success", true},
-            {"version", "1.4.0"},
+            {"version", "2.0.0"},
             {"platform", PLATFORM_ID},
             {"platformName", PLATFORM_NAME},
             {"licensed", Config::getInstance().isLicensed()},

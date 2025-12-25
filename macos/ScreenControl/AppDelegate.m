@@ -291,7 +291,9 @@ extern "C" {
 - (void)createStatusMenu {
     self.statusMenu = [[NSMenu alloc] init];
 
-    NSMenuItem *headerItem = [[NSMenuItem alloc] initWithTitle:@"ScreenControl Agent"
+    NSString *version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSString *headerTitle = [NSString stringWithFormat:@"ScreenControl v%@", version ?: @"?"];
+    NSMenuItem *headerItem = [[NSMenuItem alloc] initWithTitle:headerTitle
                                                         action:nil
                                                  keyEquivalent:@""];
     headerItem.enabled = NO;

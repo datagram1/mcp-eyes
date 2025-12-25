@@ -568,7 +568,7 @@ void WebSocketClient::sendRegistration()
     message["arch"] = "unknown";
 #endif
 
-    message["agentVersion"] = "1.2.0";
+    message["agentVersion"] = "2.0.0";
 
     if (!m_config.agentName.empty())
     {

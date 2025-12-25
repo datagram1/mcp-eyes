@@ -34,6 +34,15 @@ namespace ScreenControlTray
             // Create context menu
             _contextMenu = new ContextMenuStrip();
 
+            // Add version header
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            var versionString = version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "?";
+            var versionItem = new ToolStripMenuItem($"ScreenControl v{versionString}")
+            {
+                Enabled = false
+            };
+            _contextMenu.Items.Add(versionItem);
+
             _statusItem = new ToolStripMenuItem("Status: Checking...")
             {
                 Enabled = false
