@@ -245,21 +245,29 @@ class LocalAgentRegistry implements IAgentRegistry {
     if (existingConnectionId) {
       const existingAgent = this.agents.get(existingConnectionId);
       if (existingAgent) {
-        // Check if the existing connection is recent (< 3 seconds)
-        // If so, reject the new duplicate connection and keep the existing one
-        const connectionAge = Date.now() - (Number(existingAgent.lastPing) || Number(existingAgent.connectedAt) || 0);
-        if (connectionAge < 3000) {
-          console.log(`[Registry] Rejecting duplicate connection for machine ${msg.machineId} (existing connection is ${connectionAge}ms old)`);
-          socket.send(JSON.stringify({
-            type: 'error',
-            error: 'Duplicate connection rejected - existing connection is still active'
-          }));
-          socket.close(4002, 'Duplicate connection rejected');
-          return null;
+        // Check if the existing socket is actually still open
+        // WebSocket readyState: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
+        const socketIsAlive = existingAgent.socket.readyState === 1; // OPEN
+
+        if (socketIsAlive) {
+          // Check if the existing connection is recent (< 3 seconds)
+          // If so, reject the new duplicate connection and keep the existing one
+          const connectionAge = Date.now() - (Number(existingAgent.lastPing) || Number(existingAgent.connectedAt) || 0);
+          if (connectionAge < 3000) {
+            console.log(`[Registry] Rejecting duplicate connection for machine ${msg.machineId} (existing connection is ${connectionAge}ms old, socket alive)`);
+            socket.send(JSON.stringify({
+              type: 'error',
+              error: 'Duplicate connection rejected - existing connection is still active'
+            }));
+            socket.close(4002, 'Duplicate connection rejected');
+            return null;
+          }
         }
-        
-        console.log(`[Registry] Existing connection for machine ${msg.machineId}, closing old connection`);
-        existingAgent.socket.close(1000, 'New connection from same machine');
+
+        console.log(`[Registry] Existing connection for machine ${msg.machineId}, closing old connection (socket alive: ${socketIsAlive})`);
+        if (socketIsAlive) {
+          existingAgent.socket.close(1000, 'New connection from same machine');
+        }
         await this.unregister(existingConnectionId);
       }
     }
