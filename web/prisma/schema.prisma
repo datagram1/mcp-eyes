@@ -931,3 +931,113 @@ model RescueToken {
   @@index([userId])
   @@map("rescue_tokens")
 }
+
+// ============================================
+// EMAIL AGENT - AI-Triggered Email Tasks
+// ============================================
+
+model EmailTask {
+  id              String          @id @default(cuid())
+
+  // Email details
+  emailUid        Int             // IMAP UID for reference
+  messageId       String?         // Email Message-ID header
+  fromAddress     String          // Sender email
+  fromName        String?         // Sender display name
+  toAddresses     String[]        // Recipients
+  subject         String
+  body            String          @db.Text  // Plain text body
+  receivedAt      DateTime
+
+  // Attachments stored separately
+  attachments     EmailAttachment[]
+
+  // Processing
+  status          EmailTaskStatus @default(PENDING)
+  priority        Int             @default(0)  // Higher = more urgent
+
+  // LLM Analysis
+  llmProvider     String?         // Which LLM processed this
+  llmModel        String?         // Model used
+  llmAnalysis     String?         @db.Text  // LLM's interpretation
+  llmActions      Json?           // Structured actions to take
+
+  // Execution
+  targetAgentId   String?         // Agent to execute on (if determined)
+  executionLog    String?         @db.Text  // Log of actions taken
+  errorMessage    String?
+
+  // Response
+  responseSent    Boolean         @default(false)
+  responseBody    String?         @db.Text
+
+  // Timing
+  createdAt       DateTime        @default(now())
+  processedAt     DateTime?       // When LLM analyzed it
+  executedAt      DateTime?       // When actions were executed
+  completedAt     DateTime?       // When fully done (including response)
+
+  @@index([status])
+  @@index([fromAddress])
+  @@index([createdAt])
+  @@map("email_tasks")
+}
+
+model EmailAttachment {
+  id              String          @id @default(cuid())
+  taskId          String
+  filename        String
+  contentType     String
+  size            Int
+  storagePath     String?         // Path if saved to disk
+
+  task            EmailTask       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("email_attachments")
+}
+
+model EmailAgentSettings {
+  id              String          @id @default(cuid())
+
+  // IMAP Configuration
+  imapHost        String
+  imapPort        Int             @default(143)
+  imapUser        String
+  imapPassword    String          // Encrypted
+  imapTls         Boolean         @default(false)
+  imapMailbox     String          @default("INBOX")
+
+  // LLM Configuration
+  llmProvider     String          @default("vllm")  // vllm, claude, openai
+  llmBaseUrl      String?         // For vLLM/local
+  llmApiKey       String?         // Encrypted
+  llmModel        String?
+
+  // Behavior
+  isEnabled       Boolean         @default(false)
+  processInterval Int             @default(60)  // Seconds between checks
+  autoReply       Boolean         @default(true)
+
+  // Allowed senders (empty = allow all)
+  allowedSenders  String[]
+
+  // System prompt for LLM
+  systemPrompt    String?         @db.Text
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@map("email_agent_settings")
+}
+
+enum EmailTaskStatus {
+  PENDING         // Waiting to be processed
+  ANALYZING       // LLM is analyzing
+  READY           // Analysis done, ready for execution
+  EXECUTING       // Actions being executed
+  AWAITING_REPLY  // Waiting for user input (future)
+  COMPLETED       // Successfully completed
+  FAILED          // Failed with error
+  SKIPPED         // Skipped (e.g., spam, not actionable)
+}

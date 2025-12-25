@@ -13,6 +13,7 @@ import { handleAgentConnection } from './src/lib/control-server/websocket-handle
 import { handleStreamConnection } from './src/lib/control-server/stream-websocket-handler';
 import { agentRegistry } from './src/lib/control-server/agent-registry';
 import { streamSessionManager } from './src/lib/control-server/stream-session-manager';
+import { startEmailAgent, stopEmailAgent } from './src/lib/email-agent';
 import os from 'os';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -108,9 +109,10 @@ app.prepare().then(() => {
     clearInterval(heartbeatInterval);
     agentRegistry.cleanup();
     streamSessionManager.cleanup();
+    stopEmailAgent();
   });
 
-  server.listen(port, hostname, () => {
+  server.listen(port, hostname, async () => {
     const localIPs = getLocalIPs();
     console.log(`
 ╔═══════════════════════════════════════════════════════════════════╗
@@ -125,5 +127,11 @@ app.prepare().then(() => {
 ║  Local IPs:   ${localIPs.length > 0 ? localIPs.join(', ').padEnd(52) : 'none'.padEnd(52)}║
 ╚═══════════════════════════════════════════════════════════════════╝
     `);
+
+    // Start email agent (if configured)
+    const emailStarted = await startEmailAgent();
+    if (emailStarted) {
+      console.log('║  Email Agent: ACTIVE                                              ║');
+    }
   });
 });
