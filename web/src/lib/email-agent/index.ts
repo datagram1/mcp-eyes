@@ -5,9 +5,10 @@
  * Watches an IMAP mailbox and processes emails through an LLM.
  */
 
-import { IMAPWatcher, createIMAPWatcherFromEnv, ParsedEmail } from './imap-watcher';
+import { IMAPWatcher, createIMAPWatcherFromEnv, ParsedEmail, IMAPConfig } from './imap-watcher';
 import { processEmail } from './processor';
 import { getLLMConfigFromEnv, LLMConfig } from '../llm';
+import { prisma } from '../prisma';
 
 export class EmailAgentService {
   private watcher: IMAPWatcher | null = null;
@@ -17,8 +18,61 @@ export class EmailAgentService {
   private isProcessing = false;
 
   constructor() {
-    // Load config from environment
-    this.llmConfig = getLLMConfigFromEnv();
+    // Config will be loaded from database on start
+  }
+
+  /**
+   * Load settings from database, fall back to environment variables
+   */
+  private async loadSettings(): Promise<{ imap: IMAPConfig | null; llm: LLMConfig | null; enabled: boolean }> {
+    try {
+      const dbSettings = await prisma.emailAgentSettings.findFirst();
+
+      if (dbSettings) {
+        console.log('[EmailAgent] Loading settings from database');
+
+        const imap: IMAPConfig = {
+          host: dbSettings.imapHost,
+          port: dbSettings.imapPort,
+          user: dbSettings.imapUser,
+          password: dbSettings.imapPassword,
+          tls: dbSettings.imapTls,
+          mailbox: dbSettings.imapMailbox,
+        };
+
+        const llm: LLMConfig = {
+          provider: dbSettings.llmProvider as 'vllm' | 'claude' | 'openai',
+          baseUrl: dbSettings.llmBaseUrl || undefined,
+          apiKey: dbSettings.llmApiKey || undefined,
+          model: dbSettings.llmModel || undefined,
+        };
+
+        return { imap, llm, enabled: dbSettings.isEnabled };
+      }
+    } catch (error) {
+      console.log('[EmailAgent] Database not available, using environment variables');
+    }
+
+    // Fall back to environment variables
+    console.log('[EmailAgent] Loading settings from environment');
+
+    const envLLM = getLLMConfigFromEnv();
+    const envHost = process.env.IMAP_HOST;
+    const envUser = process.env.IMAP_USER;
+    const envPassword = process.env.IMAP_PASSWORD;
+
+    const imap = envHost && envUser && envPassword
+      ? {
+          host: envHost,
+          port: parseInt(process.env.IMAP_PORT || '143', 10),
+          user: envUser,
+          password: envPassword,
+          tls: process.env.IMAP_TLS === 'true',
+          mailbox: process.env.IMAP_MAILBOX || 'INBOX',
+        }
+      : null;
+
+    return { imap, llm: envLLM, enabled: true };
   }
 
   /**
@@ -30,18 +84,29 @@ export class EmailAgentService {
       return true;
     }
 
-    // Check LLM config
-    if (!this.llmConfig) {
-      console.log('[EmailAgent] No LLM configured - skipping email agent');
+    // Load settings from database or environment
+    const settings = await this.loadSettings();
+
+    if (!settings.enabled) {
+      console.log('[EmailAgent] Disabled in settings');
       return false;
     }
 
-    // Create IMAP watcher
-    this.watcher = createIMAPWatcherFromEnv();
-    if (!this.watcher) {
+    // Check LLM config
+    if (!settings.llm) {
+      console.log('[EmailAgent] No LLM configured - skipping email agent');
+      return false;
+    }
+    this.llmConfig = settings.llm;
+
+    // Check IMAP config
+    if (!settings.imap) {
       console.log('[EmailAgent] No IMAP configured - skipping email agent');
       return false;
     }
+
+    // Create IMAP watcher with loaded settings
+    this.watcher = new IMAPWatcher(settings.imap);
 
     // Set up email handler
     this.watcher.on('email', (email: ParsedEmail) => {
