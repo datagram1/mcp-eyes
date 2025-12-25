@@ -245,28 +245,37 @@ class LocalAgentRegistry implements IAgentRegistry {
     if (existingConnectionId) {
       const existingAgent = this.agents.get(existingConnectionId);
       if (existingAgent) {
-        // Check if the existing socket is actually still open
         // WebSocket readyState: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
-        const socketIsAlive = existingAgent.socket.readyState === 1; // OPEN
+        const socketIsOpen = existingAgent.socket.readyState === 1;
 
-        if (socketIsAlive) {
-          // Check if the existing connection is recent (< 3 seconds)
-          // If so, reject the new duplicate connection and keep the existing one
-          const connectionAge = Date.now() - (Number(existingAgent.lastPing) || Number(existingAgent.connectedAt) || 0);
-          if (connectionAge < 3000) {
-            console.log(`[Registry] Rejecting duplicate connection for machine ${msg.machineId} (existing connection is ${connectionAge}ms old, socket alive)`);
-            socket.send(JSON.stringify({
-              type: 'error',
-              error: 'Duplicate connection rejected - existing connection is still active'
-            }));
-            socket.close(4002, 'Duplicate connection rejected');
-            return null;
-          }
+        // Check if we've received a ping recently - this is more reliable than readyState
+        // because connections through Apache proxy can appear "open" when actually dead
+        const lastPingTime = Number(existingAgent.lastPing) || Number(existingAgent.connectedAt) || 0;
+        const timeSinceLastPing = Date.now() - lastPingTime;
+        const hasRecentPing = timeSinceLastPing < 60000; // 60 seconds - agents ping every ~30s
+
+        // Only consider the connection truly alive if socket is open AND we've had recent activity
+        const connectionTrulyAlive = socketIsOpen && hasRecentPing;
+
+        if (connectionTrulyAlive && timeSinceLastPing < 3000) {
+          // Connection is definitely active (just pinged), reject the duplicate
+          console.log(`[Registry] Rejecting duplicate connection for machine ${msg.machineId} (last ping ${timeSinceLastPing}ms ago)`);
+          socket.send(JSON.stringify({
+            type: 'error',
+            error: 'Duplicate connection rejected - existing connection is still active'
+          }));
+          socket.close(4002, 'Duplicate connection rejected');
+          return null;
         }
 
-        console.log(`[Registry] Existing connection for machine ${msg.machineId}, closing old connection (socket alive: ${socketIsAlive})`);
-        if (socketIsAlive) {
-          existingAgent.socket.close(1000, 'New connection from same machine');
+        // Either socket is closed, or no recent ping - accept new connection and close old
+        console.log(`[Registry] Replacing connection for machine ${msg.machineId} (socket open: ${socketIsOpen}, last ping: ${timeSinceLastPing}ms ago)`);
+        if (socketIsOpen) {
+          try {
+            existingAgent.socket.close(1000, 'New connection from same machine');
+          } catch (e) {
+            // Ignore close errors
+          }
         }
         await this.unregister(existingConnectionId);
       }
