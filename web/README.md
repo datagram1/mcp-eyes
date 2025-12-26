@@ -9,6 +9,8 @@ Next.js web portal and control server for the ScreenControl platform. Provides a
 - **OAuth 2.0**: Secure authentication with PKCE support
 - **Real-time Streaming**: WebSocket connections for live agent communication
 - **Email Agent**: AI-powered email automation with LLM integration
+- **Toast Notifications**: Non-intrusive fixed-position notifications that don't shift page content
+- **Auto-Start Services**: Email agent auto-starts when valid configuration exists
 
 ## Getting Started
 
@@ -103,6 +105,20 @@ Configure via the web UI at `/dashboard/email-agent` or set environment variable
 | vLLM / Open WebUI | `VLLM_BASE_URL` | OpenAI-compatible API, self-hosted |
 | Claude (Anthropic) | `ANTHROPIC_API_KEY` | Cloud API |
 | OpenAI / ChatGPT | `OPENAI_API_KEY` | Cloud API |
+| Claude Code | CLI installed | Uses local Claude Code CLI for agentic tasks |
+| Claude Code Managed (with Supervisor) | CLI + Supervisor LLM | Autonomous mode with supervisor LLM answering questions |
+
+### Claude Code Integration
+
+The Email Agent supports Claude Code for advanced agentic capabilities:
+
+- **Claude Code**: Runs tasks via the Claude Code CLI (`npx @anthropic-ai/claude-code`)
+- **Claude Code Managed (with Supervisor)**: Autonomous mode where a supervisor LLM automatically answers Claude Code's questions, enabling fully unattended operation
+
+To use Claude Code providers:
+1. Ensure Claude Code CLI is installed and authenticated on the server
+2. Select "Claude Code" or "Claude Code Managed (with Supervisor)" from the Provider dropdown
+3. For Managed mode, configure a Supervisor LLM (vLLM, Claude, or OpenAI) to handle questions
 
 ### Example Use Cases
 
