@@ -36,6 +36,10 @@ export async function GET(request: NextRequest) {
         llmBaseUrl: process.env.VLLM_BASE_URL || '',
         llmApiKey: '', // Don't expose API key
         llmModel: process.env.VLLM_MODEL || '',
+        supervisorProvider: 'vllm',
+        supervisorBaseUrl: process.env.VLLM_BASE_URL || '',
+        supervisorApiKey: '',
+        supervisorModel: '',
         isEnabled: false,
         processInterval: 60,
         autoReply: true,
@@ -57,6 +61,7 @@ export async function GET(request: NextRequest) {
       imapPassword: settings.imapPassword ? '********' : '',
       llmApiKey: settings.llmApiKey ? '********' : '',
       replySmtpPass: settings.replySmtpPass ? '********' : '',
+      supervisorApiKey: settings.supervisorApiKey ? '********' : '',
     });
   } catch (error) {
     console.error('[API] Get email settings error:', error);
@@ -106,6 +111,14 @@ export async function PUT(request: NextRequest) {
           ? body.llmApiKey
           : existing?.llmApiKey || null,
       llmModel: body.llmModel || null,
+      // Supervisor configuration for managed claude-code mode
+      supervisorProvider: body.supervisorProvider || 'vllm',
+      supervisorBaseUrl: body.supervisorBaseUrl || null,
+      supervisorApiKey:
+        body.supervisorApiKey && body.supervisorApiKey !== '********'
+          ? body.supervisorApiKey
+          : existing?.supervisorApiKey || null,
+      supervisorModel: body.supervisorModel || null,
       isEnabled: body.isEnabled ?? false,
       processInterval: body.processInterval || 60,
       autoReply: body.autoReply ?? true,

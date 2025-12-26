@@ -1009,10 +1009,16 @@ model EmailAgentSettings {
   imapMailbox     String          @default("INBOX")
 
   // LLM Configuration
-  llmProvider     String          @default("vllm")  // vllm, claude, openai
+  llmProvider     String          @default("vllm")  // vllm, claude, openai, claude-code, claude-code-managed
   llmBaseUrl      String?         // For vLLM/local
   llmApiKey       String?         // Encrypted
   llmModel        String?
+
+  // Supervisor LLM Configuration (for managed claude-code mode)
+  supervisorProvider  String?     // vllm, claude, openai (defaults to vllm)
+  supervisorBaseUrl   String?     // Supervisor LLM base URL
+  supervisorApiKey    String?     // Supervisor LLM API key
+  supervisorModel     String?     // Supervisor LLM model
 
   // Behavior
   isEnabled       Boolean         @default(false)

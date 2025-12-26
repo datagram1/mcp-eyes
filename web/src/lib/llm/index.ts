@@ -8,6 +8,8 @@ import { LLMConfig, LLMProvider, LLMProviderType } from './types';
 import { VLLMProvider } from './providers/vllm';
 import { ClaudeProvider } from './providers/claude';
 import { OpenAIProvider } from './providers/openai';
+import { ClaudeCodeProvider } from './providers/claude-code';
+import { ManagedClaudeCodeProvider, ManagedClaudeCodeConfig } from './providers/claude-code-managed';
 
 export * from './types';
 
@@ -22,6 +24,13 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
       return new ClaudeProvider(config);
     case 'openai':
       return new OpenAIProvider(config);
+    case 'claude-code':
+      return new ClaudeCodeProvider(config);
+    case 'claude-code-managed':
+      if (!config.supervisorConfig) {
+        throw new Error('Managed Claude Code requires supervisorConfig');
+      }
+      return new ManagedClaudeCodeProvider(config as ManagedClaudeCodeConfig);
     default:
       throw new Error(`Unknown LLM provider: ${config.provider}`);
   }
@@ -79,5 +88,13 @@ export const LLM_DEFAULTS: Record<LLMProviderType, Partial<LLMConfig>> = {
     model: 'gpt-4o',
     temperature: 0.7,
     maxTokens: 4096,
+  },
+  'claude-code': {
+    model: 'claude-sonnet-4-5-20250514',
+    maxTokens: 8192,
+  },
+  'claude-code-managed': {
+    model: 'claude-sonnet-4-5-20250514',
+    maxTokens: 8192,
   },
 };

@@ -41,11 +41,21 @@ export class EmailAgentService {
         };
 
         const llm: LLMConfig = {
-          provider: dbSettings.llmProvider as 'vllm' | 'claude' | 'openai',
+          provider: dbSettings.llmProvider as 'vllm' | 'claude' | 'openai' | 'claude-code' | 'claude-code-managed',
           baseUrl: dbSettings.llmBaseUrl || undefined,
           apiKey: dbSettings.llmApiKey || undefined,
           model: dbSettings.llmModel || undefined,
         };
+
+        // Add supervisor config for managed claude-code mode
+        if (dbSettings.llmProvider === 'claude-code-managed') {
+          llm.supervisorConfig = {
+            provider: (dbSettings.supervisorProvider as 'vllm' | 'claude' | 'openai') || 'vllm',
+            baseUrl: dbSettings.supervisorBaseUrl || dbSettings.llmBaseUrl || undefined,
+            apiKey: dbSettings.supervisorApiKey || undefined,
+            model: dbSettings.supervisorModel || undefined,
+          };
+        }
 
         return { imap, llm, enabled: dbSettings.isEnabled };
       }

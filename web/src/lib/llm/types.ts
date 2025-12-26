@@ -4,7 +4,7 @@
  * Abstracts different LLM backends (vLLM, Claude, OpenAI) behind a common interface.
  */
 
-export type LLMProviderType = 'vllm' | 'claude' | 'openai';
+export type LLMProviderType = 'vllm' | 'claude' | 'openai' | 'claude-code' | 'claude-code-managed';
 
 export interface LLMConfig {
   provider: LLMProviderType;
@@ -13,6 +13,8 @@ export interface LLMConfig {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  // For managed claude-code mode - supervisor LLM config
+  supervisorConfig?: LLMConfig;
 }
 
 export interface LLMMessage {

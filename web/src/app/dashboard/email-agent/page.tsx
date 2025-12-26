@@ -14,6 +14,11 @@ interface EmailAgentSettings {
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
+  // Supervisor LLM config (for claude-code-managed mode)
+  supervisorProvider: string;
+  supervisorBaseUrl: string;
+  supervisorApiKey: string;
+  supervisorModel: string;
   isEnabled: boolean;
   processInterval: number;
   autoReply: boolean;
@@ -49,6 +54,23 @@ interface EmailTask {
   errorMessage: string | null;
 }
 
+interface EmailTaskDetail extends EmailTask {
+  body: string;
+  toAddresses: string[];
+  receivedAt: string;
+  llmAnalysis: string | null;
+  llmActions: unknown | null;
+  executionLog: string | null;
+  responseSent: boolean;
+  responseBody: string | null;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    contentType: string;
+    size: number;
+  }>;
+}
+
 export default function EmailAgentPage() {
   const [settings, setSettings] = useState<EmailAgentSettings | null>(null);
   const [status, setStatus] = useState<ServiceStatus | null>(null);
@@ -57,6 +79,16 @@ export default function EmailAgentPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [selectedTask, setSelectedTask] = useState<EmailTaskDetail | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [loadingTask, setLoadingTask] = useState(false);
+  const [retryingTask, setRetryingTask] = useState<string | null>(null);
+  const [claudeCodeStatus, setClaudeCodeStatus] = useState<{
+    configured: boolean;
+    loggedIn: boolean;
+    error?: string;
+    checking: boolean;
+  }>({ configured: false, loggedIn: false, checking: false });
 
   // Form state
   const [formData, setFormData] = useState<EmailAgentSettings>({
@@ -71,6 +103,10 @@ export default function EmailAgentPage() {
     llmBaseUrl: '',
     llmApiKey: '',
     llmModel: '',
+    supervisorProvider: 'vllm',
+    supervisorBaseUrl: '',
+    supervisorApiKey: '',
+    supervisorModel: '',
     isEnabled: false,
     processInterval: 60,
     autoReply: true,
@@ -124,6 +160,23 @@ export default function EmailAgentPage() {
       setStats(data.stats || {});
     } catch {
       // Status fetch is optional
+    }
+  };
+
+  const checkClaudeCode = async () => {
+    setClaudeCodeStatus((prev) => ({ ...prev, checking: true }));
+    try {
+      const res = await fetch('/api/email-agent/claude-code');
+      if (!res.ok) throw new Error('Failed to check status');
+      const data = await res.json();
+      setClaudeCodeStatus({ ...data, checking: false });
+    } catch (err) {
+      setClaudeCodeStatus({
+        configured: false,
+        loggedIn: false,
+        error: err instanceof Error ? err.message : 'Failed to check',
+        checking: false,
+      });
     }
   };
 
@@ -182,6 +235,48 @@ export default function EmailAgentPage() {
 
   const updateForm = (field: keyof EmailAgentSettings, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleOpenTask = async (taskId: string) => {
+    setLoadingTask(true);
+    setModalOpen(true);
+    try {
+      const res = await fetch(`/api/email-agent/tasks/${taskId}`);
+      if (!res.ok) throw new Error('Failed to fetch task');
+      const data = await res.json();
+      setSelectedTask(data);
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : 'Failed to load task');
+      setModalOpen(false);
+    } finally {
+      setLoadingTask(false);
+    }
+  };
+
+  const handleRetryTask = async (taskId: string) => {
+    setRetryingTask(taskId);
+    try {
+      const res = await fetch(`/api/email-agent/tasks/${taskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retry' }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to retry task');
+      }
+      showMessage('success', 'Task queued for retry');
+      fetchStatus();
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : 'Failed to retry task');
+    } finally {
+      setRetryingTask(null);
+    }
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setSelectedTask(null);
   };
 
   const getStatusColor = (taskStatus: string) => {
@@ -403,14 +498,154 @@ export default function EmailAgentPage() {
                 <label className="block text-sm font-medium text-slate-300 mb-1">Provider</label>
                 <select
                   value={formData.llmProvider}
-                  onChange={(e) => updateForm('llmProvider', e.target.value)}
+                  onChange={(e) => {
+                    updateForm('llmProvider', e.target.value);
+                    if (e.target.value === 'claude-code' || e.target.value === 'claude-code-managed') {
+                      checkClaudeCode();
+                    }
+                  }}
                   className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="vllm">vLLM / Open WebUI</option>
-                  <option value="claude">Claude (Anthropic)</option>
+                  <option value="claude">Claude API</option>
                   <option value="openai">OpenAI / ChatGPT</option>
+                  <option value="claude-code">Claude Code (Autonomous)</option>
+                  <option value="claude-code-managed">Claude Code Managed (with Supervisor)</option>
                 </select>
               </div>
+
+              {/* Claude Code specific section */}
+              {(formData.llmProvider === 'claude-code' || formData.llmProvider === 'claude-code-managed') && (
+                <div className="space-y-4">
+                  <div className={`p-4 rounded-lg border ${
+                    claudeCodeStatus.loggedIn
+                      ? 'bg-green-500/10 border-green-500/20'
+                      : claudeCodeStatus.configured
+                        ? 'bg-yellow-500/10 border-yellow-500/20'
+                        : 'bg-slate-700 border-slate-600'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${
+                          claudeCodeStatus.loggedIn
+                            ? 'bg-green-400'
+                            : claudeCodeStatus.configured
+                              ? 'bg-yellow-400'
+                              : 'bg-slate-400'
+                        }`} />
+                        <div>
+                          <p className="text-white font-medium">
+                            {claudeCodeStatus.loggedIn
+                              ? 'Claude Code Ready'
+                              : claudeCodeStatus.configured
+                                ? 'Not Logged In'
+                                : 'Checking...'}
+                          </p>
+                          <p className="text-slate-400 text-sm">
+                            {claudeCodeStatus.loggedIn
+                              ? 'Autonomous agent ready to process emails'
+                              : claudeCodeStatus.error || 'Run "claude /login" on the server to authenticate'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={checkClaudeCode}
+                        disabled={claudeCodeStatus.checking}
+                        className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white text-sm rounded transition"
+                      >
+                        {claudeCodeStatus.checking ? 'Checking...' : 'Refresh'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                    <p className="text-blue-400 text-sm">
+                      <strong>{formData.llmProvider === 'claude-code-managed' ? 'Managed Claude Code' : 'Claude Code'}</strong>
+                      {formData.llmProvider === 'claude-code-managed'
+                        ? ' runs autonomously with a supervisor LLM that answers questions on your behalf. Tasks complete without manual intervention.'
+                        : ' is an autonomous AI agent that can execute commands, search the web, and perform complex tasks.'
+                      }
+                      {' '}It requires authentication via{' '}
+                      <code className="bg-slate-700 px-1 py-0.5 rounded">claude /login</code> on the server.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">API Key (optional)</label>
+                    <input
+                      type="password"
+                      value={formData.llmApiKey}
+                      onChange={(e) => updateForm('llmApiKey', e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Uses OAuth if not provided"
+                    />
+                    <p className="text-slate-500 text-sm mt-1">
+                      Leave empty to use OAuth login, or provide ANTHROPIC_API_KEY.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Supervisor LLM Config (for managed mode) */}
+              {formData.llmProvider === 'claude-code-managed' && (
+                <div className="space-y-4 border-t border-slate-600 pt-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white mb-2">Supervisor LLM</h3>
+                    <p className="text-slate-400 text-sm mb-4">
+                      Configure the local LLM that answers Claude Code&apos;s questions automatically.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Supervisor Provider</label>
+                    <select
+                      value={formData.supervisorProvider}
+                      onChange={(e) => updateForm('supervisorProvider', e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="vllm">vLLM / Open WebUI</option>
+                      <option value="claude">Claude API</option>
+                      <option value="openai">OpenAI / ChatGPT</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Supervisor Base URL</label>
+                    <input
+                      type="url"
+                      value={formData.supervisorBaseUrl}
+                      onChange={(e) => updateForm('supervisorBaseUrl', e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="http://192.168.11.26:8080"
+                    />
+                  </div>
+                  {formData.supervisorProvider !== 'vllm' && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-1">Supervisor API Key</label>
+                      <input
+                        type="password"
+                        value={formData.supervisorApiKey}
+                        onChange={(e) => updateForm('supervisorApiKey', e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="sk-..."
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Supervisor Model (optional)</label>
+                    <input
+                      type="text"
+                      value={formData.supervisorModel}
+                      onChange={(e) => updateForm('supervisorModel', e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder={
+                        formData.supervisorProvider === 'claude'
+                          ? 'claude-sonnet-4-20250514'
+                          : formData.supervisorProvider === 'openai'
+                            ? 'gpt-4o'
+                            : 'default'
+                      }
+                    />
+                  </div>
+                </div>
+              )}
 
               {formData.llmProvider === 'vllm' && (
                 <div>
@@ -450,7 +685,9 @@ export default function EmailAgentPage() {
                       ? 'claude-sonnet-4-20250514'
                       : formData.llmProvider === 'openai'
                         ? 'gpt-4o'
-                        : 'default'
+                        : formData.llmProvider === 'claude-code' || formData.llmProvider === 'claude-code-managed'
+                          ? 'claude-sonnet-4-5-20250514'
+                          : 'default'
                   }
                 />
               </div>
@@ -648,9 +885,42 @@ export default function EmailAgentPage() {
                         {new Date(task.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${getStatusColor(task.status)}`}>
-                      {task.status}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 text-xs font-medium rounded ${getStatusColor(task.status)}`}>
+                        {task.status}
+                      </span>
+                      {/* Open button */}
+                      <button
+                        onClick={() => handleOpenTask(task.id)}
+                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded transition"
+                        title="View details"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      </button>
+                      {/* Retry button - only show for failed/skipped */}
+                      {['FAILED', 'SKIPPED'].includes(task.status) && (
+                        <button
+                          onClick={() => handleRetryTask(task.id)}
+                          disabled={retryingTask === task.id}
+                          className="p-1.5 text-slate-400 hover:text-green-400 hover:bg-green-500/10 rounded transition disabled:opacity-50"
+                          title="Retry task"
+                        >
+                          {retryingTask === task.id ? (
+                            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {task.errorMessage && (
                     <p className="text-red-400 text-sm mt-2 truncate">{task.errorMessage}</p>
@@ -661,6 +931,172 @@ export default function EmailAgentPage() {
           </div>
         </div>
       </div>
+
+      {/* Email Detail Modal */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={closeModal}
+          />
+
+          {/* Modal */}
+          <div className="relative bg-slate-800 border border-slate-700 rounded-xl w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-700">
+              <h2 className="text-xl font-semibold text-white truncate pr-4">
+                {loadingTask ? 'Loading...' : selectedTask?.subject || 'Email Details'}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="overflow-y-auto max-h-[calc(85vh-80px)]">
+              {loadingTask ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                </div>
+              ) : selectedTask ? (
+                <div className="p-6 space-y-6">
+                  {/* Email metadata */}
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-slate-400">From:</span>
+                      <p className="text-white">{selectedTask.fromName || selectedTask.fromAddress}</p>
+                      {selectedTask.fromName && (
+                        <p className="text-slate-500 text-xs">{selectedTask.fromAddress}</p>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-slate-400">To:</span>
+                      <p className="text-white">{selectedTask.toAddresses?.join(', ') || '-'}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Received:</span>
+                      <p className="text-white">{new Date(selectedTask.receivedAt).toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Status:</span>
+                      <span className={`ml-2 px-2 py-0.5 text-xs font-medium rounded ${getStatusColor(selectedTask.status)}`}>
+                        {selectedTask.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Email body */}
+                  <div>
+                    <h3 className="text-sm font-medium text-slate-400 mb-2">Email Body</h3>
+                    <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 max-h-48 overflow-y-auto">
+                      <pre className="text-slate-300 text-sm whitespace-pre-wrap font-sans">
+                        {selectedTask.body || '(No content)'}
+                      </pre>
+                    </div>
+                  </div>
+
+                  {/* Attachments */}
+                  {selectedTask.attachments && selectedTask.attachments.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-slate-400 mb-2">Attachments</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedTask.attachments.map((att) => (
+                          <div
+                            key={att.id}
+                            className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm"
+                          >
+                            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                            <span className="text-white">{att.filename}</span>
+                            <span className="text-slate-500">({Math.round(att.size / 1024)}KB)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error message */}
+                  {selectedTask.errorMessage && (
+                    <div>
+                      <h3 className="text-sm font-medium text-red-400 mb-2">Error</h3>
+                      <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+                        <p className="text-red-400 text-sm">{selectedTask.errorMessage}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LLM Analysis */}
+                  {selectedTask.llmAnalysis && (
+                    <div>
+                      <h3 className="text-sm font-medium text-slate-400 mb-2">AI Analysis</h3>
+                      <div className="bg-slate-900 border border-slate-700 rounded-lg p-4">
+                        <p className="text-slate-300 text-sm">{selectedTask.llmAnalysis}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Execution log */}
+                  {selectedTask.executionLog && (
+                    <div>
+                      <h3 className="text-sm font-medium text-slate-400 mb-2">Execution Log</h3>
+                      <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 max-h-32 overflow-y-auto">
+                        <pre className="text-slate-300 text-sm whitespace-pre-wrap font-mono">
+                          {selectedTask.executionLog}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Response */}
+                  {selectedTask.responseBody && (
+                    <div>
+                      <h3 className="text-sm font-medium text-slate-400 mb-2">
+                        Response {selectedTask.responseSent ? '(Sent)' : '(Not sent)'}
+                      </h3>
+                      <div className="bg-slate-900 border border-slate-700 rounded-lg p-4 max-h-48 overflow-y-auto">
+                        <pre className="text-slate-300 text-sm whitespace-pre-wrap font-sans">
+                          {selectedTask.responseBody}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-700">
+                    {['FAILED', 'SKIPPED'].includes(selectedTask.status) && (
+                      <button
+                        onClick={() => {
+                          handleRetryTask(selectedTask.id);
+                          closeModal();
+                        }}
+                        className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Retry
+                      </button>
+                    )}
+                    <button
+                      onClick={closeModal}
+                      className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
