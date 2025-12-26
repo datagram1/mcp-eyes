@@ -1019,6 +1019,15 @@ model EmailAgentSettings {
   processInterval Int             @default(60)  // Seconds between checks
   autoReply       Boolean         @default(true)
 
+  // Reply SMTP Configuration (separate from main email server)
+  replySmtpHost   String?         // e.g., 192.168.10.6
+  replySmtpPort   Int             @default(25)
+  replySmtpUser   String?         // Usually null for local relay
+  replySmtpPass   String?         // Usually null for local relay
+  replySmtpTls    Boolean         @default(false)
+  replyFromEmail  String?         // From address for replies
+  replyFromName   String          @default("ScreenControl AI")
+
   // Allowed senders (empty = allow all)
   allowedSenders  String[]
 

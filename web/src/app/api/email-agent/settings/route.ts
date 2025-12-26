@@ -39,6 +39,13 @@ export async function GET(request: NextRequest) {
         isEnabled: false,
         processInterval: 60,
         autoReply: true,
+        replySmtpHost: process.env.REPLY_SMTP_HOST || '',
+        replySmtpPort: parseInt(process.env.REPLY_SMTP_PORT || '25', 10),
+        replySmtpUser: '',
+        replySmtpPass: '',
+        replySmtpTls: false,
+        replyFromEmail: process.env.REPLY_FROM_EMAIL || '',
+        replyFromName: 'ScreenControl AI',
         allowedSenders: [],
         systemPrompt: null,
       });
@@ -49,6 +56,7 @@ export async function GET(request: NextRequest) {
       ...settings,
       imapPassword: settings.imapPassword ? '********' : '',
       llmApiKey: settings.llmApiKey ? '********' : '',
+      replySmtpPass: settings.replySmtpPass ? '********' : '',
     });
   } catch (error) {
     console.error('[API] Get email settings error:', error);
@@ -101,6 +109,16 @@ export async function PUT(request: NextRequest) {
       isEnabled: body.isEnabled ?? false,
       processInterval: body.processInterval || 60,
       autoReply: body.autoReply ?? true,
+      replySmtpHost: body.replySmtpHost || null,
+      replySmtpPort: body.replySmtpPort || 25,
+      replySmtpUser: body.replySmtpUser || null,
+      replySmtpPass:
+        body.replySmtpPass && body.replySmtpPass !== '********'
+          ? body.replySmtpPass
+          : existing?.replySmtpPass || null,
+      replySmtpTls: body.replySmtpTls ?? false,
+      replyFromEmail: body.replyFromEmail || null,
+      replyFromName: body.replyFromName || 'ScreenControl AI',
       allowedSenders: body.allowedSenders || [],
       systemPrompt: body.systemPrompt || null,
     };
@@ -139,6 +157,7 @@ export async function PUT(request: NextRequest) {
         ...settings,
         imapPassword: '********',
         llmApiKey: settings.llmApiKey ? '********' : '',
+        replySmtpPass: settings.replySmtpPass ? '********' : '',
       },
     });
   } catch (error) {

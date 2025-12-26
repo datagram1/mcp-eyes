@@ -6,9 +6,9 @@
 
 import { prisma } from '../prisma';
 import { createLLMProvider, LLMConfig, LLMMessage } from '../llm';
-import { sendEmail } from '../email';
 import { ParsedEmail } from './imap-watcher';
 import { agentRegistry } from '../control-server/agent-registry';
+import { sendReplyEmail, ReplySmtpConfig } from './reply-mailer';
 
 // Default system prompt for email processing
 const DEFAULT_SYSTEM_PROMPT = `You are an AI assistant that helps manage ScreenControl agents - remote machines that can be controlled via commands.
@@ -56,13 +56,110 @@ export interface LLMAnalysis {
   priority: 'low' | 'normal' | 'high' | 'urgent';
 }
 
+export interface EmailAgentConfig {
+  allowedSenders: string[];
+  autoReply: boolean;
+  replySmtp: ReplySmtpConfig | null;
+}
+
+/**
+ * Check if the sender is authorized to trigger the email agent
+ */
+function isAuthorizedSender(fromAddress: string, allowedSenders: string[]): boolean {
+  // If no allowed senders configured, reject all (fail-safe)
+  if (!allowedSenders || allowedSenders.length === 0) {
+    console.log(`[EmailProcessor] No allowed senders configured - rejecting ${fromAddress}`);
+    return false;
+  }
+
+  // Normalize the from address
+  const normalizedFrom = fromAddress.toLowerCase().trim();
+
+  // Check if the sender is in the allowed list
+  const isAllowed = allowedSenders.some((allowed) => {
+    const normalizedAllowed = allowed.toLowerCase().trim();
+    // Support wildcard domain matching (e.g., *@example.com)
+    if (normalizedAllowed.startsWith('*@')) {
+      const domain = normalizedAllowed.substring(2);
+      return normalizedFrom.endsWith(`@${domain}`);
+    }
+    return normalizedFrom === normalizedAllowed;
+  });
+
+  if (!isAllowed) {
+    console.log(`[EmailProcessor] Unauthorized sender: ${fromAddress} (allowed: ${allowedSenders.join(', ')})`);
+  }
+
+  return isAllowed;
+}
+
+/**
+ * Load email agent configuration from database
+ */
+async function loadEmailAgentConfig(): Promise<EmailAgentConfig> {
+  const settings = await prisma.emailAgentSettings.findFirst();
+
+  if (!settings) {
+    return {
+      allowedSenders: [],
+      autoReply: true,
+      replySmtp: null,
+    };
+  }
+
+  const replySmtp: ReplySmtpConfig | null = settings.replySmtpHost
+    ? {
+        host: settings.replySmtpHost,
+        port: settings.replySmtpPort,
+        user: settings.replySmtpUser,
+        password: settings.replySmtpPass,
+        tls: settings.replySmtpTls,
+        fromEmail: settings.replyFromEmail,
+        fromName: settings.replyFromName,
+      }
+    : null;
+
+  return {
+    allowedSenders: settings.allowedSenders,
+    autoReply: settings.autoReply,
+    replySmtp,
+  };
+}
+
 /**
  * Process an incoming email
  */
 export async function processEmail(email: ParsedEmail, llmConfig: LLMConfig): Promise<string> {
   console.log(`[EmailProcessor] Processing email from ${email.fromAddress}: ${email.subject}`);
 
-  // Create task record
+  // Load configuration including allowed senders and reply SMTP
+  const config = await loadEmailAgentConfig();
+
+  // Check if sender is authorized BEFORE creating task record
+  if (!isAuthorizedSender(email.fromAddress, config.allowedSenders)) {
+    console.log(`[EmailProcessor] Skipping unauthorized email from ${email.fromAddress}`);
+
+    // Still create a task record for audit purposes, but mark as SKIPPED
+    await prisma.emailTask.create({
+      data: {
+        emailUid: email.uid,
+        messageId: email.messageId,
+        fromAddress: email.fromAddress,
+        fromName: email.from,
+        toAddresses: email.to,
+        subject: email.subject,
+        body: email.textBody || email.htmlBody.replace(/<[^>]*>/g, ''),
+        receivedAt: email.date,
+        status: 'SKIPPED',
+        errorMessage: `Unauthorized sender: ${email.fromAddress}`,
+        completedAt: new Date(),
+      },
+    });
+
+    return 'SKIPPED';
+  }
+
+  // Create task record for authorized sender
   const task = await prisma.emailTask.create({
     data: {
       emailUid: email.uid,
@@ -121,9 +218,24 @@ export async function processEmail(email: ParsedEmail, llmConfig: LLMConfig): Pr
     // Build final response
     const finalResponse = buildFinalResponse(analysis, executionLog);
 
-    // Send reply email
-    if (email.fromAddress && !email.fromAddress.includes('noreply')) {
-      await sendReplyEmail(email, finalResponse);
+    // Send reply email using dedicated reply SMTP server
+    let responseSent = false;
+    if (config.autoReply && email.fromAddress && !email.fromAddress.includes('noreply')) {
+      if (config.replySmtp) {
+        const replyResult = await sendReplyEmail(config.replySmtp, {
+          to: email.fromAddress,
+          subject: email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`,
+          body: finalResponse,
+          inReplyTo: email.messageId,
+          references: email.messageId,
+        });
+        responseSent = replyResult.success;
+        if (!replyResult.success) {
+          console.error(`[EmailProcessor] Failed to send reply: ${replyResult.error}`);
+        }
+      } else {
+        console.warn('[EmailProcessor] Reply SMTP not configured - skipping reply');
+      }
     }
 
     // Mark task as completed
@@ -132,7 +244,7 @@ export async function processEmail(email: ParsedEmail, llmConfig: LLMConfig): Pr
       data: {
         status: 'COMPLETED',
         executionLog: executionLog.map((e) => `${e.description}: ${e.result}`).join('\n'),
-        responseSent: true,
+        responseSent,
         responseBody: finalResponse,
         executedAt: new Date(),
         completedAt: new Date(),
@@ -360,20 +472,3 @@ function buildFinalResponse(analysis: LLMAnalysis, executionLog: ProcessedAction
   return response;
 }
 
-/**
- * Send reply email
- */
-async function sendReplyEmail(originalEmail: ParsedEmail, body: string): Promise<void> {
-  const subject = originalEmail.subject.startsWith('Re:')
-    ? originalEmail.subject
-    : `Re: ${originalEmail.subject}`;
-
-  await sendEmail({
-    to: originalEmail.fromAddress,
-    subject,
-    html: `<pre style="font-family: sans-serif; white-space: pre-wrap;">${body}</pre>`,
-    text: body,
-  });
-
-  console.log(`[EmailProcessor] Sent reply to ${originalEmail.fromAddress}`);
-}

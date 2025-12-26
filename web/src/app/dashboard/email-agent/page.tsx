@@ -17,6 +17,13 @@ interface EmailAgentSettings {
   isEnabled: boolean;
   processInterval: number;
   autoReply: boolean;
+  replySmtpHost: string;
+  replySmtpPort: number;
+  replySmtpUser: string;
+  replySmtpPass: string;
+  replySmtpTls: boolean;
+  replyFromEmail: string;
+  replyFromName: string;
   allowedSenders: string[];
   systemPrompt: string | null;
 }
@@ -67,9 +74,19 @@ export default function EmailAgentPage() {
     isEnabled: false,
     processInterval: 60,
     autoReply: true,
+    replySmtpHost: '',
+    replySmtpPort: 25,
+    replySmtpUser: '',
+    replySmtpPass: '',
+    replySmtpTls: false,
+    replyFromEmail: '',
+    replyFromName: 'ScreenControl AI',
     allowedSenders: [],
     systemPrompt: null,
   });
+
+  // State for the allowed senders input
+  const [allowedSendersInput, setAllowedSendersInput] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -90,6 +107,8 @@ export default function EmailAgentPage() {
       const data = await res.json();
       setSettings(data);
       setFormData(data);
+      // Set the allowed senders input to show existing values
+      setAllowedSendersInput((data.allowedSenders || []).join(', '));
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : 'Failed to load settings');
     }
@@ -117,11 +136,17 @@ export default function EmailAgentPage() {
     e.preventDefault();
     setSaving(true);
 
+    // Parse allowed senders from comma-separated input
+    const allowedSenders = allowedSendersInput
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
     try {
       const res = await fetch('/api/email-agent/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, allowedSenders }),
       });
 
       if (!res.ok) {
@@ -428,6 +453,119 @@ export default function EmailAgentPage() {
                         : 'default'
                   }
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* Reply SMTP Settings */}
+          <div className="bg-slate-800 border border-slate-700 rounded-xl">
+            <div className="p-6 border-b border-slate-700">
+              <h2 className="text-lg font-semibold text-white">Reply SMTP Server</h2>
+              <p className="text-slate-400 text-sm mt-1">Configure the outgoing email server for replies.</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">SMTP Host</label>
+                  <input
+                    type="text"
+                    value={formData.replySmtpHost}
+                    onChange={(e) => updateForm('replySmtpHost', e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="192.168.10.6"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Port</label>
+                  <input
+                    type="number"
+                    value={formData.replySmtpPort}
+                    onChange={(e) => updateForm('replySmtpPort', parseInt(e.target.value) || 25)}
+                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Username (optional)</label>
+                  <input
+                    type="text"
+                    value={formData.replySmtpUser}
+                    onChange={(e) => updateForm('replySmtpUser', e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Leave empty for no auth"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Password (optional)</label>
+                  <input
+                    type="password"
+                    value={formData.replySmtpPass}
+                    onChange={(e) => updateForm('replySmtpPass', e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Leave empty for no auth"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">From Email</label>
+                  <input
+                    type="email"
+                    value={formData.replyFromEmail}
+                    onChange={(e) => updateForm('replyFromEmail', e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="ai@screencontrol.local"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">From Name</label>
+                  <input
+                    type="text"
+                    value={formData.replyFromName}
+                    onChange={(e) => updateForm('replyFromName', e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="ScreenControl AI"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center pt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.replySmtpTls}
+                    onChange={(e) => updateForm('replySmtpTls', e.target.checked)}
+                    className="w-5 h-5 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500"
+                  />
+                  <span className="text-slate-300">Use TLS/SSL</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Security Settings */}
+          <div className="bg-slate-800 border border-slate-700 rounded-xl">
+            <div className="p-6 border-b border-slate-700">
+              <h2 className="text-lg font-semibold text-white">Security</h2>
+              <p className="text-slate-400 text-sm mt-1">Control who can trigger the email agent.</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Allowed Senders</label>
+                <textarea
+                  value={allowedSendersInput}
+                  onChange={(e) => setAllowedSendersInput(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="richard.brown@knws.co.uk"
+                  rows={3}
+                />
+                <p className="text-slate-500 text-sm mt-1">
+                  Comma-separated email addresses. Use *@domain.com for wildcard matching.
+                  <span className="text-yellow-400"> If empty, all emails will be rejected.</span>
+                </p>
               </div>
             </div>
           </div>
