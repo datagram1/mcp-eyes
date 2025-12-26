@@ -298,17 +298,18 @@ async function getAgentContext(): Promise<string> {
 
   // Add connected agents
   for (const agent of connectedAgents) {
-    const dbInfo = dbAgents.find((a) => a.id === agent.agentId);
-    context += `- ID: ${agent.agentId}\n`;
+    const agentId = agent.dbId || agent.id;
+    const dbInfo = dbAgents.find((a) => a.id === agentId);
+    context += `- ID: ${agentId}\n`;
     context += `  Name: ${dbInfo?.displayName || dbInfo?.hostname || 'Unknown'}\n`;
     context += `  OS: ${dbInfo?.osType || 'Unknown'}\n`;
     context += `  Status: ONLINE (connected)\n`;
-    context += `  IP: ${agent.ipAddress || dbInfo?.ipAddress || 'Unknown'}\n\n`;
+    context += `  IP: ${agent.remoteAddress || dbInfo?.ipAddress || 'Unknown'}\n\n`;
   }
 
   // Add offline agents from DB
   for (const agent of dbAgents) {
-    if (!connectedAgents.find((a) => a.agentId === agent.id)) {
+    if (!connectedAgents.find((a) => (a.dbId || a.id) === agent.id)) {
       context += `- ID: ${agent.id}\n`;
       context += `  Name: ${agent.displayName || agent.hostname || 'Unknown'}\n`;
       context += `  OS: ${agent.osType}\n`;
@@ -397,10 +398,7 @@ async function executeActions(actions: ProcessedAction[]): Promise<ProcessedActi
             const agent = agentRegistry.getAgent(action.agentId);
             if (agent) {
               // Send screenshot command to agent
-              const response = await agentRegistry.sendCommand(action.agentId, {
-                method: 'screenshot',
-                params: {},
-              });
+              const response = await agentRegistry.sendCommand(action.agentId, 'screenshot', {});
               action.result = response ? 'Screenshot captured' : 'Failed to capture screenshot';
               action.success = !!response;
             } else {
@@ -416,11 +414,12 @@ async function executeActions(actions: ProcessedAction[]): Promise<ProcessedActi
 
         case 'execute_command': {
           if (action.agentId && action.command) {
-            const response = await agentRegistry.sendCommand(action.agentId, {
-              method: 'shell_exec',
-              params: { command: action.command },
-            });
-            action.result = response?.result?.stdout || 'Command executed';
+            const response = await agentRegistry.sendCommand(
+              action.agentId,
+              'shell_exec',
+              { command: action.command }
+            ) as { stdout?: string } | null;
+            action.result = response?.stdout || 'Command executed';
             action.success = true;
           } else {
             action.result = 'Missing agent or command';
