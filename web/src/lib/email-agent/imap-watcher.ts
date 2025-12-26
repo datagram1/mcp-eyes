@@ -237,7 +237,8 @@ export class IMAPWatcher extends EventEmitter {
       messageId: mail.messageId,
       from: fromAddr?.name || fromAddr?.address || 'unknown',
       fromAddress: fromAddr?.address || 'unknown',
-      to: mail.to?.value?.map((a) => a.address || '') || [],
+      to: (Array.isArray(mail.to) ? mail.to : mail.to ? [mail.to] : [])
+        .flatMap((t) => t.value?.map((a) => a.address || '') || []),
       subject: mail.subject || '(no subject)',
       textBody: mail.text || '',
       htmlBody: mail.html || '',
