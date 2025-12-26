@@ -1,0 +1,14 @@
+# ScreenControl Tray Application Dependencies
+#
+# System packages (install with apt):
+#   sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+#       gir1.2-ayatanaappindicator3-0.1 python3-pil python3-xlib \
+#       python3-requests xdotool scrot wmctrl
+#
+# For KDE Plasma, also install:
+#   sudo apt install libappindicator3-1
+#
+# Python packages (if using pip instead of system packages):
+requests>=2.25.0
+Pillow>=8.0.0
+python-xlib>=0.31
