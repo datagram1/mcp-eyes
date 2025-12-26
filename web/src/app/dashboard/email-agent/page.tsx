@@ -206,7 +206,15 @@ export default function EmailAgentPage() {
         throw new Error(data.error || 'Failed to save settings');
       }
 
-      showToast('success', 'Settings saved successfully');
+      const providerName = {
+        vllm: 'vLLM / Open WebUI',
+        claude: 'Claude (Anthropic)',
+        openai: 'OpenAI',
+        'claude-code': 'Claude Code',
+        'claude-code-managed': 'Claude Code Managed',
+      }[formData.llmProvider] || formData.llmProvider;
+
+      showToast('success', `Settings saved - LLM provider: ${providerName}`);
       fetchData();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to save settings');
