@@ -16,6 +16,8 @@ export class EmailAgentService {
   private isRunning = false;
   private processingQueue: ParsedEmail[] = [];
   private isProcessing = false;
+  private lastError: string | null = null;
+  private stoppedByUser = false;
 
   constructor() {
     // Config will be loaded from database on start
@@ -87,23 +89,32 @@ export class EmailAgentService {
 
   /**
    * Start the email agent service
+   * Auto-starts if LLM and IMAP are configured, unless stopped by user or there's an error
    */
-  async start(): Promise<boolean> {
+  async start(userInitiated = false): Promise<boolean> {
     if (this.isRunning) {
       console.log('[EmailAgent] Already running');
       return true;
     }
 
-    // Load settings from database or environment
-    const settings = await this.loadSettings();
+    // Clear stopped-by-user flag if user initiated start
+    if (userInitiated) {
+      this.stoppedByUser = false;
+      this.lastError = null;
+    }
 
-    if (!settings.enabled) {
-      console.log('[EmailAgent] Disabled in settings');
+    // Don't auto-start if user explicitly stopped it (unless they clicked Start)
+    if (this.stoppedByUser && !userInitiated) {
+      console.log('[EmailAgent] Stopped by user, waiting for manual start');
       return false;
     }
 
+    // Load settings from database or environment
+    const settings = await this.loadSettings();
+
     // Check LLM config
     if (!settings.llm) {
+      this.lastError = 'No LLM configured';
       console.log('[EmailAgent] No LLM configured - skipping email agent');
       return false;
     }
@@ -111,6 +122,7 @@ export class EmailAgentService {
 
     // Check IMAP config
     if (!settings.imap) {
+      this.lastError = 'No IMAP configured';
       console.log('[EmailAgent] No IMAP configured - skipping email agent');
       return false;
     }
@@ -125,15 +137,19 @@ export class EmailAgentService {
 
     this.watcher.on('error', (err: Error) => {
       console.error('[EmailAgent] IMAP error:', err.message);
+      this.lastError = `IMAP error: ${err.message}`;
     });
 
     // Start watching
     try {
       await this.watcher.start();
       this.isRunning = true;
+      this.lastError = null;
       console.log('[EmailAgent] Started successfully');
       return true;
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.lastError = `Failed to start: ${errorMsg}`;
       console.error('[EmailAgent] Failed to start:', error);
       return false;
     }
@@ -141,14 +157,20 @@ export class EmailAgentService {
 
   /**
    * Stop the email agent service
+   * @param userInitiated - If true, won't auto-restart until user clicks Start
    */
-  stop(): void {
+  stop(userInitiated = false): void {
     if (this.watcher) {
       this.watcher.stop();
       this.watcher = null;
     }
     this.isRunning = false;
-    console.log('[EmailAgent] Stopped');
+    if (userInitiated) {
+      this.stoppedByUser = true;
+      console.log('[EmailAgent] Stopped by user');
+    } else {
+      console.log('[EmailAgent] Stopped');
+    }
   }
 
   /**
@@ -196,12 +218,16 @@ export class EmailAgentService {
     connected: boolean;
     llmProvider: string | null;
     queueLength: number;
+    error: string | null;
+    stoppedByUser: boolean;
   } {
     return {
       running: this.isRunning,
       connected: this.watcher?.connected || false,
       llmProvider: this.llmConfig?.provider || null,
       queueLength: this.processingQueue.length,
+      error: this.lastError,
+      stoppedByUser: this.stoppedByUser,
     };
   }
 

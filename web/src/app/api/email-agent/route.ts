@@ -83,11 +83,13 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'start':
-        const started = await service.start();
+        // User clicked Start button - userInitiated=true clears stoppedByUser flag
+        const started = await service.start(true);
         return NextResponse.json({ success: started, status: service.getStatus() });
 
       case 'stop':
-        service.stop();
+        // User clicked Stop button - userInitiated=true sets stoppedByUser flag
+        service.stop(true);
         return NextResponse.json({ success: true, status: service.getStatus() });
 
       case 'status':

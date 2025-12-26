@@ -148,20 +148,20 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    // Restart email agent with new settings if enabled
+    // Auto-start email agent with new settings if LLM is configured
     const service = getEmailAgentService();
-    if (settings.isEnabled) {
-      service.stop();
-      // Update LLM config
-      service.setLLMConfig({
-        provider: settings.llmProvider as 'vllm' | 'claude' | 'openai',
-        baseUrl: settings.llmBaseUrl || undefined,
-        apiKey: settings.llmApiKey || undefined,
-        model: settings.llmModel || undefined,
-      });
-      await service.start();
-    } else {
-      service.stop();
+    // Always stop first to reload config
+    service.stop();
+    // Update LLM config
+    service.setLLMConfig({
+      provider: settings.llmProvider as 'vllm' | 'claude' | 'openai' | 'claude-code' | 'claude-code-managed',
+      baseUrl: settings.llmBaseUrl || undefined,
+      apiKey: settings.llmApiKey || undefined,
+      model: settings.llmModel || undefined,
+    });
+    // Auto-start if we have valid LLM config (not user-initiated, so respects stoppedByUser flag)
+    if (settings.llmProvider) {
+      await service.start(false);
     }
 
     return NextResponse.json({
