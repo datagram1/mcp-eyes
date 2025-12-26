@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Toast, useToast } from '@/components/Toast';
 
 interface EmailAgentSettings {
   id: string | null;
@@ -80,7 +81,7 @@ export default function EmailAgentPage() {
   const [stats, setStats] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { messages: toastMessages, showToast, dismissToast } = useToast();
   const [selectedTask, setSelectedTask] = useState<EmailTaskDetail | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [loadingTask, setLoadingTask] = useState(false);
@@ -148,7 +149,7 @@ export default function EmailAgentPage() {
       // Set the allowed senders input to show existing values
       setAllowedSendersInput((data.allowedSenders || []).join(', '));
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : 'Failed to load settings');
+      showToast('error', err instanceof Error ? err.message : 'Failed to load settings');
     }
   };
 
@@ -182,10 +183,6 @@ export default function EmailAgentPage() {
     }
   };
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 5000);
-  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,10 +206,10 @@ export default function EmailAgentPage() {
         throw new Error(data.error || 'Failed to save settings');
       }
 
-      showMessage('success', 'Settings saved successfully');
+      showToast('success', 'Settings saved successfully');
       fetchData();
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : 'Failed to save settings');
+      showToast('error', err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setSaving(false);
     }
@@ -228,10 +225,10 @@ export default function EmailAgentPage() {
 
       if (!res.ok) throw new Error(`Failed to ${action} service`);
 
-      showMessage('success', `Email agent ${action === 'start' ? 'started' : 'stopped'}`);
+      showToast('success', `Email agent ${action === 'start' ? 'started' : 'stopped'}`);
       fetchStatus();
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : 'Action failed');
+      showToast('error', err instanceof Error ? err.message : 'Action failed');
     }
   };
 
@@ -248,7 +245,7 @@ export default function EmailAgentPage() {
       const data = await res.json();
       setSelectedTask(data);
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : 'Failed to load task');
+      showToast('error', err instanceof Error ? err.message : 'Failed to load task');
       setModalOpen(false);
     } finally {
       setLoadingTask(false);
@@ -267,10 +264,10 @@ export default function EmailAgentPage() {
         const data = await res.json();
         throw new Error(data.error || 'Failed to retry task');
       }
-      showMessage('success', 'Task queued for retry');
+      showToast('success', 'Task queued for retry');
       fetchStatus();
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : 'Failed to retry task');
+      showToast('error', err instanceof Error ? err.message : 'Failed to retry task');
     } finally {
       setRetryingTask(null);
     }
@@ -306,29 +303,20 @@ export default function EmailAgentPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white">Email Agent</h1>
-        <p className="text-slate-400 mt-1">
-          AI-powered email automation. Receive emails, analyze with LLM, execute ScreenControl actions.
-        </p>
-      </div>
+    <>
+      {/* Toast Notifications */}
+      <Toast messages={toastMessages} onDismiss={dismissToast} />
 
-      {/* Message Banner */}
-      {message && (
-        <div
-          className={`mb-6 p-4 rounded-lg ${
-            message.type === 'success'
-              ? 'bg-green-500/10 border border-green-500/20 text-green-400'
-              : 'bg-red-500/10 border border-red-500/20 text-red-400'
-          }`}
-        >
-          {message.text}
+      <div className="max-w-6xl mx-auto">
+        {/* Page Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white">Email Agent</h1>
+          <p className="text-slate-400 mt-1">
+            AI-powered email automation. Receive emails, analyze with LLM, execute ScreenControl actions.
+          </p>
         </div>
-      )}
 
-      {/* Status Card */}
+        {/* Status Card */}
       <div className="bg-slate-800 border border-slate-700 rounded-xl mb-6">
         <div className="p-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -1111,6 +1099,7 @@ export default function EmailAgentPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
