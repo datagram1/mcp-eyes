@@ -148,9 +148,9 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    // Auto-start email agent with new settings if LLM is configured
+    // Restart email agent with new settings if LLM is configured
     const service = getEmailAgentService();
-    // Always stop first to reload config
+    // Always stop first to reload config (not user-initiated, preserves stoppedByUser)
     service.stop();
     // Update LLM config
     service.setLLMConfig({
@@ -159,9 +159,10 @@ export async function PUT(request: NextRequest) {
       apiKey: settings.llmApiKey || undefined,
       model: settings.llmModel || undefined,
     });
-    // Auto-start if we have valid LLM config (not user-initiated, so respects stoppedByUser flag)
+    // Always restart when saving settings (userInitiated=true clears stoppedByUser flag)
+    // This ensures the new provider is active immediately after saving
     if (settings.llmProvider) {
-      await service.start(false);
+      await service.start(true);
     }
 
     return NextResponse.json({
