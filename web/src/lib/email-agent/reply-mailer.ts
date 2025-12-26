@@ -34,6 +34,9 @@ function createReplyTransporter(config: ReplySmtpConfig): Transporter {
     host: config.host,
     port: config.port,
     secure: config.tls,
+    tls: {
+      rejectUnauthorized: false, // Allow self-signed/IP-based certs
+    },
   } as nodemailer.TransportOptions;
 
   // Only add auth if credentials are provided

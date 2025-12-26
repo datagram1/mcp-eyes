@@ -94,7 +94,8 @@ export class IMAPWatcher extends EventEmitter {
         host: this.config.host,
         port: this.config.port,
         tls: this.config.tls,
-        tlsOptions: this.config.tls ? { rejectUnauthorized: false } : undefined,
+        autotls: 'always', // Enable STARTTLS for non-TLS connections
+        tlsOptions: { rejectUnauthorized: false }, // Allow self-signed/IP certs
       });
 
       this.imap.once('ready', () => {
