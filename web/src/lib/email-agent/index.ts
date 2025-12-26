@@ -234,5 +234,6 @@ export function stopEmailAgent(): void {
   }
 }
 
-export { IMAPWatcher, ParsedEmail } from './imap-watcher';
+export { IMAPWatcher } from './imap-watcher';
+export type { ParsedEmail } from './imap-watcher';
 export { processEmail } from './processor';
