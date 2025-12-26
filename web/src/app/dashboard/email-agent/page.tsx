@@ -368,7 +368,11 @@ export default function EmailAgentPage() {
                     : 'Stopped'}
               </h2>
               <p className="text-slate-400 text-sm">
-                {status?.llmProvider ? `Using ${status.llmProvider.toUpperCase()}` : 'No LLM configured'}
+                {status?.llmProvider
+                  ? `Using ${status.llmProvider.toUpperCase()}`
+                  : formData.llmProvider
+                    ? `${formData.llmProvider.toUpperCase()} configured`
+                    : 'No LLM configured'}
                 {status?.queueLength ? ` • ${status.queueLength} in queue` : ''}
               </p>
             </div>
