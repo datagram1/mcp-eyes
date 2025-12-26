@@ -17,6 +17,8 @@ NC='\033[0m' # No Color
 SERVICE_ID="com.screencontrol.service"
 SERVICE_BINARY="/Library/PrivilegedHelperTools/${SERVICE_ID}"
 SERVICE_PLIST="/Library/LaunchDaemons/${SERVICE_ID}.plist"
+AGENT_ID="com.screencontrol.agent"
+AGENT_PLIST="/Library/LaunchAgents/${AGENT_ID}.plist"
 CONFIG_DIR="/Library/Application Support/ScreenControl"
 LOG_DIR="/Library/Logs/ScreenControl"
 
@@ -73,6 +75,13 @@ cp "${SCRIPT_DIR}/com.screencontrol.service.plist" "$SERVICE_PLIST"
 chmod 644 "$SERVICE_PLIST"
 chown root:wheel "$SERVICE_PLIST"
 
+# Install LaunchAgent for menu bar app (auto-start at login)
+echo "Installing LaunchAgent for menu bar app..."
+mkdir -p "/Library/LaunchAgents"
+cp "${SCRIPT_DIR}/com.screencontrol.agent.plist" "$AGENT_PLIST"
+chmod 644 "$AGENT_PLIST"
+chown root:wheel "$AGENT_PLIST"
+
 # Set directory permissions
 chmod 755 "$CONFIG_DIR"
 chmod 755 "$LOG_DIR"
@@ -97,7 +106,18 @@ fi
 echo "Starting service..."
 launchctl load "$SERVICE_PLIST"
 
-# Wait for service to start
+# Load agent for all logged-in GUI users
+echo "Loading agent for logged-in users..."
+for uid in $(dscl . -list /Users UniqueID | awk '$2 >= 500 {print $2}'); do
+    # Check if user has a GUI session
+    if launchctl print gui/$uid 2>/dev/null | grep -q "state = running"; then
+        echo "  Loading agent for UID $uid..."
+        launchctl bootout gui/$uid/com.screencontrol.agent 2>/dev/null || true
+        launchctl bootstrap gui/$uid "$AGENT_PLIST" 2>/dev/null || true
+    fi
+done
+
+# Wait for services to start
 sleep 2
 
 # Verify service is running
@@ -110,7 +130,12 @@ if launchctl list | grep -q "$SERVICE_ID"; then
     echo "  Logs:   ${LOG_DIR}/"
     echo "  HTTP:   http://127.0.0.1:3459/health"
     echo ""
-    echo "To check service status: launchctl list | grep screencontrol"
+    echo "Menu bar agent:"
+    echo "  App:    /Applications/ScreenControl.app"
+    echo "  Status: Will start automatically at login"
+    echo "          (or is already running for logged-in users)"
+    echo ""
+    echo "To check status: launchctl list | grep screencontrol"
     echo "To view logs: tail -f ${LOG_DIR}/service.log"
 else
     echo -e "${YELLOW}Warning: Service may not have started correctly${NC}"

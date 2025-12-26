@@ -17,6 +17,8 @@ NC='\033[0m' # No Color
 SERVICE_ID="com.screencontrol.service"
 SERVICE_BINARY="/Library/PrivilegedHelperTools/${SERVICE_ID}"
 SERVICE_PLIST="/Library/LaunchDaemons/${SERVICE_ID}.plist"
+AGENT_ID="com.screencontrol.agent"
+AGENT_PLIST="/Library/LaunchAgents/${AGENT_ID}.plist"
 CONFIG_DIR="/Library/Application Support/ScreenControl"
 LOG_DIR="/Library/Logs/ScreenControl"
 
@@ -43,6 +45,15 @@ rm -f "$SERVICE_BINARY"
 
 echo "Removing LaunchDaemon..."
 rm -f "$SERVICE_PLIST"
+
+# Stop and remove LaunchAgent for menu bar app
+echo "Stopping menu bar agent..."
+# Unload for all logged-in users
+for uid in $(dscl . -list /Users UniqueID | awk '$2 >= 500 {print $2}'); do
+    launchctl bootout gui/$uid "$AGENT_PLIST" 2>/dev/null || true
+done
+echo "Removing LaunchAgent..."
+rm -f "$AGENT_PLIST"
 
 # Ask about config and logs
 read -p "Remove configuration files? [y/N] " -n 1 -r

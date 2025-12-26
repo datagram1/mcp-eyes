@@ -9,6 +9,8 @@
 SERVICE_ID="com.screencontrol.service"
 SERVICE_BINARY="/Library/PrivilegedHelperTools/${SERVICE_ID}"
 SERVICE_PLIST="/Library/LaunchDaemons/${SERVICE_ID}.plist"
+AGENT_ID="com.screencontrol.agent"
+AGENT_PLIST="/Library/LaunchAgents/${AGENT_ID}.plist"
 CONFIG_DIR="/Library/Application Support/ScreenControl"
 LOG_DIR="/Library/Logs/ScreenControl"
 APP_PATH="/Applications/ScreenControl.app"
@@ -30,9 +32,11 @@ log "Setting service permissions..."
 chmod 755 "$SERVICE_BINARY"
 chown root:wheel "$SERVICE_BINARY"
 
-# Set permissions on plist
+# Set permissions on plists
 chmod 644 "$SERVICE_PLIST"
 chown root:wheel "$SERVICE_PLIST"
+chmod 644 "$AGENT_PLIST"
+chown root:wheel "$AGENT_PLIST"
 
 # Set directory permissions
 chmod 755 "$CONFIG_DIR"
@@ -70,6 +74,17 @@ else
     log "Warning: Service may not have started correctly"
 fi
 
+# Load agent for all logged-in GUI users
+log "Loading agent for logged-in users..."
+for uid in $(dscl . -list /Users UniqueID | awk '$2 >= 500 {print $2}'); do
+    # Check if user has a GUI session
+    if launchctl print gui/$uid 2>/dev/null | grep -q "state = running"; then
+        log "  Loading agent for UID $uid..."
+        launchctl bootout gui/$uid/$AGENT_ID 2>/dev/null || true
+        launchctl bootstrap gui/$uid "$AGENT_PLIST" 2>/dev/null || true
+    fi
+done
+
 # Set app permissions (if installed)
 if [[ -d "$APP_PATH" ]]; then
     log "Setting application permissions..."
@@ -80,11 +95,9 @@ if [[ -d "$APP_PATH" ]]; then
     xattr -rd com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 fi
 
-# Register login item for current user (optional - user can enable in settings)
-# This is handled by the app itself now
-
 log "Postinstall complete"
 log "Service installed at: $SERVICE_BINARY"
+log "Agent will auto-start at login for all users"
 log "Configuration at: ${CONFIG_DIR}/config.json"
 log "Logs at: ${LOG_DIR}/"
 

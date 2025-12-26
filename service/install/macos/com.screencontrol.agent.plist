@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Agent identifier -->
+    <key>Label</key>
+    <string>com.screencontrol.agent</string>
+
+    <!-- Application path -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/ScreenControl.app/Contents/MacOS/ScreenControl</string>
+    </array>
+
+    <!-- Run at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep running (restart if quit) -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Restart throttle (5 seconds between restarts) -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <!-- LSUIElement apps need this for proper GUI session access -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+
+    <!-- Process type -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

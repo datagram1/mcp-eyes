@@ -165,10 +165,12 @@ echo -e "${BLUE}[3/5] Creating package roots...${NC}"
 echo "  Creating service package root..."
 mkdir -p "$BUILD_DIR/service_root/Library/PrivilegedHelperTools"
 mkdir -p "$BUILD_DIR/service_root/Library/LaunchDaemons"
+mkdir -p "$BUILD_DIR/service_root/Library/LaunchAgents"
 mkdir -p "$BUILD_DIR/service_root/Library/Application Support/ScreenControl"
 
 cp "$SERVICE_BINARY" "$BUILD_DIR/service_root/Library/PrivilegedHelperTools/com.screencontrol.service"
 cp "$SCRIPT_DIR/../com.screencontrol.service.plist" "$BUILD_DIR/service_root/Library/LaunchDaemons/"
+cp "$SCRIPT_DIR/../com.screencontrol.agent.plist" "$BUILD_DIR/service_root/Library/LaunchAgents/"
 
 # Sign the service binary if identity provided
 if [[ -n "$APP_IDENTITY" ]]; then
