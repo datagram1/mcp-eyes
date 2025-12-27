@@ -131,5 +131,37 @@ deploy.sh
 local-dev.sh
 test-local.js
 local-mcp-config.json
-LOCAL_DEVELOPMENT.mdservice/build*/
+LOCAL_DEVELOPMENT.md
+
+# Service build artifacts
+service/build*/
+service/build-*/
 service/dist/
+
+# macOS app builds
+macos/build*/
+macos/build-*/
+calibration_tool/.build/
+calibration_tool/MouseCalibration.app/
+
+# Windows builds
+windows/ScreenControlTray/bin/
+windows/ScreenControlTray/obj/
+calibration_tool/WindowsMouseCalibration/obj/
+windows-build-package/
+windows-build-package.zip
+
+# Old backups
+old/
+
+# Build outputs
+dist/
+libscreencontrol/
+
+# Package outputs
+service/install/macos/pkg/output/
+service/install/windows/
+
+# Misc build files
+build_service.bat
+todo/
