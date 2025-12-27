@@ -90,11 +90,11 @@ export const LLM_DEFAULTS: Record<LLMProviderType, Partial<LLMConfig>> = {
     maxTokens: 4096,
   },
   'claude-code': {
-    model: 'claude-sonnet-4-5-20250514',
+    model: 'claude-sonnet-4-20250514',
     maxTokens: 8192,
   },
   'claude-code-managed': {
-    model: 'claude-sonnet-4-5-20250514',
+    model: 'claude-sonnet-4-20250514',
     maxTokens: 8192,
   },
 };

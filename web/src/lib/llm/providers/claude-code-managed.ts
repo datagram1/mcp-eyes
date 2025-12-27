@@ -69,7 +69,15 @@ export class ManagedClaudeCodeProvider implements LLMProvider {
     this.originalTask = fullPrompt;
     this.conversationLog = [];
 
-    const model = this.config.model || 'claude-sonnet-4-5-20250514';
+    // Ensure we use an Anthropic model, not a local model path
+    // The supervisorConfig.model is for vLLM, config.model should be for Claude
+    let model = this.config.model || 'claude-sonnet-4-20250514';
+    console.error(`[ManagedClaudeCode DEBUG] config.model = ${this.config.model}, model = ${model}`);
+    if (model.startsWith('/') || model.includes('local_models') || model === 'default') {
+      console.error(`[ManagedClaudeCode] Model "${model}" looks like a local model, using default Anthropic model`);
+      model = 'claude-sonnet-4-20250514';
+      console.error(`[ManagedClaudeCode] Model changed to: ${model}`);
+    }
 
     try {
       const result = await this.runManagedClaudeCode(fullPrompt, model);
@@ -93,23 +101,56 @@ export class ManagedClaudeCodeProvider implements LLMProvider {
 
 IMPORTANT: Complete this task autonomously. Make reasonable decisions without asking for clarification. If you must choose between options, pick the most sensible one and proceed. Only output results, not questions.`;
 
-      const args = [
-        '--print',
-        '--model', model,
-        '--max-turns', '20',
-        '--dangerously-skip-permissions',
-        enhancedPrompt
-      ];
+      // Write prompt to temp file to avoid shell escaping issues
+      // The prompt contains special characters ({}|[]) that break shell expansion
+      const fs = require('fs');
+      const os = require('os');
+      const path = require('path');
+      const promptFile = path.join(os.tmpdir(), `claude-prompt-${Date.now()}.txt`);
+      fs.writeFileSync(promptFile, enhancedPrompt, 'utf8');
+      console.log(`[ManagedClaudeCode] Wrote prompt to ${promptFile} (${enhancedPrompt.length} chars)`);
+
+      // Write a wrapper script that uses 'script' command to provide pseudo-TTY
+      // Claude Code requires a TTY for proper initialization - without it, the process
+      // gets stuck waiting on epoll without ever making network connections
+      const scriptFile = path.join(os.tmpdir(), `claude-runner-${Date.now()}.sh`);
+      // Use command substitution inside the -c argument since 'script' spawns a new shell
+      // that doesn't inherit environment variables. The $(cat ...) runs inside script's shell.
+      const scriptContent = `#!/bin/bash
+# Use 'script' to provide a pseudo-TTY - Claude Code requires this
+# -q = quiet mode, -c = command to run, /dev/null = output file (discard)
+# The prompt is read via command substitution inside the script subshell
+script -q -c "claude --print --model ${model} --max-turns 20 --dangerously-skip-permissions \\"\\\$(cat '${promptFile}')\\"" /dev/null
+`;
+      fs.writeFileSync(scriptFile, scriptContent, { mode: 0o755 });
+      console.log(`[ManagedClaudeCode] Wrote runner script to ${scriptFile} (using script for PTY)`);
 
       const env = { ...process.env };
-      if (this.apiKey) {
+      // Only set API key if it looks valid (starts with sk-ant-)
+      // Otherwise, Claude Code will use OAuth from ~/.claude/.credentials.json
+      if (this.apiKey && this.apiKey.startsWith('sk-ant-')) {
         env.ANTHROPIC_API_KEY = this.apiKey;
+      } else if (this.apiKey) {
+        console.log('[ManagedClaudeCode] API key does not look valid, using OAuth instead');
       }
 
-      const proc = spawn('npx', ['@anthropic-ai/claude-code', ...args], {
+      // Execute the wrapper script directly (avoids command substitution issues in spawn)
+      console.log('[ManagedClaudeCode] Spawning claude via runner script');
+      const proc = spawn('bash', [scriptFile], {
         env,
         cwd: process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
+        detached: false,
+      });
+
+      // Clean up temp files after process exits
+      proc.on('close', () => {
+        try {
+          fs.unlinkSync(promptFile);
+          fs.unlinkSync(scriptFile);
+        } catch (e) {
+          // Ignore cleanup errors
+        }
       });
 
       let stdout = '';
@@ -185,12 +226,12 @@ IMPORTANT: Complete this task autonomously. Make reasonable decisions without as
 
       startMonitoring();
 
-      // Timeout after 10 minutes for managed mode (longer than regular)
+      // Timeout after 30 minutes for managed mode (vLLM supervisor can be slow)
       setTimeout(() => {
         clearInterval(checkInterval);
         proc.kill();
-        reject(new Error('Managed Claude Code timed out after 10 minutes'));
-      }, 10 * 60 * 1000);
+        reject(new Error('Managed Claude Code timed out after 30 minutes'));
+      }, 30 * 60 * 1000);
     });
   }
 

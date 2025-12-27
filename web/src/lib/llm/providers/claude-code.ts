@@ -40,7 +40,7 @@ export class ClaudeCodeProvider implements LLMProvider {
       fullPrompt = `${systemMessage.content}\n\n---\n\n${fullPrompt}`;
     }
 
-    const model = this.config.model || 'claude-sonnet-4-5-20250514';
+    const model = this.config.model || 'claude-sonnet-4-20250514';
 
     try {
       const result = await this.runClaudeCode(fullPrompt, model);

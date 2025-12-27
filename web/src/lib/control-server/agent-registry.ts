@@ -577,6 +577,15 @@ class LocalAgentRegistry implements IAgentRegistry {
       return this.agents.get(connectionId);
     }
 
+    // Debug: Log why agent not found
+    console.log(`[Registry] getAgent failed for ${agentId}:`, {
+      inAgentsMap: this.agents.has(agentId),
+      inDbIdMap: this.agentsByDbId.has(agentId),
+      agentsMapSize: this.agents.size,
+      dbIdMapSize: this.agentsByDbId.size,
+      dbIdMapKeys: Array.from(this.agentsByDbId.keys()),
+    });
+
     return undefined;
   }
 

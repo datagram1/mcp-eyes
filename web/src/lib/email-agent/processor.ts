@@ -128,15 +128,22 @@ async function loadEmailAgentConfig(): Promise<EmailAgentConfig> {
 
 /**
  * Process an incoming email
+ * @param email - Parsed email data
+ * @param llmConfig - LLM configuration
+ * @param existingTaskId - Optional: ID of existing task (for retries)
  */
-export async function processEmail(email: ParsedEmail, llmConfig: LLMConfig): Promise<string> {
+export async function processEmail(
+  email: ParsedEmail,
+  llmConfig: LLMConfig,
+  existingTaskId?: string
+): Promise<string> {
   console.log(`[EmailProcessor] Processing email from ${email.fromAddress}: ${email.subject}`);
 
   // Load configuration including allowed senders and reply SMTP
   const config = await loadEmailAgentConfig();
 
-  // Check if sender is authorized BEFORE creating task record
-  if (!isAuthorizedSender(email.fromAddress, config.allowedSenders)) {
+  // For retries, skip authorization check (already passed previously)
+  if (!existingTaskId && !isAuthorizedSender(email.fromAddress, config.allowedSenders)) {
     console.log(`[EmailProcessor] Skipping unauthorized email from ${email.fromAddress}`);
 
     // Still create a task record for audit purposes, but mark as SKIPPED
@@ -159,20 +166,42 @@ export async function processEmail(email: ParsedEmail, llmConfig: LLMConfig): Pr
     return 'SKIPPED';
   }
 
-  // Create task record for authorized sender
-  const task = await prisma.emailTask.create({
-    data: {
-      emailUid: email.uid,
-      messageId: email.messageId,
-      fromAddress: email.fromAddress,
-      fromName: email.from,
-      toAddresses: email.to,
-      subject: email.subject,
-      body: email.textBody || email.htmlBody.replace(/<[^>]*>/g, ''),
-      receivedAt: email.date,
-      status: 'ANALYZING',
-    },
-  });
+  // Use existing task (retry) or create new one
+  let task;
+  let previousResponseSent = false;
+
+  if (existingTaskId) {
+    // Retry: use existing task
+    task = await prisma.emailTask.findUnique({ where: { id: existingTaskId } });
+    if (!task) {
+      throw new Error(`Task ${existingTaskId} not found`);
+    }
+    // Check if a response was already sent
+    previousResponseSent = task.responseSent;
+    if (previousResponseSent) {
+      console.log(`[EmailProcessor] RETRY: Previous response already sent - will not send duplicate`);
+    }
+    // Update status to ANALYZING
+    await prisma.emailTask.update({
+      where: { id: existingTaskId },
+      data: { status: 'ANALYZING' },
+    });
+  } else {
+    // New email: create task record
+    task = await prisma.emailTask.create({
+      data: {
+        emailUid: email.uid,
+        messageId: email.messageId,
+        fromAddress: email.fromAddress,
+        fromName: email.from,
+        toAddresses: email.to,
+        subject: email.subject,
+        body: email.textBody || email.htmlBody.replace(/<[^>]*>/g, ''),
+        receivedAt: email.date,
+        status: 'ANALYZING',
+      },
+    });
+  }
 
   try {
     // Get available agents for context
@@ -219,8 +248,11 @@ export async function processEmail(email: ParsedEmail, llmConfig: LLMConfig): Pr
     const finalResponse = buildFinalResponse(analysis, executionLog);
 
     // Send reply email using dedicated reply SMTP server
-    let responseSent = false;
-    if (config.autoReply && email.fromAddress && !email.fromAddress.includes('noreply')) {
+    // Skip if a response was already sent (retry scenario)
+    let responseSent = previousResponseSent;
+    if (previousResponseSent) {
+      console.log(`[EmailProcessor] Skipping reply - response was already sent previously`);
+    } else if (config.autoReply && email.fromAddress && !email.fromAddress.includes('noreply')) {
       if (config.replySmtp) {
         const replyResult = await sendReplyEmail(config.replySmtp, {
           to: email.fromAddress,
@@ -276,6 +308,11 @@ async function getAgentContext(): Promise<string> {
   // Get agents from registry (connected agents)
   const connectedAgents = agentRegistry.getAllAgents();
 
+  console.log(`[EmailProcessor] Connected agents from registry: ${connectedAgents.length}`);
+  for (const a of connectedAgents) {
+    console.log(`[EmailProcessor]   - ${a.machineName || a.machineId} (dbId: ${a.dbId}, id: ${a.id})`);
+  }
+
   // Also get agents from database
   const dbAgents = await prisma.agent.findMany({
     where: { state: 'ACTIVE' },
@@ -290,28 +327,38 @@ async function getAgentContext(): Promise<string> {
     },
   });
 
+  console.log(`[EmailProcessor] DB agents: ${dbAgents.length}`);
+
   if (connectedAgents.length === 0 && dbAgents.length === 0) {
     return 'No agents currently available.';
   }
 
   let context = 'Available agents:\n';
 
-  // Add connected agents
+  // Add connected agents - use displayName from DB if available
   for (const agent of connectedAgents) {
     const agentId = agent.dbId || agent.id;
-    const dbInfo = dbAgents.find((a) => a.id === agentId);
-    context += `- ID: ${agentId}\n`;
-    context += `  Name: ${dbInfo?.displayName || dbInfo?.hostname || 'Unknown'}\n`;
+    // Try to find DB record by id first, then by hostname matching
+    let dbInfo = dbAgents.find((a) => a.id === agentId);
+    if (!dbInfo && agent.machineName) {
+      dbInfo = dbAgents.find((a) => a.hostname === agent.machineName);
+    }
+    const displayName = dbInfo?.displayName || dbInfo?.hostname || agent.machineName || 'Unknown';
+    context += `- Name: ${displayName}\n`;
+    context += `  ID: ${agentId}\n`;
     context += `  OS: ${dbInfo?.osType || 'Unknown'}\n`;
     context += `  Status: ONLINE (connected)\n`;
     context += `  IP: ${agent.remoteAddress || dbInfo?.ipAddress || 'Unknown'}\n\n`;
   }
 
-  // Add offline agents from DB
+  // Add offline agents from DB (only if not in connected list)
   for (const agent of dbAgents) {
-    if (!connectedAgents.find((a) => (a.dbId || a.id) === agent.id)) {
-      context += `- ID: ${agent.id}\n`;
-      context += `  Name: ${agent.displayName || agent.hostname || 'Unknown'}\n`;
+    const isConnected = connectedAgents.find((a) =>
+      (a.dbId || a.id) === agent.id || a.machineName === agent.hostname
+    );
+    if (!isConnected) {
+      context += `- Name: ${agent.displayName || agent.hostname || 'Unknown'}\n`;
+      context += `  ID: ${agent.id}\n`;
       context += `  OS: ${agent.osType}\n`;
       context += `  Status: OFFLINE (last seen: ${agent.lastSeenAt?.toISOString() || 'never'})\n`;
       context += `  IP: ${agent.ipAddress || 'Unknown'}\n\n`;
@@ -376,12 +423,83 @@ function parseAnalysis(content: string): LLMAnalysis {
 }
 
 /**
+ * Resolve agent name to agent ID
+ * Performs case-insensitive matching against machineName, machineId, displayName, or agent id
+ */
+async function resolveAgentId(agentName: string): Promise<string | null> {
+  const agents = agentRegistry.getAllAgents();
+  const normalizedName = agentName.toLowerCase();
+
+  // First try direct match against runtime registry
+  for (const agent of agents) {
+    const agentDisplayName = (agent.machineName || agent.machineId || agent.id).toLowerCase();
+    if (agentDisplayName === normalizedName) {
+      return agent.id;
+    }
+  }
+
+  // Try partial match in registry
+  for (const agent of agents) {
+    const agentDisplayName = (agent.machineName || agent.machineId || agent.id).toLowerCase();
+    if (agentDisplayName.includes(normalizedName) || normalizedName.includes(agentDisplayName)) {
+      return agent.id;
+    }
+  }
+
+  // Not found in registry - try database displayName lookup
+  // This handles cases where user-friendly names like "My MacBook" don't match hostnames
+  try {
+    const dbAgent = await prisma.agent.findFirst({
+      where: {
+        OR: [
+          { displayName: { equals: agentName, mode: 'insensitive' } },
+          { label: { equals: agentName, mode: 'insensitive' } },
+          { hostname: { equals: agentName, mode: 'insensitive' } },
+        ],
+        status: 'ONLINE',
+      },
+      select: { hostname: true, machineId: true, id: true },
+    });
+
+    if (dbAgent) {
+      // Now find this agent in the runtime registry using its hostname/machineId
+      const searchNames = [dbAgent.hostname, dbAgent.machineId, dbAgent.id].filter(Boolean);
+      for (const searchName of searchNames) {
+        if (!searchName) continue;
+        for (const agent of agents) {
+          const registryName = (agent.machineName || agent.machineId || agent.id).toLowerCase();
+          if (registryName === searchName.toLowerCase()) {
+            console.log(`[EmailProcessor] Found agent via DB lookup: "${agentName}" -> ${agent.id}`);
+            return agent.id;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[EmailProcessor] Database agent lookup failed:', error);
+  }
+
+  return null;
+}
+
+/**
  * Execute the planned actions
  */
 async function executeActions(actions: ProcessedAction[]): Promise<ProcessedAction[]> {
   const results: ProcessedAction[] = [];
 
   for (const action of actions) {
+    // Resolve agentName to agentId if needed
+    if (action.agentName && !action.agentId) {
+      const resolvedId = await resolveAgentId(action.agentName);
+      if (resolvedId) {
+        action.agentId = resolvedId;
+        console.log(`[EmailProcessor] Resolved agent "${action.agentName}" to ID: ${resolvedId}`);
+      } else {
+        console.log(`[EmailProcessor] Could not resolve agent: ${action.agentName}`);
+      }
+    }
+
     console.log(`[EmailProcessor] Executing: ${action.description}`);
 
     try {

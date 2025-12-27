@@ -18,6 +18,7 @@ export class EmailAgentService {
   private isProcessing = false;
   private lastError: string | null = null;
   private stoppedByUser = false;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     // Config will be loaded from database on start
@@ -51,12 +52,20 @@ export class EmailAgentService {
 
         // Add supervisor config for managed claude-code mode
         if (dbSettings.llmProvider === 'claude-code-managed') {
+          console.log('[EmailAgent] Setting up supervisorConfig:', {
+            provider: dbSettings.supervisorProvider,
+            baseUrl: dbSettings.supervisorBaseUrl,
+            model: dbSettings.supervisorModel,
+          });
           llm.supervisorConfig = {
             provider: (dbSettings.supervisorProvider as 'vllm' | 'claude' | 'openai') || 'vllm',
             baseUrl: dbSettings.supervisorBaseUrl || dbSettings.llmBaseUrl || undefined,
             apiKey: dbSettings.supervisorApiKey || undefined,
             model: dbSettings.supervisorModel || undefined,
           };
+          console.log('[EmailAgent] supervisorConfig created:', JSON.stringify(llm.supervisorConfig));
+        } else {
+          console.log('[EmailAgent] Provider is not claude-code-managed:', dbSettings.llmProvider);
         }
 
         return { imap, llm, enabled: dbSettings.isEnabled };
@@ -88,6 +97,53 @@ export class EmailAgentService {
   }
 
   /**
+   * Clean up orphaned tasks that are stuck in ANALYZING/EXECUTING status
+   * These can occur when the service restarts mid-processing
+   *
+   * For ANALYZING tasks: Only cleanup if processedAt is set (shouldn't happen) and old
+   * For EXECUTING tasks: Cleanup if processedAt is old (they've been executing too long)
+   */
+  async cleanupOrphanedTasks(): Promise<number> {
+    const ORPHAN_THRESHOLD_MS = 60 * 60 * 1000; // 60 minutes
+    const cutoffTime = new Date(Date.now() - ORPHAN_THRESHOLD_MS);
+
+    try {
+      // Only clean up EXECUTING tasks that have been stuck for too long
+      // ANALYZING tasks with null processedAt are actively processing and should not be cleaned up
+      const result = await prisma.emailTask.updateMany({
+        where: {
+          OR: [
+            // EXECUTING tasks stuck for too long (based on when processing started)
+            {
+              status: 'EXECUTING',
+              processedAt: { lt: cutoffTime },
+            },
+            // ANALYZING tasks that somehow have processedAt set (shouldn't happen, but cleanup just in case)
+            {
+              status: 'ANALYZING',
+              processedAt: { not: null, lt: cutoffTime },
+            },
+          ],
+        },
+        data: {
+          status: 'FAILED',
+          errorMessage: 'Task orphaned - stuck in processing for over 60 minutes',
+          completedAt: new Date(),
+        },
+      });
+
+      if (result.count > 0) {
+        console.log(`[EmailAgent] Cleaned up ${result.count} orphaned task(s)`);
+      }
+
+      return result.count;
+    } catch (error) {
+      console.error('[EmailAgent] Failed to cleanup orphaned tasks:', error);
+      return 0;
+    }
+  }
+
+  /**
    * Start the email agent service
    * Auto-starts if LLM and IMAP are configured, unless stopped by user or there's an error
    */
@@ -96,6 +152,9 @@ export class EmailAgentService {
       console.log('[EmailAgent] Already running');
       return true;
     }
+
+    // Clean up any orphaned tasks from previous runs
+    await this.cleanupOrphanedTasks();
 
     // Clear stopped-by-user flag if user initiated start
     if (userInitiated) {
@@ -145,7 +204,21 @@ export class EmailAgentService {
       await this.watcher.start();
       this.isRunning = true;
       this.lastError = null;
+
+      // Start periodic cleanup (every 2 minutes)
+      this.cleanupInterval = setInterval(() => {
+        this.cleanupOrphanedTasks();
+      }, 2 * 60 * 1000);
+
       console.log('[EmailAgent] Started successfully');
+
+      // Process any pending tasks that were left unprocessed
+      // Wait 10 seconds for agents to reconnect before processing
+      setTimeout(() => {
+        console.log('[EmailAgent] Processing pending tasks (after agent reconnect delay)...');
+        this.processPendingTasks();
+      }, 10000);
+
       return true;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -164,12 +237,62 @@ export class EmailAgentService {
       this.watcher.stop();
       this.watcher = null;
     }
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
     this.isRunning = false;
     if (userInitiated) {
       this.stoppedByUser = true;
       console.log('[EmailAgent] Stopped by user');
     } else {
       console.log('[EmailAgent] Stopped');
+    }
+  }
+
+  /**
+   * Process pending tasks left from previous runs
+   */
+  private async processPendingTasks(): Promise<void> {
+    try {
+      const pendingTasks = await prisma.emailTask.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'asc' },
+        take: 10, // Limit to avoid overload
+      });
+
+      if (pendingTasks.length === 0) {
+        return;
+      }
+
+      console.log(`[EmailAgent] Found ${pendingTasks.length} pending task(s) to process`);
+
+      for (const task of pendingTasks) {
+        try {
+          // Reconstruct the parsed email format
+          const parsedEmail: ParsedEmail = {
+            uid: task.emailUid,
+            messageId: task.messageId || undefined,
+            from: task.fromName || task.fromAddress,
+            fromAddress: task.fromAddress,
+            to: task.toAddresses,
+            subject: task.subject,
+            textBody: task.body,
+            htmlBody: '',
+            date: task.receivedAt,
+            attachments: [],
+            inReplyTo: undefined,
+            references: [],
+          };
+
+          console.log(`[EmailAgent] Processing pending task: ${task.subject}`);
+          await processEmail(parsedEmail, this.llmConfig!, task.id);
+        } catch (error) {
+          console.error(`[EmailAgent] Failed to process pending task ${task.id}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('[EmailAgent] Failed to query pending tasks:', error);
     }
   }
 

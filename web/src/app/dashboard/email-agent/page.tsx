@@ -86,6 +86,7 @@ export default function EmailAgentPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [loadingTask, setLoadingTask] = useState(false);
   const [retryingTask, setRetryingTask] = useState<string | null>(null);
+  const [deletingTask, setDeletingTask] = useState<string | null>(null);
   const [claudeCodeStatus, setClaudeCodeStatus] = useState<{
     configured: boolean;
     loggedIn: boolean;
@@ -127,12 +128,19 @@ export default function EmailAgentPage() {
   // State for the allowed senders input
   const [allowedSendersInput, setAllowedSendersInput] = useState('');
 
+  // Determine if there are active tasks requiring faster polling
+  const hasActiveTasks = tasks.some(t => ['ANALYZING', 'EXECUTING', 'PENDING'].includes(t.status));
+
   useEffect(() => {
     fetchData();
-    // Refresh status every 10 seconds
-    const interval = setInterval(fetchStatus, 10000);
-    return () => clearInterval(interval);
   }, []);
+
+  // Dynamic polling interval: faster when tasks are active
+  useEffect(() => {
+    const pollInterval = hasActiveTasks ? 3000 : 10000; // 3s when active, 10s otherwise
+    const interval = setInterval(fetchStatus, pollInterval);
+    return () => clearInterval(interval);
+  }, [hasActiveTasks]);
 
   const fetchData = async () => {
     await Promise.all([fetchSettings(), fetchStatus()]);
@@ -278,6 +286,28 @@ export default function EmailAgentPage() {
       showToast('error', err instanceof Error ? err.message : 'Failed to retry task');
     } finally {
       setRetryingTask(null);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm('Are you sure you want to delete this task?')) {
+      return;
+    }
+    setDeletingTask(taskId);
+    try {
+      const res = await fetch(`/api/email-agent/tasks/${taskId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete task');
+      }
+      showToast('success', 'Task deleted');
+      fetchStatus();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to delete task');
+    } finally {
+      setDeletingTask(null);
     }
   };
 
@@ -696,7 +726,7 @@ export default function EmailAgentPage() {
                       : formData.llmProvider === 'openai'
                         ? 'gpt-4o'
                         : formData.llmProvider === 'claude-code' || formData.llmProvider === 'claude-code-managed'
-                          ? 'claude-sonnet-4-5-20250514'
+                          ? 'claude-sonnet-4-20250514'
                           : 'default'
                   }
                 />
@@ -895,41 +925,62 @@ export default function EmailAgentPage() {
                         {new Date(task.createdAt).toLocaleString()}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <span className={`px-2 py-1 text-xs font-medium rounded ${getStatusColor(task.status)}`}>
                         {task.status}
                       </span>
-                      {/* Open button */}
-                      <button
-                        onClick={() => handleOpenTask(task.id)}
-                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded transition"
-                        title="View details"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      </button>
-                      {/* Retry button - only show for failed/skipped */}
-                      {['FAILED', 'SKIPPED'].includes(task.status) && (
+                      {/* Action buttons - vertical stack */}
+                      <div className="flex flex-col gap-1">
+                        {/* Open button */}
                         <button
-                          onClick={() => handleRetryTask(task.id)}
-                          disabled={retryingTask === task.id}
-                          className="p-1.5 text-slate-400 hover:text-green-400 hover:bg-green-500/10 rounded transition disabled:opacity-50"
-                          title="Retry task"
+                          onClick={() => handleOpenTask(task.id)}
+                          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-600 rounded transition"
+                          title="View details"
                         >
-                          {retryingTask === task.id ? (
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        </button>
+                        {/* Retry button - only show for failed/skipped */}
+                        {['FAILED', 'SKIPPED'].includes(task.status) && (
+                          <button
+                            onClick={() => handleRetryTask(task.id)}
+                            disabled={retryingTask === task.id}
+                            className="p-1.5 text-slate-400 hover:text-green-400 hover:bg-green-500/10 rounded transition disabled:opacity-50"
+                            title="Retry task"
+                          >
+                            {retryingTask === task.id ? (
+                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                            )}
+                          </button>
+                        )}
+                        {/* Delete button */}
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          disabled={deletingTask === task.id}
+                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded transition disabled:opacity-50"
+                          title="Delete task"
+                        >
+                          {deletingTask === task.id ? (
                             <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                             </svg>
                           ) : (
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
                           )}
                         </button>
-                      )}
+                      </div>
                     </div>
                   </div>
                   {task.errorMessage && (
