@@ -7,7 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 
 interface XTermComponentProps {
   onInput: (data: string) => void;
-  onReady: (write: (data: string) => void) => void;
+  onReady: (write: (data: string) => void, focus: () => void) => void;
 }
 
 export default function XTermComponent({ onInput, onReady }: XTermComponentProps) {
@@ -19,6 +19,13 @@ export default function XTermComponent({ onInput, onReady }: XTermComponentProps
   const write = useCallback((data: string) => {
     if (terminalInstanceRef.current) {
       terminalInstanceRef.current.write(data);
+    }
+  }, []);
+
+  // Focus the terminal
+  const focus = useCallback(() => {
+    if (terminalInstanceRef.current) {
+      terminalInstanceRef.current.focus();
     }
   }, []);
 
@@ -63,9 +70,12 @@ export default function XTermComponent({ onInput, onReady }: XTermComponentProps
     // Open terminal
     terminal.open(terminalRef.current);
 
-    // Initial fit
+    // Initial fit and focus
     setTimeout(() => {
       fitAddon.fit();
+      // Focus the terminal so it receives keyboard input
+      // This is critical for Playwright/automated browser access
+      terminal.focus();
     }, 0);
 
     // Store refs
@@ -77,33 +87,80 @@ export default function XTermComponent({ onInput, onReady }: XTermComponentProps
       onInput(data);
     });
 
-    // Notify parent that terminal is ready
-    onReady(write);
+    // Notify parent that terminal is ready (with write and focus functions)
+    onReady(write, focus);
 
     // Handle resize
     const handleResize = () => {
       if (fitAddonRef.current) {
         fitAddonRef.current.fit();
       }
+      // Maintain focus after resize
+      if (terminalInstanceRef.current) {
+        terminalInstanceRef.current.focus();
+      }
     };
 
     window.addEventListener('resize', handleResize);
 
-    // Initial resize after a brief delay
-    setTimeout(handleResize, 100);
+    // Handle click to ensure focus (for Playwright and accessibility)
+    const handleClick = () => {
+      if (terminalInstanceRef.current) {
+        terminalInstanceRef.current.focus();
+      }
+    };
+
+    // Handle focusin to ensure xterm's internal textarea gets focus
+    const handleFocusIn = () => {
+      if (terminalInstanceRef.current) {
+        // Small delay to let the focus event settle, then ensure terminal has focus
+        setTimeout(() => {
+          if (terminalInstanceRef.current) {
+            terminalInstanceRef.current.focus();
+          }
+        }, 10);
+      }
+    };
+
+    if (terminalRef.current) {
+      terminalRef.current.addEventListener('click', handleClick);
+      terminalRef.current.addEventListener('focusin', handleFocusIn);
+    }
+
+    // Initial resize and focus after a brief delay
+    setTimeout(() => {
+      handleResize();
+      if (terminalInstanceRef.current) {
+        terminalInstanceRef.current.focus();
+      }
+    }, 100);
+
+    // Additional delayed focus for Firefox compatibility
+    setTimeout(() => {
+      if (terminalInstanceRef.current) {
+        terminalInstanceRef.current.focus();
+      }
+    }, 500);
 
     // Cleanup
+    const currentTerminalRef = terminalRef.current;
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (currentTerminalRef) {
+        currentTerminalRef.removeEventListener('click', handleClick);
+        currentTerminalRef.removeEventListener('focusin', handleFocusIn);
+      }
       terminal.dispose();
     };
-  }, [onInput, onReady, write]);
+  }, [onInput, onReady, write, focus]);
 
   return (
     <div
       ref={terminalRef}
       className="h-full w-full"
       style={{ padding: '8px' }}
+      tabIndex={0}
+      data-testid="terminal"
     />
   );
 }
