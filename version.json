@@ -1,8 +1,8 @@
 {
-  "version": "1.6.0",
-  "major": 1,
-  "minor": 6,
+  "version": "2.0.0",
+  "major": 2,
+  "minor": 0,
   "patch": 0,
-  "build": "2025-12-24",
+  "build": "2025-12-30",
   "description": "Centralized version information for ScreenControl"
 }
