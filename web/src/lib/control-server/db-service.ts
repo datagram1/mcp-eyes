@@ -113,11 +113,12 @@ export async function findOrCreateAgent(
     }
 
     // Create the agent
+    // Use customerId as ownerUserId if provided (customerId IS the user's ID from stamped installer)
     agent = await prisma.agent.create({
       data: {
         licenseId: license.id,
         agentKey: `agent_${uuidv4()}`,
-        ownerUserId: defaultUser.id,
+        ownerUserId: msg.customerId || defaultUser.id,
         customerId: msg.customerId,
         machineId: msg.machineId,
         machineFingerprint: computeFingerprint(msg.fingerprint),
@@ -133,6 +134,7 @@ export async function findOrCreateAgent(
         status: 'ONLINE',
         state: 'PENDING',
         powerState: 'ACTIVE',
+        hasDisplay: msg.hasDisplay !== false, // Default true unless explicitly false
         firstSeenAt: new Date(),
         lastSeenAt: new Date(),
         agentSecretHash,  // Store hashed secret on creation
@@ -162,6 +164,7 @@ export async function findOrCreateAgent(
         ipAddress: remoteAddress,
         status: 'ONLINE',
         lastSeenAt: new Date(),
+        hasDisplay: msg.hasDisplay !== false, // Update hasDisplay on reconnect
         // Only set agentSecretHash if we're storing it for the first time
         ...(agentSecretHashUpdate ? { agentSecretHash: agentSecretHashUpdate } : {}),
       },
@@ -298,6 +301,7 @@ export async function updateAgentHeartbeat(
   status: {
     powerState?: PowerState;
     isScreenLocked?: boolean;
+    hasDisplay?: boolean;
     currentTask?: string | null;
   }
 ): Promise<void> {
@@ -308,6 +312,7 @@ export async function updateAgentHeartbeat(
       lastActivity: new Date(),
       powerState: status.powerState,
       isScreenLocked: status.isScreenLocked,
+      hasDisplay: status.hasDisplay,
       currentTask: status.currentTask,
     },
   });

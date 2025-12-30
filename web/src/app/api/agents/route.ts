@@ -88,6 +88,7 @@ export async function GET(request: NextRequest) {
       state: true,
       powerState: true,
       isScreenLocked: true,
+      hasDisplay: true,
       currentTask: true,
       ipAddress: true,
       firstSeenAt: true,

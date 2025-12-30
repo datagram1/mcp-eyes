@@ -213,6 +213,67 @@ json CommandDispatcher::dispatch(const std::string& method, const json& params)
             return handleShellTool("read_output", params);
         }
 
+        // Terminal operations (aliases for shell tools, used by web terminal)
+        else if (method == "terminal_start")
+        {
+            // Start a shell session for terminal use
+            json shellParams = {
+                {"command", params.value("shell", "/bin/bash")},
+                {"cwd", params.value("cwd", "")}
+            };
+            json result = handleShellTool("start_session", shellParams);
+            // Map shell response to terminal response
+            if (result.value("success", false)) {
+                return {
+                    {"success", true},
+                    {"sessionId", result.value("session_id", "")},
+                    {"pid", result.value("pid", 0)}
+                };
+            }
+            return result;
+        }
+        else if (method == "terminal_input")
+        {
+            // Send input to terminal session
+            std::string sessionId = params.value("sessionId", "");
+            std::string data = params.value("data", "");
+            json shellParams = {
+                {"session_id", sessionId},
+                {"input", data}
+            };
+            return handleShellTool("send_input", shellParams);
+        }
+        else if (method == "terminal_output")
+        {
+            // Read output from terminal session
+            std::string sessionId = params.value("sessionId", "");
+            json shellParams = {{"session_id", sessionId}};
+            json result = handleShellTool("read_output", shellParams);
+            // Map shell response to terminal response
+            if (result.value("success", false)) {
+                std::string output = result.value("stdout", "");
+                std::string error = result.value("stderr", "");
+                return {
+                    {"success", true},
+                    {"sessionId", sessionId},
+                    {"data", output + error}
+                };
+            }
+            return result;
+        }
+        else if (method == "terminal_stop")
+        {
+            // Stop terminal session
+            std::string sessionId = params.value("sessionId", "");
+            json shellParams = {{"session_id", sessionId}};
+            return handleShellTool("stop_session", shellParams);
+        }
+        else if (method == "terminal_resize")
+        {
+            // Resize terminal (not fully implemented in shell tools, return success)
+            return {{"success", true}};
+        }
+
         // System operations
         else if (method == "system_info")
         {

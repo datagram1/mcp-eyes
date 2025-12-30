@@ -19,6 +19,7 @@ interface Agent {
   state: 'PENDING' | 'ACTIVE' | 'BLOCKED' | 'EXPIRED';
   powerState: 'ACTIVE' | 'PASSIVE' | 'SLEEP';
   isScreenLocked: boolean;
+  hasDisplay: boolean;
   currentTask: string | null;
   ipAddress: string | null;
   firstSeenAt: string;
@@ -313,17 +314,17 @@ export default function AgentsPage() {
           </Link>
         </div>
       ) : (
-        <div className="bg-slate-800 rounded-lg overflow-hidden">
-          <table className="w-full">
+        <div className="bg-slate-800 rounded-lg overflow-x-auto">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-slate-700">
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Machine</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">State</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Power</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Last Seen</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">IP</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-slate-300">Version</th>
+                <th className="px-2 py-3 text-center text-sm font-medium text-slate-300 w-12" title="Online Status">●</th>
+                <th className="px-3 py-3 text-left text-sm font-medium text-slate-300">State</th>
+                <th className="px-3 py-3 text-left text-sm font-medium text-slate-300">Power</th>
+                <th className="px-3 py-3 text-left text-sm font-medium text-slate-300">Last Seen</th>
+                <th className="px-3 py-3 text-left text-sm font-medium text-slate-300">IP</th>
+                <th className="px-3 py-3 text-left text-sm font-medium text-slate-300">Version</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-slate-300">Actions</th>
               </tr>
             </thead>
@@ -343,44 +344,42 @@ export default function AgentsPage() {
                       </div>
                     </Link>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${statusColors[agent.status]}`}>
-                      {agent.status === 'ONLINE' && (
-                        <span className="w-2 h-2 bg-white rounded-full mr-1.5 animate-pulse"></span>
-                      )}
-                      {agent.status}
-                    </span>
+                  <td className="px-2 py-3 text-center">
+                    <span
+                      className={`inline-block w-3 h-3 rounded-full ${statusColors[agent.status]} ${agent.status === 'ONLINE' ? 'animate-pulse shadow-lg shadow-green-500/50' : ''}`}
+                      title={agent.status === 'ONLINE' ? 'Online' : agent.status === 'OFFLINE' ? 'Offline' : 'Suspended'}
+                    ></span>
                     {agent.isScreenLocked && (
-                      <span className="ml-2 text-yellow-500" title="Screen locked">🔒</span>
+                      <span className="ml-1 text-yellow-500 text-xs" title="Screen locked">🔒</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3">
                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${stateColors[agent.state]}`}>
                       {agent.state}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3">
                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-white ${powerStateColors[agent.powerState]}`}>
                       {agent.powerState}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-300 text-sm">
+                  <td className="px-3 py-3 text-slate-300 text-sm whitespace-nowrap">
                     {formatTimestamp(agent.lastSeenAt)}
                   </td>
-                  <td className="px-4 py-3 text-slate-400 text-sm font-mono">
+                  <td className="px-3 py-3 text-slate-400 text-sm font-mono whitespace-nowrap">
                     {agent.ipAddress || '-'}
                   </td>
-                  <td className="px-4 py-3 text-slate-300 text-sm font-mono">
+                  <td className="px-3 py-3 text-slate-300 text-sm font-mono">
                     {agent.agentVersion || '-'}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end space-x-2">
+                  <td className="px-3 py-3 text-right">
+                    <div className="flex justify-end space-x-1.5 flex-nowrap">
                       {/* Connect button for online + active agents */}
                       {agent.status === 'ONLINE' && agent.state === 'ACTIVE' && (
                         <Link
-                          href={`/dashboard/viewer/${agent.id}`}
-                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                          title="Connect to screen"
+                          href={agent.hasDisplay !== false ? `/dashboard/viewer/${agent.id}` : `/dashboard/terminal/${agent.id}`}
+                          className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors whitespace-nowrap"
+                          title={agent.hasDisplay !== false ? "Connect to screen" : "Connect to terminal (headless)"}
                         >
                           Connect
                         </Link>
@@ -391,7 +390,7 @@ export default function AgentsPage() {
                         <button
                           onClick={() => handleAction(agent.id, 'activate', 'ACTIVE')}
                           disabled={actionLoading === agent.id}
-                          className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+                          className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
                         >
                           {actionLoading === agent.id ? '...' : 'Activate'}
                         </button>
@@ -402,9 +401,10 @@ export default function AgentsPage() {
                         <button
                           onClick={() => handleAction(agent.id, 'deactivate', 'PENDING')}
                           disabled={actionLoading === agent.id}
-                          className="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+                          className="px-2 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                          title="Deactivate agent"
                         >
-                          {actionLoading === agent.id ? '...' : 'Deactivate'}
+                          Deact.
                         </button>
                       )}
 
@@ -413,9 +413,10 @@ export default function AgentsPage() {
                         <button
                           onClick={() => handleAction(agent.id, 'block', 'BLOCKED')}
                           disabled={actionLoading === agent.id}
-                          className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+                          className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+                          title="Block agent"
                         >
-                          {actionLoading === agent.id ? '...' : 'Block'}
+                          Block
                         </button>
                       )}
 
@@ -424,9 +425,9 @@ export default function AgentsPage() {
                         <button
                           onClick={() => handleAction(agent.id, 'unblock', 'PENDING')}
                           disabled={actionLoading === agent.id}
-                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                          className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
                         >
-                          {actionLoading === agent.id ? '...' : 'Unblock'}
+                          Unblock
                         </button>
                       )}
 
@@ -435,9 +436,9 @@ export default function AgentsPage() {
                         <button
                           onClick={() => handleAction(agent.id, 'wake', undefined)}
                           disabled={actionLoading === agent.id}
-                          className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                          className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 disabled:opacity-50 transition-colors whitespace-nowrap"
                         >
-                          {actionLoading === agent.id ? '...' : 'Wake'}
+                          Wake
                         </button>
                       )}
                     </div>

@@ -41,6 +41,7 @@ export interface ConnectedAgent {
   state: AgentState;
   powerState: PowerState;
   isScreenLocked: boolean;
+  hasDisplay: boolean;          // False for headless servers
   currentTask?: string;
 
   // Timestamps
@@ -136,6 +137,7 @@ export interface AgentMessage {
   // State change data
   powerState?: PowerState;
   isScreenLocked?: boolean;
+  hasDisplay?: boolean;         // False for headless servers
   currentTask?: string;
 
   // Tools changed notification data

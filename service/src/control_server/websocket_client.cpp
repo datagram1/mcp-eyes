@@ -10,6 +10,7 @@
 #include "../core/config.h"
 #include "../core/logger.h"
 #include "../update/update_manager.h"
+#include "../screen/screen_stream.h"
 #include <fstream>
 #include <sstream>
 #include <cstring>
@@ -590,13 +591,33 @@ void WebSocketClient::sendRegistration()
         {"macAddresses", json::array({"service-mode"})}
     };
 
-    log("→ REGISTER: " + getHostname());
+    // Detect if display is available (for headless server detection)
+    bool hasDisplay = false;
+    try {
+        auto displays = ScreenStream::getInstance().getDisplays();
+        hasDisplay = !displays.empty();
+    } catch (...) {
+        // If we can't check displays, assume no display
+        hasDisplay = false;
+    }
+    message["hasDisplay"] = hasDisplay;
+
+    log("→ REGISTER: " + getHostname() + " (hasDisplay=" + (hasDisplay ? "true" : "false") + ")");
     sendWebSocketFrame(message.dump());
 }
 
 void WebSocketClient::sendHeartbeat()
 {
     if (!m_connected) return;
+
+    // Detect if display is available (for headless server detection)
+    bool hasDisplay = false;
+    try {
+        auto displays = ScreenStream::getInstance().getDisplays();
+        hasDisplay = !displays.empty();
+    } catch (...) {
+        hasDisplay = false;
+    }
 
     json message;
     message["type"] = "heartbeat";
@@ -605,6 +626,7 @@ void WebSocketClient::sendHeartbeat()
     ).count();
     message["powerState"] = "ACTIVE";
     message["isScreenLocked"] = isScreenLocked();
+    message["hasDisplay"] = hasDisplay;
 
     sendWebSocketFrame(message.dump());
 }

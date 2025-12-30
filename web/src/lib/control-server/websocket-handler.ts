@@ -78,10 +78,11 @@ export function handleAgentConnection(
           if (agent) {
             registry.updatePing(agent);
             // Update state if provided
-            if (msg.powerState || msg.isScreenLocked !== undefined || msg.currentTask) {
+            if (msg.powerState || msg.isScreenLocked !== undefined || msg.hasDisplay !== undefined || msg.currentTask) {
               await registry.updateState(agent, {
                 powerState: msg.powerState || agent.powerState,
                 isScreenLocked: msg.isScreenLocked ?? agent.isScreenLocked,
+                hasDisplay: msg.hasDisplay ?? agent.hasDisplay,
                 currentTask: msg.currentTask,
               });
             }

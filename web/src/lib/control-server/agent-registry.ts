@@ -334,6 +334,7 @@ class LocalAgentRegistry implements IAgentRegistry {
       licenseStatus: dbResult.licenseStatus,
       powerState: 'ACTIVE',
       isScreenLocked: false,
+      hasDisplay: msg.hasDisplay !== false, // Default to true, only false if explicitly set
 
       connectedAt: new Date(),
       lastPing: new Date(),
@@ -1044,6 +1045,7 @@ class LocalAgentRegistry implements IAgentRegistry {
         await updateAgentHeartbeat(agent.dbId, {
           powerState: state.powerState || agent.powerState,
           isScreenLocked: state.isScreenLocked ?? agent.isScreenLocked,
+          hasDisplay: state.hasDisplay ?? agent.hasDisplay,
           currentTask: state.currentTask,
         });
       } catch (err) {

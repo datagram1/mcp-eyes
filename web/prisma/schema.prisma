@@ -185,6 +185,7 @@ model Agent {
   state             AgentState  @default(PENDING)
   powerState        PowerState  @default(ACTIVE)
   isScreenLocked    Boolean     @default(false)
+  hasDisplay        Boolean     @default(true)  // False for headless servers
   currentTask       String?
   ipAddress         String?
 

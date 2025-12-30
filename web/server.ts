@@ -11,8 +11,10 @@ import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleAgentConnection } from './src/lib/control-server/websocket-handler';
 import { handleStreamConnection } from './src/lib/control-server/stream-websocket-handler';
+import { handleTerminalConnection } from './src/lib/control-server/terminal-websocket-handler';
 import { agentRegistry } from './src/lib/control-server/agent-registry';
 import { streamSessionManager } from './src/lib/control-server/stream-session-manager';
+import { terminalSessionManager } from './src/lib/control-server/terminal-session-manager';
 import { startEmailAgent, stopEmailAgent } from './src/lib/email-agent';
 import os from 'os';
 
@@ -52,6 +54,9 @@ app.prepare().then(() => {
   // WebSocket server for stream viewers
   const wssStream = new WebSocketServer({ noServer: true });
 
+  // WebSocket server for terminal viewers
+  const wssTerminal = new WebSocketServer({ noServer: true });
+
   // Handle upgrade requests
   server.on('upgrade', (req, socket, head) => {
     const { pathname } = parse(req.url || '');
@@ -65,6 +70,11 @@ app.prepare().then(() => {
       // Viewer stream connections
       wssStream.handleUpgrade(req, socket, head, (ws) => {
         wssStream.emit('connection', ws, req);
+      });
+    } else if (pathname === '/ws/terminal') {
+      // Terminal viewer connections
+      wssTerminal.handleUpgrade(req, socket, head, (ws) => {
+        wssTerminal.emit('connection', ws, req);
       });
     } else {
       // Reject unknown WebSocket paths
@@ -86,6 +96,11 @@ app.prepare().then(() => {
   // Handle viewer stream WebSocket connections
   wssStream.on('connection', (ws: WebSocket, req) => {
     handleStreamConnection(ws, req);
+  });
+
+  // Handle terminal viewer WebSocket connections
+  wssTerminal.on('connection', (ws: WebSocket, req) => {
+    handleTerminalConnection(ws, req);
   });
 
   // Heartbeat interval for connected agents - sends both:
@@ -121,6 +136,7 @@ app.prepare().then(() => {
 ║  Portal:      http://localhost:${port}                               ║
 ║  Agent WS:    ws://localhost:${port}/ws                              ║
 ║  Stream WS:   ws://localhost:${port}/ws/stream                       ║
+║  Terminal WS: ws://localhost:${port}/ws/terminal                     ║
 ║  API:         http://localhost:${port}/api                           ║
 ║  Environment: ${dev ? 'development' : 'production'}                                          ║
 ╠═══════════════════════════════════════════════════════════════════╣
