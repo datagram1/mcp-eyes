@@ -12,6 +12,7 @@ import { LocalAgentRegistry } from './agent-registry';
 import { checkLicenseStatus } from './db-service';
 import { checkUpdateAvailable } from './update-service';
 import { streamSessionManager } from './stream-session-manager';
+import { terminalSessionManager } from './terminal-session-manager';
 
 /**
  * Handle a new agent WebSocket connection
@@ -221,6 +222,8 @@ export function handleAgentConnection(
     if (agent) {
       // End any active streaming sessions for this agent
       streamSessionManager.handleAgentDisconnect(agent.id);
+      // End any active terminal sessions for this agent
+      terminalSessionManager.handleAgentDisconnect(agent.id);
       await registry.unregister(agent.id);
     }
     console.log(`[WS] Connection closed: ${code} ${reason.toString()}`);
