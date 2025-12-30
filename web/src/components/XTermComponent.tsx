@@ -84,6 +84,7 @@ export default function XTermComponent({ onInput, onReady }: XTermComponentProps
 
     // Handle user input
     terminal.onData((data) => {
+      console.log('[XTerm] onData received:', data.length, 'chars');
       onInput(data);
     });
 
@@ -159,7 +160,6 @@ export default function XTermComponent({ onInput, onReady }: XTermComponentProps
       ref={terminalRef}
       className="h-full w-full"
       style={{ padding: '8px' }}
-      tabIndex={0}
       data-testid="terminal"
     />
   );
