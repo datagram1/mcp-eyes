@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "Bash(sudo sed:*)",
+      "Bash(sudo npm:*)",
+      "Bash(npm:*)",
+      "Bash(cd:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(stat:*)",
+      "Bash(ps:*)",
+      "Bash(kill:*)",
+      "Bash(sudo systemctl:*)",
+      "Bash(sudo pip:*)",
+      "Bash(pip:*)",
+      "Bash(find:*)",
+      "Bash(chmod:*)",
+      "Bash(sudo chown:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
