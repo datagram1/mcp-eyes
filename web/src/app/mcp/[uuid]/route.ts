@@ -1516,12 +1516,13 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
     }
 
     // === File Operations ===
+    // Note: Agent implements fs_* names, but we accept both fs_* and file_* for compatibility
     case 'file_read':
     case 'fs_read': {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
       return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'file_read',
+        name: 'fs_read',  // Agent implements fs_read, not file_read
         arguments: {
           path: args?.path,
           encoding: args?.encoding,
@@ -1534,7 +1535,7 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
       return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'file_write',
+        name: 'fs_write',  // Agent implements fs_write, not file_write
         arguments: {
           path: args?.path,
           content: args?.content,
@@ -1548,7 +1549,7 @@ async function executeToolCall(toolName: string, args: any, userId: string) {
       const result = await selectAgent(args?.agentId);
       if (result.error) return result.error;
       return executeAgentCommand(result.agent, 'tools/call', {
-        name: 'file_list',
+        name: 'fs_list',  // Agent implements fs_list, not file_list
         arguments: { path: args?.path },
       });
     }

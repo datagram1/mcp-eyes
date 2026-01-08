@@ -250,12 +250,23 @@ class LocalAgentRegistry implements IAgentRegistry {
       const existingAgent = this.agents.get(existingConnectionId);
       if (existingAgent) {
         const socketIsOpen = existingAgent.socket.readyState === 1;
-        console.log(`[Registry] Replacing existing connection for machine ${msg.machineId} (old socket open: ${socketIsOpen})`);
+        const socketState = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][existingAgent.socket.readyState] || 'UNKNOWN';
+        const agentName = existingAgent.machineName || existingAgent.machineId;
+        const timeSinceLastPing = Date.now() - existingAgent.lastPing.getTime();
+
+        console.log(`[Registry] Replacing connection for ${agentName}:`, {
+          oldConnectionId: existingConnectionId.substring(0, 8) + '...',
+          newConnectionId: connectionId.substring(0, 8) + '...',
+          socketState,
+          timeSinceLastPing: `${timeSinceLastPing}ms`,
+          remoteAddress: existingAgent.remoteAddress || 'unknown',
+        });
+
         if (socketIsOpen) {
           try {
             existingAgent.socket.close(1000, 'New connection from same machine');
           } catch (e) {
-            // Ignore close errors
+            console.warn(`[Registry] Error closing old socket for ${agentName}:`, e);
           }
         }
         await this.unregister(existingConnectionId);
